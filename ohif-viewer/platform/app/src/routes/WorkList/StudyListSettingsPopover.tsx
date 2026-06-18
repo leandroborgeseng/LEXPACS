@@ -6,6 +6,7 @@ import { useAppConfig } from '@state';
 import { useSystem } from '@ohif/core';
 import { StudyList, Icons, Button, useModal } from '@ohif/ui-next';
 import { PacsSettingsModal } from './PacsSettingsModal';
+import { lexClinicalLogout } from './lexClinicalAuth';
 
 export type SettingsMenuItem = {
   id: string;
@@ -69,15 +70,13 @@ export function defaultSettingsMenuItems({
     },
   ];
 
-  if (appConfig.oidc) {
-    items.push({
-      id: 'logout',
-      label: t('Header:Logout'),
-      onClick: () => {
-        navigate(`/logout?redirect_uri=${encodeURIComponent(window.location.href)}`);
-      },
-    });
-  }
+  items.push({
+    id: 'logout',
+    label: 'Sair',
+    onClick: () => {
+      void lexClinicalLogout();
+    },
+  });
 
   return items;
 }

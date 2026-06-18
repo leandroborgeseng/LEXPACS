@@ -8,6 +8,7 @@ import { Toolbar } from '../Toolbar/Toolbar';
 import HeaderPatientInfo from './HeaderPatientInfo';
 import { PatientInfoVisibility } from './HeaderPatientInfo/HeaderPatientInfo';
 import { preserveQueryParameters } from '@ohif/app';
+import { lexClinicalLogout } from '../../../../platform/app/src/routes/WorkList/lexClinicalAuth';
 import { Types } from '@ohif/core';
 
 function ViewerHeader({ appConfig }: withAppTypes<{ appConfig: AppTypes.Config }>) {
@@ -71,15 +72,13 @@ function ViewerHeader({ appConfig }: withAppTypes<{ appConfig: AppTypes.Config }
     },
   ];
 
-  if (appConfig.oidc) {
-    menuOptions.push({
-      title: t('Header:Logout'),
-      icon: 'power-off',
-      onClick: async () => {
-        navigate(`/logout?redirect_uri=${encodeURIComponent(window.location.href)}`);
-      },
-    });
-  }
+  menuOptions.push({
+    title: 'Sair',
+    icon: 'power-off',
+    onClick: () => {
+      void lexClinicalLogout();
+    },
+  });
 
   return (
     <Header

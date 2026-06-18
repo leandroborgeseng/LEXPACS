@@ -121,3 +121,36 @@ def mwl_sql_connection_params() -> dict[str, Any]:
 
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def get_mwl_sync_meta() -> dict[str, Any]:
+    data = _read_raw()
+    meta = data.get("mwl_sync", {})
+    return {
+        "last_at": str(meta.get("last_at") or ""),
+        "last_synced": int(meta.get("last_synced") or 0),
+        "last_actor": str(meta.get("last_actor") or ""),
+        "last_error": str(meta.get("last_error") or ""),
+    }
+
+
+def save_mwl_sync_meta(
+    *,
+    last_at: str | None = None,
+    last_synced: int | None = None,
+    last_actor: str | None = None,
+    last_error: str | None = None,
+) -> dict[str, Any]:
+    data = _read_raw()
+    meta = dict(data.get("mwl_sync", {}))
+    if last_at is not None:
+        meta["last_at"] = last_at
+    if last_synced is not None:
+        meta["last_synced"] = last_synced
+    if last_actor is not None:
+        meta["last_actor"] = last_actor
+    if last_error is not None:
+        meta["last_error"] = last_error
+    data["mwl_sync"] = meta
+    _write_raw(data)
+    return get_mwl_sync_meta()

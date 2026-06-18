@@ -6,8 +6,9 @@ from pydantic import BaseModel, Field
 from .clinical_session import ClinicalUser
 from .clinical_auth import require_admin, require_clinical_user
 from .audit import list_events, log_event
-from .mwl_sql import get_mwl_sql_config, save_mwl_sql_config
-from .mwl_sync import list_mwl_entries, orthanc_mwl_plugin_enabled, sync_mwl_from_sql
+from .mwl_scheduler import run_mwl_sync
+from .mwl_sql import get_mwl_sql_config, get_mwl_sync_meta, save_mwl_sql_config
+from .mwl_sync import list_mwl_entries, orthanc_mwl_plugin_enabled
 from .lex_settings import (
     get_equipment,
     get_worklist_views,
@@ -91,6 +92,15 @@ class MwlSyncResponse(BaseModel):
     files: list[str]
     worklist_dir: str
     plugin_enabled: bool = False
+    last_at: str = ""
+    last_actor: str = ""
+
+
+class MwlStatusResponse(BaseModel):
+    sql: MwlSqlConfigResponse
+    sync: dict
+    plugin_enabled: bool = False
+    entries_total: int = 0
 
 
 class MwlEntry(BaseModel):
@@ -196,19 +206,39 @@ async def write_mwl_sql(
     return MwlSqlConfigResponse(**saved)
 
 
+@router.get("/mwl/status", response_model=MwlStatusResponse)
+async def read_mwl_status(
+    _: ClinicalUser = Depends(require_clinical_user),
+) -> MwlStatusResponse:
+    plugin_enabled = await orthanc_mwl_plugin_enabled()
+    entries = list_mwl_entries()
+    return MwlStatusResponse(
+        sql=MwlSqlConfigResponse(**get_mwl_sql_config()),
+        sync=get_mwl_sync_meta(),
+        plugin_enabled=plugin_enabled,
+        entries_total=len(entries),
+    )
+
+
 @router.post("/mwl/sync", response_model=MwlSyncResponse)
 async def trigger_mwl_sync(
     user: ClinicalUser = Depends(require_clinical_user),
 ) -> MwlSyncResponse:
-    result = sync_mwl_from_sql()
+    result = run_mwl_sync(actor=user.username)
     plugin_enabled = await orthanc_mwl_plugin_enabled()
+    meta = get_mwl_sync_meta()
     log_event(
         "mwl_sync",
         user.username,
         synced=result["synced"],
         auth_method=user.auth_method,
     )
-    return MwlSyncResponse(**result, plugin_enabled=plugin_enabled)
+    return MwlSyncResponse(
+        **result,
+        plugin_enabled=plugin_enabled,
+        last_at=meta.get("last_at", ""),
+        last_actor=meta.get("last_actor", ""),
+    )
 
 
 @router.get("/mwl/entries", response_model=MwlEntriesResponse)

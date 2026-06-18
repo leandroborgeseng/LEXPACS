@@ -33,6 +33,7 @@ from .clinical_auth import (
 )
 from .config import settings
 from .reports import router as reports_router
+from .mwl_scheduler import start_mwl_scheduler
 from .orthanc_client import OrthancClient
 from .report_storage import get_patient_report, is_visible_to_patient, load_report, pdf_path
 
@@ -50,6 +51,11 @@ app.include_router(admin_router)
 app.include_router(reports_router)
 
 orthanc = OrthancClient()
+
+
+@app.on_event("startup")
+async def on_startup() -> None:
+    start_mwl_scheduler()
 
 
 class LoginRequest(BaseModel):

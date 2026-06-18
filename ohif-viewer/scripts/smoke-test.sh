@@ -821,6 +821,24 @@ sys.exit(0 if needed.intersection(events) else 1)
   echo
 fi
 
+# ── Onda A ──
+echo "▶ Onda A — Admin, logout e status MWL"
+mwl_status=$(curl_auth "${GATEWAY_URL}/clinica-api/admin/pacs/mwl/status")
+if echo "$mwl_status" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get('sync') is not None and d.get('sql') else 1)" 2>/dev/null; then
+  pass "GET /admin/pacs/mwl/status"
+else
+  fail "GET /admin/pacs/mwl/status"
+fi
+
+curl_auth -X POST "${GATEWAY_URL}/clinica-api/auth/clinical/logout" >/dev/null
+code_logout=$(http_code_auth "${GATEWAY_URL}/dicom-web/studies?limit=1")
+if [ "$code_logout" = "401" ] || [ "$code_logout" = "302" ]; then
+  pass "Logout clínico invalida sessão (→ ${code_logout})"
+else
+  fail "Logout clínico não invalidou sessão (→ ${code_logout})"
+fi
+echo
+
 # ── Etapas pendentes (só informa se solicitadas explicitamente) ──
 for pid in "${PENDING_STAGES[@]}"; do
   if should_run "$pid"; then
