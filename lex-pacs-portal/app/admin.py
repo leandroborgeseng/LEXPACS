@@ -3,7 +3,8 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 
-from .clinical_auth import ClinicalUser, require_admin, require_clinical_user
+from .clinical_session import ClinicalUser
+from .clinical_auth import require_admin, require_clinical_user
 from .audit import list_events, log_event
 from .mwl_sql import get_mwl_sql_config, save_mwl_sql_config
 from .mwl_sync import list_mwl_entries, orthanc_mwl_plugin_enabled, sync_mwl_from_sql

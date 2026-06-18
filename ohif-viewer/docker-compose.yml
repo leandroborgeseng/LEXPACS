@@ -94,6 +94,7 @@ services:
       - lex-reports:/lex-reports
       - lex-audit:/lex-audit
       - orthanc-worklists:/var/lib/orthanc/worklists
+      - ./nginx/.htpasswd:/etc/lex-pacs/htpasswd:ro
     depends_on:
       orthanc:
         condition: service_healthy

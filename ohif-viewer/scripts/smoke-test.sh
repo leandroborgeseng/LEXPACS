@@ -82,12 +82,34 @@ skip() { echo "  ○ $1"; SKIP=$((SKIP + 1)); }
 pending() { echo "  ○ $1 (etapa ainda não implementada)"; SKIP=$((SKIP + 1)); }
 
 http_code() { curl -s -o /dev/null -w "%{http_code}" "$@"; }
-http_code_auth() { curl -s -o /dev/null -w "%{http_code}" -u "${CLINIC_USER}:${CLINIC_PASS}" "$@"; }
+COOKIE_JAR="${SMOKE_COOKIE_JAR:-/tmp/lex-pacs-clinic-cookies.txt}"
+CLINIC_TOKEN=""
+
+clinical_login() {
+  local resp
+  resp=$(curl -s -c "$COOKIE_JAR" -b "$COOKIE_JAR" -X POST \
+    "${GATEWAY_URL}/clinica-api/auth/clinical/login" \
+    -H "Content-Type: application/json" \
+    -d "{\"username\":\"${CLINIC_USER}\",\"password\":\"${CLINIC_PASS}\",\"next\":\"/viewer/\"}")
+  CLINIC_TOKEN=$(echo "$resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('access_token',''))" 2>/dev/null || true)
+}
+
+http_code_auth() { curl -s -o /dev/null -w "%{http_code}" -b "$COOKIE_JAR" -c "$COOKIE_JAR" "$@"; }
+
+curl_auth() { curl -s -b "$COOKIE_JAR" -c "$COOKIE_JAR" "$@"; }
+
+curl_auth_bearer() {
+  if [ -n "$CLINIC_TOKEN" ]; then
+    curl -s -H "Authorization: Bearer ${CLINIC_TOKEN}" "$@"
+  else
+    curl -s -b "$COOKIE_JAR" -c "$COOKIE_JAR" "$@"
+  fi
+}
 
 json_post() {
   local url=$1 data=$2 auth=${3:-}
   if [ -n "$auth" ]; then
-    curl -s -u "${CLINIC_USER}:${CLINIC_PASS}" -X POST "$url" \
+    curl_auth -X POST "$url" \
       -H "Content-Type: application/json" -d "$data"
   else
     curl -s -X POST "$url" -H "Content-Type: application/json" -d "$data"
@@ -97,11 +119,11 @@ json_post() {
 load_study_uids() {
   mapfile -t _lex_study_lines < <(curl -s "${ORTHANC_URL}/tools/find" -X POST -H "Content-Type: application/json" \
     -d '{"Level":"Study","Query":{}}' | python3 -c "
-import sys, json, urllib.request, base64
+import sys, json, urllib.request
 ids = json.load(sys.stdin)
 orthanc = '${ORTHANC_URL}'
 gateway = '${GATEWAY_URL}'
-auth = base64.b64encode(f'${CLINIC_USER}:${CLINIC_PASS}'.encode()).decode()
+token = '${CLINIC_TOKEN}'
 
 def study_uid(oid):
     d = json.loads(urllib.request.urlopen(f'{orthanc}/studies/{oid}').read())
@@ -109,7 +131,7 @@ def study_uid(oid):
 
 def report_status(uid):
     req = urllib.request.Request(f'{gateway}/clinica-api/reports/{uid}')
-    req.add_header('Authorization', f'Basic {auth}')
+    req.add_header('Authorization', f'Bearer {token}')
     try:
         return json.loads(urllib.request.urlopen(req).read()).get('status', '')
     except Exception:
@@ -128,11 +150,11 @@ print(draft or (uids[1] if len(uids) > 1 else (uids[0] if uids else '')))
 load_patient_signed_uid() {
   mapfile -t _patient_signed_lines < <(curl -s "${ORTHANC_URL}/tools/find" -X POST -H "Content-Type: application/json" \
     -d "{\"Level\":\"Study\",\"Query\":{\"PatientID\":\"${PATIENT_ID}\"}}" | python3 -c "
-import sys, json, urllib.request, base64
+import sys, json, urllib.request
 ids = json.load(sys.stdin)
 orthanc = '${ORTHANC_URL}'
 gateway = '${GATEWAY_URL}'
-auth = base64.b64encode(f'${CLINIC_USER}:${CLINIC_PASS}'.encode()).decode()
+token = '${CLINIC_TOKEN}'
 
 def study_uid(oid):
     d = json.loads(urllib.request.urlopen(f'{orthanc}/studies/{oid}').read())
@@ -140,7 +162,7 @@ def study_uid(oid):
 
 def report_status(uid):
     req = urllib.request.Request(f'{gateway}/clinica-api/reports/{uid}')
-    req.add_header('Authorization', f'Basic {auth}')
+    req.add_header('Authorization', f'Bearer {token}')
     try:
         return json.loads(urllib.request.urlopen(req).read()).get('status', '')
     except Exception:
@@ -185,6 +207,16 @@ if echo "$health" | python3 -c "import sys,json; d=json.load(sys.stdin); exit(0 
 else
   fail "Portal health inválido"
 fi
+[ "$(http_code "${GATEWAY_URL}/clinica/login")" = "200" ] && pass "Página de login clínico → 200" || fail "Login clínico indisponível"
+
+clinical_login
+if [ -z "$CLINIC_TOKEN" ]; then
+  echo "  ✗ Falha ao obter sessão clínica (login)"
+  FAIL=$((FAIL + 1))
+else
+  echo "  ✓ Sessão clínica obtida"
+  PASS=$((PASS + 1))
+fi
 
 if echo "$health" | grep -qi orthanc; then
   fail "Health expõe nome de backend (usar campo genérico)"
@@ -220,8 +252,8 @@ fi
 # ── E2 ──
 if should_run E2; then
   echo "▶ E2 — Gateway e autenticação"
-  [ "$(http_code "${GATEWAY_URL}/viewer/")" = "401" ] && pass "Worklist sem auth → 401" || fail "Worklist sem auth incorreto"
-  [ "$(http_code_auth "${GATEWAY_URL}/viewer/")" = "200" ] && pass "Worklist com auth → 200" || fail "Worklist com auth falhou"
+  [ "$(http_code "${GATEWAY_URL}/viewer/")" = "302" ] && pass "Worklist sem sessão → redirect login" || fail "Worklist sem sessão incorreto"
+  [ "$(http_code_auth "${GATEWAY_URL}/viewer/")" = "200" ] && pass "Worklist com sessão → 200" || fail "Worklist com sessão falhou"
   [ "$(http_code "${GATEWAY_URL}/paciente-api/auth/validate-viewer-cookie")" = "404" ] \
     && pass "Cookie validation pública → 404" || fail "Cookie validation exposta"
 
@@ -236,8 +268,12 @@ if should_run E2; then
       if [ -n "$redir" ]; then
         [ "$(curl -s -b "$jar" -o /dev/null -w '%{http_code}' "${GATEWAY_URL}${redir}")" = "200" ] \
           && pass "Viewer paciente com cookie → 200" || fail "Viewer paciente falhou"
-        [ "$(curl -s -b "$jar" -o /dev/null -w '%{http_code}' "${GATEWAY_URL}/viewer/")" = "401" ] \
-          && pass "Worklist bloqueada para cookie paciente → 401" || fail "Paciente acessou worklist"
+        wl_code=$(curl -s -b "$jar" -o /dev/null -w '%{http_code}' "${GATEWAY_URL}/viewer/")
+        if [ "$wl_code" = "401" ] || [ "$wl_code" = "302" ]; then
+          pass "Worklist bloqueada para cookie paciente → ${wl_code}"
+        else
+          fail "Paciente acessou worklist (${wl_code})"
+        fi
       else
         fail "viewer-session sem redirect"
       fi
@@ -254,11 +290,11 @@ fi
 # ── E2b ──
 if should_run E2b; then
   echo "▶ E2b — White-label visualizador"
-  html=$(curl -s -u "${CLINIC_USER}:${CLINIC_PASS}" "${GATEWAY_URL}/viewer/")
+  html=$(curl_auth "${GATEWAY_URL}/viewer/")
   echo "$html" | grep -qi "LEX PACS" && pass "HTML viewer contém LEX PACS" || fail "Título LEX PACS ausente"
   echo "$html" | grep -q "OHIF Viewer" && fail "HTML ainda contém OHIF Viewer" || pass "Sem OHIF Viewer no título"
 
-  manifest=$(curl -s -u "${CLINIC_USER}:${CLINIC_PASS}" "${GATEWAY_URL}/viewer/manifest.json")
+  manifest=$(curl_auth "${GATEWAY_URL}/viewer/manifest.json")
   echo "$manifest" | python3 -c "import sys,json; n=json.load(sys.stdin).get('name',''); exit(0 if 'LEX' in n.upper() else 1)" 2>/dev/null \
     && pass "manifest.json com marca LEX" || fail "manifest.json sem LEX PACS"
   echo
@@ -267,7 +303,7 @@ fi
 # ── E2c ──
 if should_run E2c; then
   echo "▶ E2c — AE Title"
-  settings=$(curl -s -u "${CLINIC_USER}:${CLINIC_PASS}" "${GATEWAY_URL}/clinica-api/admin/pacs/settings")
+  settings=$(curl_auth "${GATEWAY_URL}/clinica-api/admin/pacs/settings")
   aet=$(echo "$settings" | python3 -c "import sys,json; print(json.load(sys.stdin).get('dicom_aet',''))" 2>/dev/null || true)
   oaet=$(curl -s "${ORTHANC_URL}/system" | python3 -c "import sys,json; print(json.load(sys.stdin).get('DicomAet',''))" 2>/dev/null || true)
   [ -n "$aet" ] && pass "API retorna dicom_aet=${aet}" || fail "Config PACS indisponível"
@@ -278,7 +314,7 @@ fi
 # ── E2d ──
 if should_run E2d; then
   echo "▶ E2d — API clínica"
-  [ "$(http_code "${GATEWAY_URL}/clinica-api/admin/pacs/settings")" = "401" ] && pass "API clínica sem auth → 401" || fail "API sem auth"
+  [ "$(http_code "${GATEWAY_URL}/clinica-api/admin/pacs/settings")" = "302" ] && pass "API clínica sem sessão → redirect" || fail "API sem sessão"
   [ "$(http_code_auth "${GATEWAY_URL}/clinica-api/admin/pacs/settings")" = "200" ] && pass "API clínica com auth → 200" || fail "API com auth"
   echo
 fi
@@ -307,7 +343,7 @@ if should_run E3; then
   else
     fail "PostgreSQL não responde a pg_isready"
   fi
-  pacs_cfg=$(curl -s -u "${CLINIC_USER}:${CLINIC_PASS}" "${GATEWAY_URL}/clinica-api/admin/pacs/settings")
+  pacs_cfg=$(curl_auth "${GATEWAY_URL}/clinica-api/admin/pacs/settings")
   if echo "$pacs_cfg" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get('postgresql_index') else 1)" 2>/dev/null; then
     pass "Índice PostgreSQL habilitado na config"
   else
@@ -318,7 +354,7 @@ if should_run E3; then
   else
     fail "StorageDirectory não aponta para volume dedicado"
   fi
-  studies=$(curl -s -u "${CLINIC_USER}:${CLINIC_PASS}" "${GATEWAY_URL}/dicom-web/studies?limit=1")
+  studies=$(curl_auth "${GATEWAY_URL}/dicom-web/studies?limit=1")
   if echo "$studies" | python3 -c "import sys,json; json.load(sys.stdin); sys.exit(0)" 2>/dev/null; then
     pass "DICOMweb responde após migração E3"
   else
@@ -336,7 +372,7 @@ fi
 if should_run E4; then
   echo "▶ E4 — Compressão lossless na ingestão"
   JPEG_LS="1.2.840.10008.1.2.4.80"
-  pacs_cfg=$(curl -s -u "${CLINIC_USER}:${CLINIC_PASS}" "${GATEWAY_URL}/clinica-api/admin/pacs/settings")
+  pacs_cfg=$(curl_auth "${GATEWAY_URL}/clinica-api/admin/pacs/settings")
   if echo "$pacs_cfg" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get('ingest_transcoding')=='${JPEG_LS}' else 1)" 2>/dev/null; then
     pass "IngestTranscoding = JPEG-LS lossless"
   else
@@ -353,7 +389,7 @@ fi
 # ── E7 ──
 if should_run E7; then
   echo "▶ E7 — Configurações DICOM ampliadas"
-  pacs_cfg=$(curl -s -u "${CLINIC_USER}:${CLINIC_PASS}" "${GATEWAY_URL}/clinica-api/admin/pacs/settings")
+  pacs_cfg=$(curl_auth "${GATEWAY_URL}/clinica-api/admin/pacs/settings")
   if echo "$pacs_cfg" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if 'dicom_check_called_aet' in d and 'name' in d else 1)" 2>/dev/null; then
     pass "API expõe instituição e verificação de AE"
   else
@@ -363,7 +399,7 @@ if should_run E7; then
   if [ "${current_name}" = "LEX PACS Smoke" ]; then
     pass "E7: nome da instituição (regressão)"
   else
-    put_srv=$(curl -s -u "${CLINIC_USER}:${CLINIC_PASS}" -X PUT "${GATEWAY_URL}/clinica-api/admin/pacs/settings" \
+    put_srv=$(curl_auth -X PUT "${GATEWAY_URL}/clinica-api/admin/pacs/settings" \
       -H "Content-Type: application/json" \
       -d '{"dicom_aet":"LEXPACS","name":"LEX PACS Smoke","dicom_check_called_aet":false}')
     if echo "$put_srv" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get('name')=='LEX PACS Smoke' else 1)" 2>/dev/null; then
@@ -372,11 +408,11 @@ if should_run E7; then
       fail "E7: salvar servidor falhou"
     fi
   fi
-  equip_list=$(curl -s -u "${CLINIC_USER}:${CLINIC_PASS}" "${GATEWAY_URL}/clinica-api/admin/pacs/equipment")
+  equip_list=$(curl_auth "${GATEWAY_URL}/clinica-api/admin/pacs/equipment")
   if echo "$equip_list" | grep -q 'RX_SMOKE'; then
     pass "E7: equipamento cadastrado (regressão)"
   else
-    equip=$(curl -s -u "${CLINIC_USER}:${CLINIC_PASS}" -X PUT "${GATEWAY_URL}/clinica-api/admin/pacs/equipment" \
+    equip=$(curl_auth -X PUT "${GATEWAY_URL}/clinica-api/admin/pacs/equipment" \
       -H "Content-Type: application/json" \
       -d '{"items":[{"aet":"RX_SMOKE","host":"127.0.0.1","port":11112,"description":"RX Sala Smoke","modality":"DX"}]}')
     if echo "$equip" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get('items') and d['items'][0].get('aet')=='RX_SMOKE' else 1)" 2>/dev/null; then
@@ -398,7 +434,7 @@ fi
 # ── E8 ──
 if should_run E8; then
   echo "▶ E8 — Visões de worklist"
-  views=$(curl -s -u "${CLINIC_USER}:${CLINIC_PASS}" "${GATEWAY_URL}/clinica-api/admin/pacs/worklist-views")
+  views=$(curl_auth "${GATEWAY_URL}/clinica-api/admin/pacs/worklist-views")
   if echo "$views" | python3 -c "import sys,json; d=json.load(sys.stdin); ids={v['id'] for v in d.get('views',[])}; need={'all','rx-sala-1','ct','mr','us'}; sys.exit(0 if need<=ids else 1)" 2>/dev/null; then
     pass "Presets de visão disponíveis (Todos, RX, CT, MR, US)"
   else
@@ -536,14 +572,14 @@ if should_run E9 || should_run E10 || should_run E11; then
   [ -n "$STUDY_UID" ] && pass "Estudo disponível para testes" || fail "Nenhum estudo no servidor"
 
   target="${STUDY_UID_DRAFT:-$STUDY_UID}"
-  current=$(curl -s -u "${CLINIC_USER}:${CLINIC_PASS}" "${GATEWAY_URL}/clinica-api/reports/${target}")
+  current=$(curl_auth "${GATEWAY_URL}/clinica-api/reports/${target}")
   status=$(echo "$current" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null || true)
 
   if should_run E9; then
     if [ "$status" = "signed" ]; then
       pass "E9: laudo em estado assinado (regressão)"
     else
-      draft=$(curl -s -u "${CLINIC_USER}:${CLINIC_PASS}" -X PUT \
+      draft=$(curl_auth -X PUT \
         "${GATEWAY_URL}/clinica-api/reports/${target}" \
         -H "Content-Type: application/json" \
         -d '{"content_html":"<p>smoke E9</p>","author_name":"Smoke"}')
@@ -559,7 +595,7 @@ if should_run E9 || should_run E10 || should_run E11; then
     else
       pdf=$(mktemp --suffix=.pdf)
       printf '%%PDF-1.0\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n' > "$pdf"
-      up=$(curl -s -u "${CLINIC_USER}:${CLINIC_PASS}" -X POST \
+      up=$(curl_auth -X POST \
         -F "file=@${pdf};type=application/pdf" \
         "${GATEWAY_URL}/clinica-api/reports/${target}/pdf")
       rm -f "$pdf"
@@ -575,14 +611,14 @@ if should_run E9 || should_run E10 || should_run E11; then
       pass "E11: laudo já assinado (regressão)"
       E12_SIGNED_UID="$target"
     else
-      sign=$(curl -s -u "${CLINIC_USER}:${CLINIC_PASS}" -X POST \
+      sign=$(curl_auth -X POST \
         "${GATEWAY_URL}/clinica-api/reports/${target}/sign" \
         -H "Content-Type: application/json" \
         -d '{"signed_by":"Smoke Radiologista","signed_crm":"00000-SP"}')
       [ "$(echo "$sign" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null)" = "signed" ] \
         && pass "E11: assinar laudo" || fail "E11: assinatura falhou"
     fi
-    block=$(curl -s -o /dev/null -w "%{http_code}" -u "${CLINIC_USER}:${CLINIC_PASS}" -X PUT \
+    block=$(curl_auth -o /dev/null -w "%{http_code}" -X PUT \
       "${GATEWAY_URL}/clinica-api/reports/${target}" \
       -H "Content-Type: application/json" \
       -d '{"content_html":"<p>x</p>","author_name":"x"}')
@@ -607,14 +643,14 @@ if should_run E12; then
     skip "E12: nenhum laudo assinado do paciente ${PATIENT_ID}"
   else
     pass "Estudo assinado do paciente de teste"
-    curl -s -u "${CLINIC_USER}:${CLINIC_PASS}" -X POST \
+    curl_auth -X POST \
       "${GATEWAY_URL}/clinica-api/reports/${signed_uid}/revoke-patient" >/dev/null 2>&1 || true
 
     blocked=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer ${TOKEN}" \
       "${GATEWAY_URL}/paciente-api/studies/${signed_uid}/report")
     [ "$blocked" = "404" ] && pass "Paciente sem laudo antes da liberação → 404" || fail "Laudo exposto antes da liberação (${blocked})"
 
-    release=$(curl -s -u "${CLINIC_USER}:${CLINIC_PASS}" -X POST \
+    release=$(curl_auth -X POST \
       "${GATEWAY_URL}/clinica-api/reports/${signed_uid}/release")
     if echo "$release" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get('visible_to_patient') else 1)" 2>/dev/null; then
       pass "Clínica libera laudo ao paciente"
@@ -647,13 +683,13 @@ sys.exit(0 if any(s.get('study_instance_uid')==uid and s.get('report_available')
     load_study_uids
   fi
   if [ -n "$STUDY_UID_DRAFT" ] && [ "$STUDY_UID_DRAFT" != "$signed_uid" ]; then
-    draft_status=$(curl -s -u "${CLINIC_USER}:${CLINIC_PASS}" "${GATEWAY_URL}/clinica-api/reports/${STUDY_UID_DRAFT}" | \
+    draft_status=$(curl_auth "${GATEWAY_URL}/clinica-api/reports/${STUDY_UID_DRAFT}" | \
       python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null || true)
     if [ "$draft_status" = "draft" ]; then
       draft_patient=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer ${TOKEN}" \
         "${GATEWAY_URL}/paciente-api/studies/${STUDY_UID_DRAFT}/report")
       [ "$draft_patient" = "404" ] && pass "Rascunho invisível ao paciente → 404" || fail "Rascunho exposto ao paciente"
-      draft_release=$(curl -s -o /dev/null -w "%{http_code}" -u "${CLINIC_USER}:${CLINIC_PASS}" -X POST \
+      draft_release=$(curl_auth -o /dev/null -w "%{http_code}" -X POST \
         "${GATEWAY_URL}/clinica-api/reports/${STUDY_UID_DRAFT}/release")
       [ "$draft_release" = "400" ] && pass "Liberação de rascunho bloqueada → 400" || fail "Rascunho liberável (${draft_release})"
     fi
@@ -664,14 +700,14 @@ fi
 # ── E13 ──
 if should_run E13; then
   echo "▶ E13 — MWL + sync SQL"
-  mwl_cfg=$(curl -s -u "${CLINIC_USER}:${CLINIC_PASS}" "${GATEWAY_URL}/clinica-api/admin/pacs/mwl-sql")
+  mwl_cfg=$(curl_auth "${GATEWAY_URL}/clinica-api/admin/pacs/mwl-sql")
   if echo "$mwl_cfg" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get('enabled') else 1)" 2>/dev/null; then
     pass "Config SQL MWL disponível"
   else
     fail "Config SQL MWL indisponível"
   fi
 
-  sync=$(curl -s -u "${CLINIC_USER}:${CLINIC_PASS}" -X POST "${GATEWAY_URL}/clinica-api/admin/pacs/mwl/sync")
+  sync=$(curl_auth -X POST "${GATEWAY_URL}/clinica-api/admin/pacs/mwl/sync")
   synced=$(echo "$sync" | python3 -c "import sys,json; print(json.load(sys.stdin).get('synced',0))" 2>/dev/null || echo 0)
   if [ "${synced:-0}" -ge 1 ]; then
     pass "Sync SQL → MWL (${synced} itens)"
@@ -695,7 +731,7 @@ if should_run E13; then
     fail "Plugin MWL ausente no Orthanc"
   fi
 
-  mwl_rx=$(curl -s -u "${CLINIC_USER}:${CLINIC_PASS}" "${GATEWAY_URL}/clinica-api/admin/pacs/mwl/entries?station_aet=RX_SALA1")
+  mwl_rx=$(curl_auth "${GATEWAY_URL}/clinica-api/admin/pacs/mwl/entries?station_aet=RX_SALA1")
   rx_count=$(echo "$mwl_rx" | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('entries',[])))" 2>/dev/null || echo 0)
   [ "${rx_count:-0}" -ge 1 ] && pass "Filtro station_aet RX_SALA1 → ${rx_count}" || fail "Filtro station_aet MWL falhou"
 
@@ -749,7 +785,7 @@ if should_run E14; then
   [ "$oidc_api" = "200" ] && pass "API clínica via Bearer (sem Basic)" || fail "API clínica bloqueou Bearer (${oidc_api})"
 
   basic_api=$(http_code_auth "${GATEWAY_URL}/clinica-api/admin/pacs/settings")
-  [ "$basic_api" = "200" ] && pass "HTTP Basic ainda funciona (transição)" || fail "HTTP Basic falhou (${basic_api})"
+  [ "$basic_api" = "200" ] && pass "Sessão clínica acessa API" || fail "Sessão clínica falhou (${basic_api})"
   echo
 fi
 
@@ -759,13 +795,13 @@ if should_run E15; then
   load_study_uids
   audit_uid="${STUDY_UID:-}"
   if [ -n "$audit_uid" ]; then
-    curl -s -u "${CLINIC_USER}:${CLINIC_PASS}" "${GATEWAY_URL}/clinica-api/reports/${audit_uid}" >/dev/null
+    curl_auth "${GATEWAY_URL}/clinica-api/reports/${audit_uid}" >/dev/null
     pass "Evento study_open disparado (GET laudo)"
   else
     skip "E15: sem estudo para auditoria"
   fi
 
-  audit=$(curl -s -u "${CLINIC_USER}:${CLINIC_PASS}" "${GATEWAY_URL}/clinica-api/admin/pacs/audit?limit=20")
+  audit=$(curl_auth "${GATEWAY_URL}/clinica-api/admin/pacs/audit?limit=20")
   if echo "$audit" | python3 -c "
 import sys,json
 events={e.get('event') for e in json.load(sys.stdin).get('events',[])}

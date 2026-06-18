@@ -57,7 +57,8 @@ Rodar explicitamente: `./scripts/smoke-test.sh E7` → mostra "etapa ainda não 
 |----------|--------|
 | `GATEWAY_URL` | `http://localhost:3000` |
 | `ORTHANC_URL` | `http://localhost:8042` |
-| `CLINIC_USER` / `CLINIC_PASS` | `clinica` / `lexclinica2024` |
+| `CLINIC_USER` / `CLINIC_PASS` | `clinica` / `lexclinica2024` (também Keycloak: `admin` / `lexadmin2024`) |
+| Login clínico (browser) | http://localhost:3000/clinica/login |
 | `PATIENT_ID` / `PATIENT_BIRTH` | `+oYVjq` / `25/08/1947` |
 | `SMOKE_BACKUP_DIR` | `/tmp/lex-pacs-smoke-backup` |
 

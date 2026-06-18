@@ -19,8 +19,14 @@ from .auth import (
 )
 from .admin import router as admin_router
 from .audit import log_event
+from .clinical_session import ClinicalUser
+from .clinical_session import (
+    authenticate_clinical,
+    create_clinical_session,
+    session_cookie_kwargs,
+    CLINICAL_COOKIE_NAME,
+)
 from .clinical_auth import (
-    ClinicalUser,
     clinical_user_from_request,
     oidc_status,
     require_clinical_user,
@@ -73,6 +79,19 @@ class PatientReportResponse(BaseModel):
     pdf_filename: str | None = None
 
 
+class ClinicalLoginRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=1, max_length=128)
+    next: str = Field(default="/viewer/", max_length=512)
+
+
+class ClinicalLoginResponse(BaseModel):
+    redirect_url: str
+    username: str
+    groups: list[str]
+    access_token: str
+
+
 async def _patient_owns_study(patient_id: str, study_instance_uid: str) -> None:
     studies = await orthanc.find_studies_for_patient(patient_id)
     allowed = {study.get("study_instance_uid") for study in studies}
@@ -104,62 +123,69 @@ async def validate_viewer_cookie(request: Request) -> Response:
 
 @app.get("/api/auth/validate-dicom-access")
 async def validate_dicom_access(request: Request) -> Response:
-    """Viewer/DICOMweb: cookie do paciente, OIDC clínico ou Basic (via gateway)."""
+    """Viewer/DICOMweb: sessão clínica, cookie do paciente ou Bearer."""
+    user = clinical_user_from_request(request)
+    if user:
+        return Response(
+            status_code=200,
+            headers={
+                "X-Clinic-User": user.username,
+                "X-Clinic-Groups": ",".join(user.groups),
+            },
+        )
+
     token = request.cookies.get(VIEWER_COOKIE_NAME)
     uri = request.headers.get("x-original-uri", request.url.path)
     if token and viewer_token_matches_uri(token, uri):
         return Response(status_code=200)
-
-    auth = request.headers.get("authorization", "")
-    if auth.lower().startswith("bearer "):
-        user = clinical_user_from_request(request)
-        if user:
-            return Response(
-                status_code=200,
-                headers={
-                    "X-Clinic-User": user.username,
-                    "X-Clinic-Groups": ",".join(user.groups),
-                },
-            )
-
-    remote_user = request.headers.get("x-clinic-user", "").strip()
-    if remote_user:
-        user = clinical_user_from_request(request)
-        if user:
-            return Response(status_code=200)
 
     return Response(status_code=401)
 
 
 @app.get("/api/auth/validate-clinical")
 async def validate_clinical_auth(request: Request) -> Response:
-    """Usado pelo gateway: HTTP Basic ou Bearer OIDC para área clínica."""
-    auth = request.headers.get("authorization", "")
-    if auth.lower().startswith("bearer "):
-        user = clinical_user_from_request(request)
-        if user:
-            log_event("clinical_login", user.username, auth_method="oidc")
-            return Response(
-                status_code=200,
-                headers={
-                    "X-Clinic-User": user.username,
-                    "X-Clinic-Groups": ",".join(user.groups),
-                },
-            )
-        return Response(status_code=401)
-
-    remote_user = request.headers.get("x-clinic-user", "").strip()
-    if remote_user:
-        user = clinical_user_from_request(request)
-        if user:
-            return Response(
-                status_code=200,
-                headers={
-                    "X-Clinic-User": user.username,
-                    "X-Clinic-Groups": ",".join(user.groups),
-                },
-            )
+    """Usado pelo gateway: sessão clínica ou Bearer OIDC."""
+    user = clinical_user_from_request(request)
+    if user:
+        return Response(
+            status_code=200,
+            headers={
+                "X-Clinic-User": user.username,
+                "X-Clinic-Groups": ",".join(user.groups),
+            },
+        )
     return Response(status_code=401)
+
+
+@app.post("/api/auth/clinical/login", response_model=ClinicalLoginResponse)
+async def clinical_login(body: ClinicalLoginRequest) -> JSONResponse:
+    user = await authenticate_clinical(body.username, body.password)
+    token = create_clinical_session(user.username, user.groups, user.auth_method)
+    redirect = body.next.strip() if body.next.startswith("/") and not body.next.startswith("//") else "/viewer/"
+    log_event("clinical_login", user.username, auth_method=user.auth_method)
+    response = JSONResponse(
+        content=ClinicalLoginResponse(
+            redirect_url=redirect,
+            username=user.username,
+            groups=user.groups,
+            access_token=token,
+        ).model_dump()
+    )
+    response.set_cookie(key=CLINICAL_COOKIE_NAME, value=token, **session_cookie_kwargs())
+    return response
+
+
+@app.post("/api/auth/clinical/logout")
+async def clinical_logout() -> JSONResponse:
+    response = JSONResponse(content={"ok": True})
+    response.delete_cookie(key=CLINICAL_COOKIE_NAME, path="/")
+    return response
+
+
+@app.get("/clinica/login")
+@app.get("/clinica/")
+async def clinica_login_page() -> FileResponse:
+    return FileResponse(STATIC_DIR / "clinica.html")
 
 
 @app.get("/api/auth/clinical/config")

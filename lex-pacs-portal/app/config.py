@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     reports_data_path: str = "/lex-reports"
     audit_data_path: str = "/lex-audit"
     orthanc_worklist_path: str = "/var/lib/orthanc/worklists"
+    clinical_htpasswd_path: str = "/etc/lex-pacs/htpasswd"
+    clinical_session_hours: int = 12
     lex_pacs_version: str = "0.7.0"
     oidc_enabled: bool = False
     oidc_issuer_url: str = "http://keycloak:8080/realms/lex-pacs"

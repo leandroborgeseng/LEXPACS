@@ -6,49 +6,17 @@ from typing import Any
 from fastapi import HTTPException, Request, status
 
 from .config import settings
+from .clinical_session import (
+    CLINICAL_COOKIE_NAME,
+    ClinicalUser,
+    _basic_user_to_groups,
+    _normalize_groups,
+    clinical_user_from_session_token,
+)
 
 ADMIN_GROUPS = {"admin"}
 RADIOLOGIST_GROUPS = {"radiologista", "admin"}
 TECHNICIAN_GROUPS = {"tecnico", "radiologista", "admin"}
-
-
-@dataclass
-class ClinicalUser:
-    username: str
-    groups: list[str]
-    auth_method: str = "basic"
-
-    @property
-    def is_admin(self) -> bool:
-        return bool(ADMIN_GROUPS.intersection(self.groups))
-
-    @property
-    def can_sign(self) -> bool:
-        return bool(RADIOLOGIST_GROUPS.intersection(self.groups))
-
-    @property
-    def can_access_clinical(self) -> bool:
-        return bool(TECHNICIAN_GROUPS.intersection(self.groups) or self.groups)
-
-
-def _normalize_groups(raw: Any) -> list[str]:
-    if not raw:
-        return []
-    if isinstance(raw, str):
-        return [part.strip().lower() for part in raw.split(",") if part.strip()]
-    if isinstance(raw, list):
-        return [str(item).strip().lower() for item in raw if str(item).strip()]
-    return []
-
-
-def _basic_user_to_groups(username: str) -> list[str]:
-    mapping = {
-        "clinica": ["radiologista", "admin"],
-        "radiologista": ["radiologista"],
-        "tecnico": ["tecnico"],
-        "admin": ["admin"],
-    }
-    return mapping.get(username.strip().lower(), ["tecnico"])
 
 
 def _decode_oidc_token(token: str) -> dict[str, Any]:
@@ -79,11 +47,20 @@ def _decode_oidc_token(token: str) -> dict[str, Any]:
 
 
 def clinical_user_from_request(request: Request) -> ClinicalUser | None:
+    session = request.cookies.get(CLINICAL_COOKIE_NAME, "").strip()
+    if session:
+        user = clinical_user_from_session_token(session)
+        if user:
+            return user
+
     auth = request.headers.get("authorization", "")
     if auth.lower().startswith("bearer "):
         token = auth[7:].strip()
         if not token:
             return None
+        user = clinical_user_from_session_token(token)
+        if user:
+            return user
         try:
             claims = _decode_oidc_token(token)
         except Exception as exc:
@@ -99,12 +76,6 @@ def clinical_user_from_request(request: Request) -> ClinicalUser | None:
         if not groups:
             groups = _basic_user_to_groups(username)
         return ClinicalUser(username=username, groups=groups, auth_method="oidc")
-
-    clinic_user = request.headers.get("x-clinic-user", "").strip()
-    if clinic_user:
-        groups_header = request.headers.get("x-clinic-groups", "")
-        groups = _normalize_groups(groups_header) or _basic_user_to_groups(clinic_user)
-        return ClinicalUser(username=clinic_user, groups=groups, auth_method="basic")
 
     return None
 
