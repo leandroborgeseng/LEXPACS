@@ -1,0 +1,18 @@
+# Segredos e artefatos locais
+**/.env
+**/nginx/.htpasswd
+**/__pycache__/
+**/*.pyc
+ohif-viewer/tmp/
+
+# Node / build (OHIF)
+ohif-viewer/node_modules/
+ohif-viewer/build/
+ohif-viewer/dist/
+ohif-viewer/coverage/
+ohif-viewer/.nx/
+ohif-viewer/playwright-report/
+
+# Python
+.venv/
+*.egg-info/

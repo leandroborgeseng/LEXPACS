@@ -1,0 +1,138 @@
+version: '3.8'
+
+# Versão do produto LEX PACS — arquivo LEX_PACS_VERSION e docs/UPGRADE.md
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: lex-pacs-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-orthanc}
+      POSTGRES_USER: ${POSTGRES_USER:-orthanc}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-orthanc}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/init-lex-mwl.sql:/docker-entrypoint-initdb.d/10-lex-mwl.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-orthanc} -d ${POSTGRES_DB:-orthanc}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  orthanc:
+    image: jodogne/orthanc-plugins:1.12.5
+    container_name: orthanc
+    entrypoint: ["/bin/sh", "/docker-entrypoint.sh"]
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-orthanc}
+    ports:
+      - "8042:8042"   # somente desenvolvimento; omitir em produção (ver docker-compose.prod.yml)
+      - "4242:4242"   # DICOM C-STORE (modalidades); restringir firewall em produção
+    volumes:
+      - ./orthanc/orthanc.base.json:/etc/orthanc/orthanc.base.json:ro
+      - ./orthanc/docker-entrypoint.sh:/docker-entrypoint.sh:ro
+      - orthanc-config:/orthanc-config
+      - orthanc-storage:/var/lib/orthanc/storage
+      - orthanc-worklists:/var/lib/orthanc/worklists
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8042/system"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    restart: unless-stopped
+
+  ohif:
+    image: "lex-pacs/viewer:${LEX_PACS_VERSION:-0.7.0}"
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: ohif
+      args:
+        LEX_PACS_VERSION: ${LEX_PACS_VERSION:-0.7.0}
+    container_name: ohif-viewer
+    expose:
+      - "80"
+    depends_on:
+      orthanc:
+        condition: service_healthy
+    restart: unless-stopped
+
+  patient-portal:
+    image: "lex-pacs/portal:${LEX_PACS_VERSION:-0.7.0}"
+    build:
+      context: ../lex-pacs-portal
+      dockerfile: Dockerfile
+      args:
+        LEX_PACS_VERSION: ${LEX_PACS_VERSION:-0.7.0}
+    container_name: lex-pacs-portal
+    expose:
+      - "8080"
+    environment:
+      ORTHANC_URL: http://orthanc:8042
+      OHIF_VIEWER_URL: ${OHIF_VIEWER_URL:-http://localhost:3000}
+      JWT_SECRET: ${PORTAL_JWT_SECRET:-change-me-in-production}
+      PORTAL_FALLBACK_CODE: ${PORTAL_FALLBACK_CODE:-}
+      VIEWER_TOKEN_EXPIRE_MINUTES: ${VIEWER_TOKEN_EXPIRE_MINUTES:-30}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      ORTHANC_CONFIG_PATH: /orthanc-config/orthanc.json
+      REPORTS_DATA_PATH: /lex-reports
+      AUDIT_DATA_PATH: /lex-audit
+      ORTHANC_WORKLIST_PATH: /var/lib/orthanc/worklists
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-orthanc}
+      LEX_PACS_VERSION: ${LEX_PACS_VERSION:-0.7.0}
+      OIDC_ENABLED: ${OIDC_ENABLED:-true}
+      OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:-http://keycloak:8080/realms/lex-pacs}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-lex-clinical}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-lex-clinical-dev-secret}
+    volumes:
+      - orthanc-config:/orthanc-config
+      - lex-reports:/lex-reports
+      - lex-audit:/lex-audit
+      - orthanc-worklists:/var/lib/orthanc/worklists
+    depends_on:
+      orthanc:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+    restart: unless-stopped
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    container_name: lex-pacs-keycloak
+    command: start-dev --import-realm --http-port=8080
+    environment:
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KC_HEALTH_ENABLED: "true"
+    volumes:
+      - ./keycloak/lex-pacs-realm.json:/opt/keycloak/data/import/lex-pacs-realm.json:ro
+    ports:
+      - "8081:8080"
+    restart: unless-stopped
+
+  gateway:
+    image: nginx:1.27-alpine
+    container_name: lex-pacs-gateway
+    ports:
+      - "3000:80"
+    volumes:
+      - ./nginx/gateway.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/.htpasswd:/etc/nginx/.htpasswd:ro
+    depends_on:
+      - ohif
+      - patient-portal
+      - orthanc
+    restart: unless-stopped
+
+volumes:
+  orthanc-storage:
+  orthanc-config:
+  orthanc-worklists:
+  lex-reports:
+  lex-audit:
+  postgres-data:

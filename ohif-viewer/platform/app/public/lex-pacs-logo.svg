@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 28" width="128" height="28" aria-label="LEX PACS">
+  <rect x="0" y="2" width="24" height="24" rx="4" fill="#0A0A0A" stroke="#262626" stroke-width="1"/>
+  <path d="M5 8h5v2H7v3H5V8zm14 0h2v7h-2v-3h-3v-2h3v-2z" fill="#CC0000"/>
+  <path d="M5 20h2v-3h3v-2H5v5zm14-5h-3v2h3v3h2v-7h-2z" fill="#CC0000"/>
+  <rect x="10.5" y="9" width="3" height="10" rx="0.5" fill="#CC0000"/>
+  <rect x="7" y="12.5" width="10" height="3" rx="0.5" fill="#CC0000"/>
+  <text x="30" y="19" font-family="Roboto, Inter, sans-serif" font-size="15" font-weight="700" letter-spacing="0.04em" fill="#CC0000">LEX</text>
+  <text x="68" y="19" font-family="Roboto, Inter, sans-serif" font-size="15" font-weight="600" letter-spacing="0.12em" fill="#F5F5F5">PACS</text>
+  <rect x="63" y="8" width="1" height="12" fill="#9CA3AF" opacity="0.5"/>
+</svg>

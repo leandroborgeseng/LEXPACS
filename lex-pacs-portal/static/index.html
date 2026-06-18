@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LEX PACS — Portal do Paciente</title>
+  <link rel="stylesheet" href="static/portal.css" />
+</head>
+<body>
+  <div class="page">
+    <header class="header">
+      <div class="logo">
+        <span class="logo-lex">LEX</span><span class="logo-pacs">PACS</span>
+      </div>
+      <p class="subtitle">Portal do Paciente</p>
+    </header>
+
+    <main id="app">
+      <section id="login-view" class="card">
+        <h1>Acesse seus exames</h1>
+        <p class="hint">Informe os dados cadastrados na clínica. O <strong>ID do paciente</strong> é o mesmo informado na recepção ou no laudo.</p>
+        <form id="login-form">
+          <label>
+            ID do paciente
+            <input id="patient-id" name="patient_id" required autocomplete="username" placeholder="Ex.: 98890234" />
+          </label>
+          <label>
+            Data de nascimento
+            <input id="birth-date" name="birth_date" required autocomplete="bday" placeholder="DD/MM/AAAA" />
+          </label>
+          <label id="access-code-wrap" class="hidden">
+            Código de acesso
+            <input id="access-code" name="access_code" placeholder="Fornecido pela clínica" />
+          </label>
+          <p id="login-error" class="error hidden"></p>
+          <button type="submit" id="login-btn">Entrar</button>
+        </form>
+      </section>
+
+      <section id="studies-view" class="card hidden">
+        <div class="studies-header">
+          <div>
+            <h1>Meus exames</h1>
+            <p id="patient-label" class="hint"></p>
+          </div>
+          <button type="button" id="logout-btn" class="ghost">Sair</button>
+        </div>
+        <div id="studies-list" class="studies-list"></div>
+        <p id="studies-empty" class="hint hidden">Nenhum exame encontrado.</p>
+      </section>
+
+      <section id="report-view" class="card hidden">
+        <div class="studies-header">
+          <div>
+            <h1>Laudo do exame</h1>
+            <p id="report-meta" class="hint"></p>
+          </div>
+          <button type="button" id="report-back-btn" class="ghost">Voltar</button>
+        </div>
+        <div id="report-content" class="report-content"></div>
+        <p id="report-pdf-link" class="hint hidden">
+          <a id="report-pdf-anchor" href="#" target="_blank" rel="noreferrer">Abrir PDF do laudo</a>
+        </p>
+        <p id="report-error" class="error hidden"></p>
+      </section>
+    </main>
+  </div>
+  <script src="static/portal.js"></script>
+</body>
+</html>

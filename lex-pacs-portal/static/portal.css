@@ -1,0 +1,128 @@
+:root {
+  --bg: #0f0f0f;
+  --card: #1a1a1a;
+  --text: #f5f5f5;
+  --muted: #9ca3af;
+  --red: #cc0000;
+  --border: #2a2a2a;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: Roboto, Inter, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+}
+
+.page {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 2rem 1rem 3rem;
+}
+
+.header { margin-bottom: 1.5rem; }
+
+.logo { font-size: 1.5rem; font-weight: 700; letter-spacing: 0.04em; }
+.logo-lex { color: var(--red); margin-right: 0.35rem; }
+.logo-pacs { color: var(--text); letter-spacing: 0.12em; }
+
+.subtitle { color: var(--muted); margin: 0.25rem 0 0; }
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.5rem;
+}
+
+h1 { margin: 0 0 0.5rem; font-size: 1.35rem; }
+.hint { color: var(--muted); margin: 0 0 1rem; }
+
+form { display: grid; gap: 1rem; }
+
+label { display: grid; gap: 0.35rem; font-size: 0.9rem; color: var(--muted); }
+
+input {
+  background: #141414;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 0.65rem 0.75rem;
+  font-size: 1rem;
+}
+
+button {
+  background: var(--red);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button.ghost {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+button:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.error { color: #f87171; margin: 0; }
+.hidden { display: none !important; }
+
+.studies-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.study-item {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1rem;
+  margin-bottom: 0.75rem;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.study-item strong { font-size: 1rem; }
+.study-meta { color: var(--muted); font-size: 0.9rem; }
+
+.study-actions { margin-top: 0.5rem; display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.study-actions button,
+.study-actions a {
+  color: #fff;
+  background: var(--red);
+  border: none;
+  text-decoration: none;
+  padding: 0.45rem 0.75rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  display: inline-block;
+  cursor: pointer;
+}
+
+.study-actions button.secondary {
+  background: transparent;
+  border: 1px solid var(--red);
+  color: var(--text);
+}
+
+.report-content {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1rem;
+  line-height: 1.6;
+  min-height: 120px;
+  background: #141414;
+}
+
+.report-content p { margin: 0 0 0.75rem; }

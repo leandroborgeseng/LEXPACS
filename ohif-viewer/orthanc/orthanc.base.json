@@ -1,0 +1,53 @@
+{
+  "Name": "LEX PACS",
+  "StorageDirectory": "/var/lib/orthanc/storage",
+  "IndexDirectory": "/var/lib/orthanc/storage",
+  "HttpPort": 8042,
+  "DicomPort": 4242,
+  "DicomAet": "LEXPACS",
+  "DicomCheckCalledAet": false,
+  "AuthenticationEnabled": false,
+  "RegisteredUsers": {},
+  "IngestTranscoding": "1.2.840.10008.1.2.4.80",
+  "PostgreSQL": {
+    "EnableIndex": true,
+    "EnableStorage": false,
+    "Host": "postgres",
+    "Port": 5432,
+    "Database": "orthanc",
+    "Username": "orthanc",
+    "Password": "__LEX_POSTGRES_PASSWORD__",
+    "Lock": true,
+    "EnableSsl": false,
+    "IndexConnectionsCount": 50,
+    "TransactionMode": "ReadCommitted"
+  },
+  "Plugins": [
+    "/usr/local/share/orthanc/plugins/libOrthancDicomWeb.so",
+    "/usr/local/share/orthanc/plugins/libOrthancPostgreSQLIndex.so",
+    "/usr/local/share/orthanc/plugins/libOrthancGdcm.so",
+    "/usr/local/share/orthanc/plugins/libModalityWorklists.so"
+  ],
+  "Worklists": {
+    "Enable": true,
+    "FilterIssuerAet": false,
+    "LimitAnswers": 0,
+    "Database": "/var/lib/orthanc/worklists"
+  },
+  "DicomWeb": {
+    "Enable": true,
+    "Root": "/dicom-web/",
+    "EnableWado": true,
+    "WadoRoot": "/wado/",
+    "Ssl": false,
+    "QidoCaseSensitive": false,
+    "Host": "0.0.0.0",
+    "PublicRoot": "/dicom-web/"
+  },
+  "HttpServerEnabled": true,
+  "HttpDescribeErrors": true,
+  "HttpCompressionEnabled": true,
+  "RemoteAccessAllowed": true,
+  "SslEnabled": false,
+  "KeepAliveTimeout": 1
+}

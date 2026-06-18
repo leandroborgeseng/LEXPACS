@@ -1,0 +1,30 @@
+{
+  "Name": "LEX PACS",
+  "StorageDirectory": "/var/lib/orthanc/db",
+  "IndexDirectory": "/var/lib/orthanc/db",
+  "HttpPort": 8042,
+  "DicomPort": 4242,
+  "DicomAet": "LEXPACS",
+  "DicomCheckCalledAet": false,
+  "AuthenticationEnabled": false,
+  "RegisteredUsers": {},
+  "Plugins": [
+    "/usr/local/share/orthanc/plugins/libOrthancDicomWeb.so"
+  ],
+  "DicomWeb": {
+    "Enable": true,
+    "Root": "/dicom-web/",
+    "EnableWado": true,
+    "WadoRoot": "/wado/",
+    "Ssl": false,
+    "QidoCaseSensitive": false,
+    "Host": "0.0.0.0",
+    "PublicRoot": "/dicom-web/"
+  },
+  "HttpServerEnabled": true,
+  "HttpDescribeErrors": true,
+  "HttpCompressionEnabled": true,
+  "RemoteAccessAllowed": true,
+  "SslEnabled": false,
+  "KeepAliveTimeout": 1
+}
