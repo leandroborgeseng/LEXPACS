@@ -38,6 +38,7 @@ from .reports import router as reports_router
 from .mwl_scheduler import start_mwl_scheduler
 from .orthanc_client import OrthancClient
 from .report_storage import get_patient_report, is_visible_to_patient, load_report, pdf_path
+from .rate_limit import enforce_login_rate_limit
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
@@ -166,7 +167,8 @@ async def validate_clinical_auth(request: Request) -> Response:
 
 
 @app.post("/api/auth/clinical/login", response_model=ClinicalLoginResponse)
-async def clinical_login(body: ClinicalLoginRequest) -> JSONResponse:
+async def clinical_login(body: ClinicalLoginRequest, request: Request) -> JSONResponse:
+    enforce_login_rate_limit(request)
     user = await authenticate_clinical(body.username, body.password)
     token = create_clinical_session(user.username, user.groups, user.auth_method)
     redirect = body.next.strip() if body.next.startswith("/") and not body.next.startswith("//") else "/viewer/"
@@ -235,7 +237,8 @@ async def clinical_me(clinical_user: ClinicalUser = Depends(require_clinical_use
 
 
 @app.post("/api/auth/login", response_model=LoginResponse)
-async def login(body: LoginRequest) -> LoginResponse:
+async def login(body: LoginRequest, request: Request) -> LoginResponse:
+    enforce_login_rate_limit(request)
     patient_id = body.patient_id.strip()
     patients = await orthanc.find_patients_by_id(patient_id)
 

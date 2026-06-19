@@ -115,7 +115,7 @@
     "backup": "Copia de seguridad",
     "lastBackup": "Última copia:",
     "noBackup": "ninguna registrada",
-    "backupSchedule": "Programación: cada {{hours}}h · retención {{days}} días",
+    "backupSchedule": "Programación: cada {{hours}}h · {{daily}} diarios + {{weekly}} semanales",
     "backupOk": " · última OK",
     "backupFailed": " · última con fallo",
     "backupEnable": " · active: docker compose --profile backup up -d backup",

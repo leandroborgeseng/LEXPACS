@@ -99,6 +99,8 @@ type BackupStatus = {
   lex_pacs_version: string;
   backup_root: string;
   retention_days: number;
+  retention_daily: number;
+  retention_weekly: number;
   interval_hours: number;
   error?: string;
 };
@@ -707,7 +709,8 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
                         <p className="text-muted-foreground text-xs">
                           {t('pacsSettings.backupSchedule', {
                             hours: backupStatus.interval_hours,
-                            days: backupStatus.retention_days,
+                            daily: backupStatus.retention_daily ?? backupStatus.retention_days,
+                            weekly: backupStatus.retention_weekly ?? 4,
                           })}
                           {backupStatus.configured && backupStatus.success
                             ? t('pacsSettings.backupOk')

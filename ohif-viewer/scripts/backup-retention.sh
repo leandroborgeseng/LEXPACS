@@ -1,15 +1,11 @@
-#!/bin/sh
-# Remove backups antigos além do período de retenção.
+#!/usr/bin/env sh
+# Wrapper: política 7 diários + 4 semanais (E5).
 set -eu
 
 BACKUP_ROOT="${1:-./backups}"
-RETENTION_DAYS="${2:-14}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-if [ ! -d "${BACKUP_ROOT}" ]; then
-  exit 0
-fi
+export BACKUP_RETENTION_DAILY="${BACKUP_RETENTION_DAILY:-7}"
+export BACKUP_RETENTION_WEEKLY="${BACKUP_RETENTION_WEEKLY:-4}"
 
-find "${BACKUP_ROOT}" -mindepth 1 -maxdepth 1 -type d ! -name '.git' -mtime +"${RETENTION_DAYS}" -print | while read -r dir; do
-  echo "Retenção: removendo ${dir}"
-  rm -rf "${dir}"
-done
+exec python3 "${SCRIPT_DIR}/backup-retention.py" "${BACKUP_ROOT}"

@@ -168,6 +168,8 @@ class BackupStatusResponse(BaseModel):
     lex_pacs_version: str
     backup_root: str
     retention_days: int
+    retention_daily: int
+    retention_weekly: int
     interval_hours: int
     error: str = ""
 

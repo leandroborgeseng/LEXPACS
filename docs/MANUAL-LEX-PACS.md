@@ -298,8 +298,8 @@ Legenda: **C** crítico · **A** alto · **M** médio · **B** baixo
 | S7 | **M** | Cookie sem `Secure` em HTTP | **Corrigido:** `COOKIE_SECURE` configurável |
 | S8 | **M** | Swagger/OpenAPI exposto | **Corrigido:** `docs_url=None` |
 | S9 | **M** | Health vazava nome do backend | **Corrigido:** campo `storage` genérico |
-| S10 | **M** | Sem rate limit no login | Pendente — adicionar no gateway ou API |
-| S11 | **M** | Sem CSP/HSTS completos | Parcial — headers básicos no gateway; HSTS no TLS externo |
+| S10 | **M** | Sem rate limit no login | **Corrigido:** nginx `limit_req` + API 429 |
+| S11 | **M** | Sem CSP/HSTS completos | **Corrigido:** CSP no gateway; HSTS quando `X-Forwarded-Proto: https` |
 
 ### 9.3 Modelo de autorização do viewer (pontos fortes)
 

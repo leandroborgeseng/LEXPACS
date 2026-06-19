@@ -6,9 +6,10 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 INTERVAL_HOURS="${BACKUP_INTERVAL_HOURS:-24}"
 INTERVAL_SEC=$((INTERVAL_HOURS * 3600))
 BACKUP_ROOT="${BACKUP_ROOT:-/backups}"
-RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-14}"
+RETENTION_DAILY="${BACKUP_RETENTION_DAILY:-7}"
+RETENTION_WEEKLY="${BACKUP_RETENTION_WEEKLY:-4}"
 
-echo "LEX PACS backup scheduler — intervalo ${INTERVAL_HOURS}h, retenção ${RETENTION_DAYS} dias"
+echo "LEX PACS backup scheduler — intervalo ${INTERVAL_HOURS}h, retenção ${RETENTION_DAILY}d + ${RETENTION_WEEKLY}sem"
 
 while true; do
   echo "[$(date -Iseconds)] Iniciando backup…"
@@ -18,7 +19,8 @@ while true; do
   else
     echo "[$(date -Iseconds)] Backup falhou" >&2
   fi
-  "${SCRIPT_DIR}/backup-retention.sh" "${BACKUP_ROOT}" "${RETENTION_DAYS}" || true
+  BACKUP_RETENTION_DAILY="${RETENTION_DAILY}" BACKUP_RETENTION_WEEKLY="${RETENTION_WEEKLY}" \
+    "${SCRIPT_DIR}/backup-retention.sh" "${BACKUP_ROOT}" || true
   echo "[$(date -Iseconds)] Próximo backup em ${INTERVAL_HOURS}h"
   sleep "${INTERVAL_SEC}"
 done

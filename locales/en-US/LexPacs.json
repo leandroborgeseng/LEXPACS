@@ -115,7 +115,7 @@
     "backup": "Backup",
     "lastBackup": "Last backup:",
     "noBackup": "none recorded",
-    "backupSchedule": "Schedule: every {{hours}}h · retention {{days}} days",
+    "backupSchedule": "Schedule: every {{hours}}h · {{daily}} daily + {{weekly}} weekly",
     "backupOk": " · last OK",
     "backupFailed": " · last failed",
     "backupEnable": " · enable: docker compose --profile backup up -d backup",

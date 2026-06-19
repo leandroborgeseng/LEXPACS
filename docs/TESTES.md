@@ -47,10 +47,13 @@ chmod +x scripts/smoke-test.sh    # uma vez
 | **Onda B+** | Dashboard estatísticas na aba Admin | `GET /admin/pacs/stats` |
 | **Onda C** | Backup agendado + status | `GET /admin/pacs/backup/status` |
 | **Onda D** | Papéis (radiologista/técnico/admin), OIDC redirect, permissions | Smoke seção Onda D |
+| **S10** | Rate limit login (429) | `./scripts/smoke-test.sh S10` |
+| **S11** | CSP, X-Frame-Options, Permissions-Policy | `./scripts/smoke-test.sh S11` |
+| **E2E** | Playwright — login clínico, portal, tema | `./scripts/e2e-test.sh` |
 
 ### Etapas pendentes (sem teste ainda)
 
-Próximas ondas: ver [ROADMAP.md](./ROADMAP.md) (E2E Playwright, HTTPS produção).
+Próximas ondas: i18n fase 2 (erros API), E11b ICP-Brasil, HTTPS produção (infra).
 
 Rodar explicitamente: `./scripts/smoke-test.sh E7` → mostra "etapa ainda não implementada".
 

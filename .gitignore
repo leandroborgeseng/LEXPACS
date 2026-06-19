@@ -12,6 +12,11 @@ ohif-viewer/dist/
 ohif-viewer/coverage/
 ohif-viewer/.nx/
 ohif-viewer/playwright-report/
+ohif-viewer/backups/
+sample-dicom/
+e2e/node_modules/
+e2e/test-results/
+e2e/playwright-report/
 
 # Python
 .venv/

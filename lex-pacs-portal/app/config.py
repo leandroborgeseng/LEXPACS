@@ -20,7 +20,11 @@ class Settings(BaseSettings):
     lex_pacs_version: str = "0.7.0"
     backup_status_path: str = "/lex-backups/latest-status.json"
     backup_retention_days: int = 14
+    backup_retention_daily: int = 7
+    backup_retention_weekly: int = 4
     backup_interval_hours: int = 24
+    login_rate_limit_attempts: int = 20
+    login_rate_limit_window_seconds: int = 60
     oidc_enabled: bool = False
     oidc_issuer_url: str = "http://keycloak:8080/realms/lex-pacs"
     oidc_public_issuer_url: str = "http://localhost:8081/realms/lex-pacs"

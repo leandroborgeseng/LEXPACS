@@ -32,7 +32,7 @@ KEYCLOAK_URL="${KEYCLOAK_URL:-http://localhost:8081}"
 OIDC_CLIENT_SECRET="${OIDC_CLIENT_SECRET:-lex-clinical-dev-secret}"
 
 # Etapas com testes automatizados prontos
-IMPLEMENTED_STAGES=(E1 E2 E2b E2c E2d E3 E4 E5 E6 E7 E8 E9 E10 E11 E12 E13 E14 E15)
+IMPLEMENTED_STAGES=(E1 E2 E2b E2c E2d E3 E4 E5 E6 E7 E8 E9 E10 E11 E12 E13 E14 E15 S10 S11)
 PENDING_STAGES=()
 
 if [ "${1:-}" = "--list" ]; then
@@ -492,6 +492,16 @@ if should_run E5; then
     else
       fail "Backup sem postgres.dump"
     fi
+    if [ -x "${SCRIPT_DIR}/verify-backup.sh" ] && "${SCRIPT_DIR}/verify-backup.sh" "${BACKUP_SNAPSHOT}" >/dev/null 2>&1; then
+      pass "verify-backup.sh valida snapshot"
+    else
+      fail "verify-backup.sh falhou no snapshot"
+    fi
+    if [ -f "${SCRIPT_DIR}/backup-retention.py" ]; then
+      pass "Política de retenção 7+4 (backup-retention.py)"
+    else
+      fail "backup-retention.py ausente"
+    fi
   else
     fail "Execução de backup-volumes.sh falhou"
   fi
@@ -854,8 +864,8 @@ curl_auth -X PUT "${GATEWAY_URL}/clinica-api/admin/pacs/mwl-sql" \
 echo "▶ Onda C — Backup automático"
 "${SCRIPT_DIR}/backup-volumes.sh" "${PROJECT_DIR}/backups" >/dev/null 2>&1 || true
 backup_api=$(curl_auth "${GATEWAY_URL}/clinica-api/admin/pacs/backup/status")
-if echo "$backup_api" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get('retention_days') is not None else 1)" 2>/dev/null; then
-  pass "GET /admin/pacs/backup/status"
+if echo "$backup_api" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get('retention_daily') is not None else 1)" 2>/dev/null; then
+  pass "GET /admin/pacs/backup/status (retenção 7+4)"
 else
   fail "GET /admin/pacs/backup/status"
 fi
@@ -943,6 +953,33 @@ else
   fail "Logout clínico não invalidou sessão (→ ${code_logout})"
 fi
 echo
+
+# ── S10 — Rate limit login ──
+if should_run S10; then
+  echo "▶ S10 — Rate limit login"
+  saw_429=0
+  for _ in $(seq 1 25); do
+    code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "${GATEWAY_URL}/clinica-api/auth/clinical/login" \
+      -H "Content-Type: application/json" \
+      -d '{"username":"invalid","password":"invalid","next":"/viewer/"}')
+    if [ "$code" = "429" ]; then
+      saw_429=1
+      break
+    fi
+  done
+  [ "$saw_429" = "1" ] && pass "Login clínico retorna 429 após excesso" || fail "Rate limit login não retornou 429"
+  echo
+fi
+
+# ── S11 — Headers de segurança ──
+if should_run S11; then
+  echo "▶ S11 — CSP e headers"
+  headers=$(curl -sI "${GATEWAY_URL}/clinica/login")
+  echo "$headers" | grep -qi "content-security-policy:" && pass "Content-Security-Policy presente" || fail "CSP ausente"
+  echo "$headers" | grep -qi "x-frame-options: SAMEORIGIN" && pass "X-Frame-Options SAMEORIGIN" || fail "X-Frame-Options ausente"
+  echo "$headers" | grep -qi "permissions-policy:" && pass "Permissions-Policy presente" || fail "Permissions-Policy ausente"
+  echo
+fi
 
 # ── Etapas pendentes (só informa se solicitadas explicitamente) ──
 for pid in "${PENDING_STAGES[@]}"; do

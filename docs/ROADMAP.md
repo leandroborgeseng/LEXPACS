@@ -13,6 +13,7 @@
 | [UPGRADE.md](./UPGRADE.md) | **Runbook de upgrade e rollback** |
 | [../ohif-viewer/.env.example](../ohif-viewer/.env.example) | Variáveis de ambiente |
 | [I18N.md](./I18N.md) | **Traduções (pt-BR, en-US, es)** |
+| [BACKUP.md](./BACKUP.md) | **Backup, retenção 7+4 e restore** |
 
 ---
 
@@ -111,7 +112,7 @@ flowchart TB
 |------|-----|------|------------|--------|
 | **A — Operação** | E3 | Volumes separados + PostgreSQL (índice) | E2 | **Concluído** |
 | | E4 | Compressão lossless na ingestão | E3 | **Concluído** |
-| | E5 | Backup e restore documentado + job automático | E3 | **Parcial** (script manual) |
+| | E5 | Backup e restore documentado + job automático | E3 | **Concluído** |
 | | E6 | Upgrade de versão (runbook + tags de imagem) | E5 | **Concluído** |
 | **B — Configuração clínica** | E7 | Configurações DICOM ampliadas | E2c | **Concluído** |
 | | E8 | Visões de worklist (RX sala 1/2, CT, MR…) | E2 | **Concluído** |
@@ -406,7 +407,10 @@ Atualize esta tabela ao concluir cada etapa:
 | E9 | Concluído (MVP) | 2026-06 | Painel Laudo + API + volume |
 | E10 | Concluído (MVP) | 2026-06 | Upload PDF |
 | E11 | Concluído (MVP) | 2026-06 | Assinatura lógica + bloqueio |
-| E5 | Pendente (job automático) | Script manual OK; scheduler via profile `backup` (Onda C) |
+| E5 | Concluído | 2026-06 | Retenção 7+4, verify-backup, profile backup |
+| S10 | Concluído | 2026-06 | Rate limit login (nginx + API) |
+| S11 | Concluído | 2026-06 | CSP, Permissions-Policy, HSTS via proxy |
+| E2E | Concluído | 2026-06 | Playwright em `e2e/` + `scripts/e2e-test.sh` |
 | E3 | Concluído | 2026-06 | PostgreSQL + orthanc-storage |
 | Onda A | Concluído | 2026-06 | Admin, logout, sync MWL |
 | Onda B | Concluído | 2026-06 | Form SQL MWL na UI |
@@ -417,4 +421,4 @@ Atualize esta tabela ao concluir cada etapa:
 
 ---
 
-*Próximo passo sugerido: **E5** — job automático de backup (profile `backup`) ou evolução pós-v0.7 conforme demanda clínica.*
+*Próximo passo sugerido: **i18n fase 2** (códigos de erro API) ou **E11b** (ICP-Brasil) conforme demanda clínica.*
