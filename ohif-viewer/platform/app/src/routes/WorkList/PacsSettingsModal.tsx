@@ -90,6 +90,18 @@ type PacsStats = {
   generated_at: string;
 };
 
+type BackupStatus = {
+  configured: boolean;
+  success: boolean;
+  last_at: string;
+  last_path: string;
+  lex_pacs_version: string;
+  backup_root: string;
+  retention_days: number;
+  interval_hours: number;
+  error?: string;
+};
+
 type PacsSettingsModalProps = {
   hide?: () => void;
 };
@@ -163,14 +175,22 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
   const [mwlSql, setMwlSql] = useState<MwlSqlForm>(emptyMwlSql);
   const [pacsStats, setPacsStats] = useState<PacsStats | null>(null);
+  const [backupStatus, setBackupStatus] = useState<BackupStatus | null>(null);
 
   const loadStats = useCallback(async () => {
     setStatsLoading(true);
     try {
-      const statsRes = await fetch(`${API_BASE}/stats`, { credentials: 'include' });
+      const [statsRes, backupRes] = await Promise.all([
+        fetch(`${API_BASE}/stats`, { credentials: 'include' }),
+        fetch(`${API_BASE}/backup/status`, { credentials: 'include' }),
+      ]);
       const statsData = await statsRes.json().catch(() => null);
+      const backupData = await backupRes.json().catch(() => null);
       if (statsRes.ok && statsData) {
         setPacsStats(statsData as PacsStats);
+      }
+      if (backupRes.ok && backupData) {
+        setBackupStatus(backupData as BackupStatus);
       }
     } catch {
       setPacsStats(null);
@@ -672,6 +692,32 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
                       <PacsStatsPanel stats={pacsStats} />
                     </div>
                   ) : null}
+
+                  <div className="border-border rounded border p-3 text-sm">
+                    <p className="font-medium">Backup</p>
+                    {backupStatus ? (
+                      <>
+                        <p className="text-muted-foreground mt-1 text-xs">
+                          Último backup:{' '}
+                          {backupStatus.last_at
+                            ? formatTs(backupStatus.last_at)
+                            : 'nenhum registrado'}
+                          {backupStatus.last_path ? ` (${backupStatus.last_path})` : ''}
+                        </p>
+                        <p className="text-muted-foreground text-xs">
+                          Agendamento: a cada {backupStatus.interval_hours}h · retenção{' '}
+                          {backupStatus.retention_days} dias
+                          {backupStatus.configured && backupStatus.success
+                            ? ' · último OK'
+                            : backupStatus.configured
+                              ? ' · último com falha'
+                              : ' · ative: docker compose --profile backup up -d backup'}
+                        </p>
+                      </>
+                    ) : (
+                      <p className="text-muted-foreground mt-1 text-xs">Carregando status…</p>
+                    )}
+                  </div>
 
                   <div className="border-border rounded border p-3 text-sm">
                     <p className="font-medium">Status MWL</p>

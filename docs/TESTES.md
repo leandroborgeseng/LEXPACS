@@ -45,6 +45,7 @@ chmod +x scripts/smoke-test.sh    # uma vez
 | **Onda A** | Admin UI, logout, `/mwl/status`, sync automático | Smoke seção Onda A |
 | **Onda B** | Formulário SQL MWL na aba Admin | `PUT /mwl-sql` na smoke Onda B |
 | **Onda B+** | Dashboard estatísticas na aba Admin | `GET /admin/pacs/stats` |
+| **Onda C** | Backup agendado + status | `GET /admin/pacs/backup/status` |
 
 ### Etapas pendentes (sem teste ainda)
 

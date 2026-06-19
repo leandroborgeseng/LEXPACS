@@ -89,12 +89,16 @@ services:
       OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:-http://keycloak:8080/realms/lex-pacs}
       OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-lex-clinical}
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-lex-clinical-dev-secret}
+      BACKUP_STATUS_PATH: /lex-backups/latest-status.json
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+      BACKUP_INTERVAL_HOURS: ${BACKUP_INTERVAL_HOURS:-24}
     volumes:
       - orthanc-config:/orthanc-config
       - lex-reports:/lex-reports
       - lex-audit:/lex-audit
       - orthanc-worklists:/var/lib/orthanc/worklists
       - ./nginx/.htpasswd:/etc/lex-pacs/htpasswd:ro
+      - ./backups:/lex-backups:ro
     depends_on:
       orthanc:
         condition: service_healthy
@@ -114,6 +118,31 @@ services:
       - ./keycloak/lex-pacs-realm.json:/opt/keycloak/data/import/lex-pacs-realm.json:ro
     ports:
       - "8081:8080"
+    restart: unless-stopped
+
+  backup:
+    profiles: ["backup"]
+    image: docker:27-cli
+    container_name: lex-pacs-backup
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./scripts:/scripts:ro
+      - ./backups:/backups
+      - ./LEX_PACS_VERSION:/compose/LEX_PACS_VERSION:ro
+      - ./docker-compose.yml:/compose/docker-compose.yml:ro
+      - ./nginx/.htpasswd:/compose/nginx/.htpasswd:ro
+    environment:
+      BACKUP_ROOT: /backups
+      BACKUP_INTERVAL_HOURS: ${BACKUP_INTERVAL_HOURS:-24}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+      COMPOSE_PROJECT_DIR: /compose
+      POSTGRES_USER: ${POSTGRES_USER:-orthanc}
+      POSTGRES_DB: ${POSTGRES_DB:-orthanc}
+    working_dir: /compose
+    entrypoint: ["/bin/sh", "/scripts/backup-scheduler.sh"]
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
 
   gateway:

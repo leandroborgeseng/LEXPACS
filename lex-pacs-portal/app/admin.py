@@ -15,6 +15,7 @@ from .lex_settings import (
     save_equipment,
     save_worklist_views,
 )
+from .backup_status import get_backup_status
 from .pacs_config import get_pacs_settings, update_server_settings
 from .pacs_stats import collect_pacs_stats
 
@@ -159,6 +160,18 @@ class PacsStatsResponse(BaseModel):
     generated_at: str
 
 
+class BackupStatusResponse(BaseModel):
+    configured: bool
+    success: bool
+    last_at: str
+    last_path: str
+    lex_pacs_version: str
+    backup_root: str
+    retention_days: int
+    interval_hours: int
+    error: str = ""
+
+
 @router.get("/settings", response_model=PacsSettingsResponse)
 async def read_settings() -> PacsSettingsResponse:
     return PacsSettingsResponse(**get_pacs_settings())
@@ -280,6 +293,13 @@ async def read_mwl_entries(
 ) -> MwlEntriesResponse:
     entries = [MwlEntry(**item) for item in list_mwl_entries(station_aet)]
     return MwlEntriesResponse(entries=entries)
+
+
+@router.get("/backup/status", response_model=BackupStatusResponse)
+async def read_backup_status(
+    _: ClinicalUser = Depends(require_clinical_user),
+) -> BackupStatusResponse:
+    return BackupStatusResponse(**get_backup_status())
 
 
 @router.get("/stats", response_model=PacsStatsResponse)

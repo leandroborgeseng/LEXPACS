@@ -54,6 +54,7 @@
 | **A** | Aba Admin (status/sync MWL, auditoria, logout clínico, sync automático) | `./scripts/smoke-test.sh` (seção Onda A) |
 | **B** | Formulário config SQL MWL na aba Admin | `./scripts/smoke-test.sh` (seção Onda B) |
 | **B+** | Estatísticas admin (exames, pacientes, modalidade, idade, disco) | `GET /clinica-api/admin/pacs/stats` |
+| **C** | Backup agendado + status na aba Admin | `docker compose --profile backup up -d backup` |
 
 ---
 
@@ -401,7 +402,7 @@ Atualize esta tabela ao concluir cada etapa:
 | E9 | Concluído (MVP) | 2026-06 | Painel Laudo + API + volume |
 | E10 | Concluído (MVP) | 2026-06 | Upload PDF |
 | E11 | Concluído (MVP) | 2026-06 | Assinatura lógica + bloqueio |
-| E5 | Pendente (job automático) | Script manual OK |
+| E5 | Pendente (job automático) | Script manual OK; scheduler via profile `backup` (Onda C) |
 | E3 | Concluído | 2026-06 | PostgreSQL + orthanc-storage |
 | Onda A | Concluído | 2026-06 | Admin, logout, sync MWL |
 | Onda B | Concluído | 2026-06 | Form SQL MWL na UI |

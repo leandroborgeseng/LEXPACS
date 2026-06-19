@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     clinical_htpasswd_path: str = "/etc/lex-pacs/htpasswd"
     clinical_session_hours: int = 12
     lex_pacs_version: str = "0.7.0"
+    backup_status_path: str = "/lex-backups/latest-status.json"
+    backup_retention_days: int = 14
+    backup_interval_hours: int = 24
     oidc_enabled: bool = False
     oidc_issuer_url: str = "http://keycloak:8080/realms/lex-pacs"
     oidc_client_id: str = "lex-clinical"

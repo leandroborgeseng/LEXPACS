@@ -851,6 +851,20 @@ curl_auth -X PUT "${GATEWAY_URL}/clinica-api/admin/pacs/mwl-sql" \
   -H "Content-Type: application/json" \
   -d '{"enabled":true,"host":"postgres","port":5432,"database":"orthanc","username":"orthanc","password_env":"POSTGRES_PASSWORD","table":"lex_mwl_schedule","sync_interval_minutes":5}' >/dev/null
 
+echo "▶ Onda C — Backup automático"
+"${SCRIPT_DIR}/backup-volumes.sh" "${PROJECT_DIR}/backups" >/dev/null 2>&1 || true
+backup_api=$(curl_auth "${GATEWAY_URL}/clinica-api/admin/pacs/backup/status")
+if echo "$backup_api" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get('retention_days') is not None else 1)" 2>/dev/null; then
+  pass "GET /admin/pacs/backup/status"
+else
+  fail "GET /admin/pacs/backup/status"
+fi
+if echo "$backup_api" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get('configured') and d.get('last_at') else 1)" 2>/dev/null; then
+  pass "Backup gera latest-status.json"
+else
+  fail "latest-status.json ausente após backup"
+fi
+
 curl_auth -X POST "${GATEWAY_URL}/clinica-api/auth/clinical/logout" >/dev/null
 code_logout=$(http_code_auth "${GATEWAY_URL}/dicom-web/studies?limit=1")
 if [ "$code_logout" = "401" ] || [ "$code_logout" = "302" ]; then
