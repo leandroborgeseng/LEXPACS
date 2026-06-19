@@ -11,6 +11,7 @@ from fastapi import HTTPException, status
 from .config import settings
 
 CLINICAL_COOKIE_NAME = "lex_clinical_session"
+CLINICAL_GROUPS = frozenset({"admin", "radiologista", "tecnico"})
 
 
 @dataclass
@@ -30,6 +31,10 @@ class ClinicalUser:
     @property
     def can_access_clinical(self) -> bool:
         return bool({"tecnico", "radiologista", "admin"}.intersection(self.groups) or self.groups)
+
+
+def _filter_clinical_groups(groups: list[str]) -> list[str]:
+    return [group for group in groups if group in CLINICAL_GROUPS]
 
 
 def _normalize_groups(raw: Any) -> list[str]:
@@ -128,11 +133,16 @@ async def _authenticate_keycloak(username: str, password: str) -> ClinicalUser |
     except HTTPException:
         return None
     name = str(claims.get("preferred_username") or claims.get("sub") or username)
-    groups = _normalize_groups(claims.get("groups"))
+    groups = _filter_clinical_groups(_normalize_groups(claims.get("groups")))
     if not groups:
-        groups = _normalize_groups(claims.get("realm_access", {}).get("roles", []))
+        groups = _filter_clinical_groups(
+            _normalize_groups(claims.get("realm_access", {}).get("roles", []))
+        )
     if not groups:
-        groups = _basic_user_to_groups(name)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Usuário sem perfil clínico (admin, radiologista ou técnico).",
+        )
     return ClinicalUser(username=name, groups=groups, auth_method="oidc")
 
 
@@ -147,6 +157,12 @@ async def authenticate_clinical(username: str, password: str) -> ClinicalUser:
     keycloak_user = await _authenticate_keycloak(username, password)
     if keycloak_user:
         return keycloak_user
+
+    if not settings.clinical_local_auth_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Use login institucional (Keycloak). Autenticação local desabilitada.",
+        )
 
     if _verify_htpasswd(username, password):
         return ClinicalUser(

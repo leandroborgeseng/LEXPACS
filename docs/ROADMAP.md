@@ -55,6 +55,7 @@
 | **B** | Formulário config SQL MWL na aba Admin | `./scripts/smoke-test.sh` (seção Onda B) |
 | **B+** | Estatísticas admin (exames, pacientes, modalidade, idade, disco) | `GET /clinica-api/admin/pacs/stats` |
 | **C** | Backup agendado + status na aba Admin | `docker compose --profile backup up -d backup` |
+| **D** | Auth produção (Keycloak redirect), papéis na UI, laudo por perfil | `./scripts/smoke-test.sh` (seção Onda D) |
 
 ---
 

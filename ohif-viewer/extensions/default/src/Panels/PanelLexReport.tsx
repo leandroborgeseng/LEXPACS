@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useImageViewer } from '@ohif/ui-next';
 import { Button, Input, Separator } from '@ohif/ui-next';
+import { fetchClinicalProfile, type ClinicalPermissions } from '../../../../platform/app/src/routes/WorkList/lexClinicalUser';
 
 const API_BASE = '/clinica-api/reports';
 
@@ -34,8 +35,11 @@ function PanelLexReport() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [permissions, setPermissions] = useState<ClinicalPermissions | null>(null);
 
   const isSigned = status === 'signed';
+  const canSign = permissions?.can_sign ?? true;
+  const canDraft = permissions?.can_draft ?? true;
 
   const loadReport = useCallback(async () => {
     if (!studyUid) {
@@ -73,13 +77,21 @@ function PanelLexReport() {
     loadReport();
   }, [loadReport]);
 
+  useEffect(() => {
+    void fetchClinicalProfile().then(profile => {
+      if (profile?.permissions) {
+        setPermissions(profile.permissions);
+      }
+    });
+  }, []);
+
   const execCommand = (command: string) => {
     document.execCommand(command, false);
     editorRef.current?.focus();
   };
 
   const saveDraft = async () => {
-    if (!studyUid || isSigned) {
+    if (!studyUid || isSigned || !canDraft) {
       return;
     }
     setLoading(true);
@@ -139,7 +151,7 @@ function PanelLexReport() {
   };
 
   const signReport = async () => {
-    if (!studyUid || isSigned) {
+    if (!studyUid || isSigned || !canSign) {
       return;
     }
     setLoading(true);
@@ -206,11 +218,18 @@ function PanelLexReport() {
     <div className="text-foreground flex h-full flex-col gap-3 overflow-y-auto p-3">
       <div className="flex items-center justify-between gap-2">
         <h3 className="text-primary text-sm font-semibold">Laudo</h3>
-        <span
-          className={`rounded px-2 py-0.5 text-xs ${isSigned ? 'bg-primary/20 text-primary' : 'bg-muted text-muted-foreground'}`}
-        >
-          {isSigned ? 'Assinado' : 'Rascunho'}
-        </span>
+        <div className="flex items-center gap-2">
+          {permissions?.role_label ? (
+            <span className="text-muted-foreground text-[10px] uppercase tracking-wide">
+              {permissions.role_label}
+            </span>
+          ) : null}
+          <span
+            className={`rounded px-2 py-0.5 text-xs ${isSigned ? 'bg-primary/20 text-primary' : 'bg-muted text-muted-foreground'}`}
+          >
+            {isSigned ? 'Assinado' : 'Rascunho'}
+          </span>
+        </div>
       </div>
 
       {isSigned && signedAt ? (
@@ -303,7 +322,7 @@ function PanelLexReport() {
         ) : null}
       </div>
 
-      {!isSigned ? (
+      {!isSigned && canSign ? (
         <>
           <Separator />
           <label className="flex flex-col gap-1 text-xs">
@@ -325,6 +344,13 @@ function PanelLexReport() {
         </>
       ) : null}
 
+      {!isSigned && !canSign ? (
+        <p className="text-muted-foreground text-xs">
+          Perfil técnico: você pode redigir rascunho e anexar PDF. Assinatura é feita pelo
+          radiologista.
+        </p>
+      ) : null}
+
       {error ? <p className="text-destructive text-xs">{error}</p> : null}
       {message ? <p className="text-primary text-xs">{message}</p> : null}
 
@@ -332,20 +358,22 @@ function PanelLexReport() {
         <div className="mt-auto flex flex-col gap-2 pt-2">
           <Button
             onClick={saveDraft}
-            disabled={loading}
+            disabled={loading || !canDraft}
           >
             Salvar rascunho
           </Button>
-          <Button
-            variant="default"
-            className="bg-primary"
-            onClick={signReport}
-            disabled={loading || !signedBy.trim()}
-          >
-            Assinar laudo
-          </Button>
+          {canSign ? (
+            <Button
+              variant="default"
+              className="bg-primary"
+              onClick={signReport}
+              disabled={loading || !signedBy.trim()}
+            >
+              Assinar laudo
+            </Button>
+          ) : null}
         </div>
-      ) : (
+      ) : canSign ? (
         <div className="mt-auto flex flex-col gap-2 border-t pt-3">
           <span className="text-xs font-medium">Portal do paciente</span>
           <p className="text-muted-foreground text-xs">
@@ -370,7 +398,11 @@ function PanelLexReport() {
             </Button>
           )}
         </div>
-      )}
+      ) : isSigned ? (
+        <p className="text-muted-foreground mt-auto text-xs">
+          Laudo assinado. Liberação ao paciente é feita pelo radiologista.
+        </p>
+      ) : null}
     </div>
   );
 }

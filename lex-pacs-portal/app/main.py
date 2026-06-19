@@ -4,7 +4,7 @@ from pathlib import Path
 
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -30,7 +30,9 @@ from .clinical_auth import (
     clinical_user_from_request,
     oidc_status,
     require_clinical_user,
+    clinical_permissions,
 )
+from .clinical_oidc import exchange_oidc_code, oidc_authorize_url, parse_oidc_state
 from .config import settings
 from .reports import router as reports_router
 from .mwl_scheduler import start_mwl_scheduler
@@ -199,12 +201,36 @@ async def clinical_auth_config() -> dict:
     return oidc_status()
 
 
+@app.get("/api/auth/clinical/oidc/login")
+async def clinical_oidc_login(next: str = "/viewer/") -> RedirectResponse:
+    return RedirectResponse(url=oidc_authorize_url(next), status_code=302)
+
+
+@app.get("/api/auth/clinical/oidc/callback")
+async def clinical_oidc_callback(code: str = "", state: str = "", error: str = "") -> RedirectResponse:
+    if error:
+        return RedirectResponse(
+            url=f"/clinica/login?error={error}",
+            status_code=302,
+        )
+    if not code or not state:
+        return RedirectResponse(url="/clinica/login?error=missing_code", status_code=302)
+    next_path = parse_oidc_state(state)
+    user = await exchange_oidc_code(code)
+    token = create_clinical_session(user.username, user.groups, user.auth_method)
+    log_event("clinical_login", user.username, auth_method="oidc_redirect")
+    response = RedirectResponse(url=next_path, status_code=302)
+    response.set_cookie(key=CLINICAL_COOKIE_NAME, value=token, **session_cookie_kwargs())
+    return response
+
+
 @app.get("/api/auth/clinical/me")
 async def clinical_me(clinical_user: ClinicalUser = Depends(require_clinical_user)) -> dict:
     return {
         "username": clinical_user.username,
         "groups": clinical_user.groups,
         "auth_method": clinical_user.auth_method,
+        "permissions": clinical_permissions(clinical_user),
     }
 
 

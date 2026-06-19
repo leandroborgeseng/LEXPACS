@@ -10,9 +10,11 @@ from .clinical_session import (
     CLINICAL_COOKIE_NAME,
     ClinicalUser,
     _basic_user_to_groups,
+    _filter_clinical_groups,
     _normalize_groups,
     clinical_user_from_session_token,
 )
+from .clinical_oidc import clinical_permissions, oidc_public_config
 
 ADMIN_GROUPS = {"admin"}
 RADIOLOGIST_GROUPS = {"radiologista", "admin"}
@@ -69,12 +71,13 @@ def clinical_user_from_request(request: Request) -> ClinicalUser | None:
                 detail="Token OIDC inválido.",
             ) from exc
         username = str(claims.get("preferred_username") or claims.get("sub") or "oidc-user")
-        groups = _normalize_groups(claims.get("groups"))
+        groups = _filter_clinical_groups(_normalize_groups(claims.get("groups")))
         if not groups:
-            realm_roles = claims.get("realm_access", {}).get("roles", [])
-            groups = _normalize_groups(realm_roles)
+            groups = _filter_clinical_groups(
+                _normalize_groups(claims.get("realm_access", {}).get("roles", []))
+            )
         if not groups:
-            groups = _basic_user_to_groups(username)
+            groups = _filter_clinical_groups(_basic_user_to_groups(username))
         return ClinicalUser(username=username, groups=groups, auth_method="oidc")
 
     return None
@@ -89,8 +92,18 @@ def require_clinical_user(request: Request) -> ClinicalUser:
 
 def require_admin(request: Request) -> ClinicalUser:
     user = require_clinical_user(request)
-    if settings.oidc_enabled and not user.is_admin:
+    if not user.is_admin:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso restrito a administradores.")
+    return user
+
+
+def require_can_sign(request: Request) -> ClinicalUser:
+    user = require_clinical_user(request)
+    if not user.can_sign:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Assinatura e liberação restritas a radiologistas e administradores.",
+        )
     return user
 
 
@@ -102,8 +115,4 @@ def get_optional_clinical_user(request: Request) -> ClinicalUser | None:
 
 
 def oidc_status() -> dict[str, Any]:
-    return {
-        "enabled": settings.oidc_enabled,
-        "issuer": settings.oidc_issuer_url if settings.oidc_enabled else "",
-        "client_id": settings.oidc_client_id if settings.oidc_enabled else "",
-    }
+    return oidc_public_config()

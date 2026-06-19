@@ -22,7 +22,11 @@
       "directAccessGrantsEnabled": true,
       "standardFlowEnabled": true,
       "serviceAccountsEnabled": false,
-      "redirectUris": ["http://localhost:3000/*", "http://localhost:8080/*"],
+      "redirectUris": [
+        "http://localhost:3000/*",
+        "http://localhost:8080/*",
+        "http://localhost:3000/clinica-api/auth/clinical/oidc/callback"
+      ],
       "webOrigins": ["http://localhost:3000", "http://localhost:8080"],
       "protocol": "openid-connect",
       "attributes": {

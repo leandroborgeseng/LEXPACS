@@ -17,11 +17,17 @@
 
     <main class="card">
       <h1>Entrar</h1>
-      <p class="hint">Use suas credenciais institucionais. Após o login você será redirecionado para a worklist.</p>
+      <p class="hint" id="login-hint">Use suas credenciais institucionais (Keycloak).</p>
+
+      <div id="oidc-section" class="hidden" style="margin-bottom: 1rem;">
+        <button type="button" id="oidc-btn" class="secondary-btn">Entrar com Keycloak</button>
+        <p class="hint" style="margin-top: 0.75rem;">Ou use usuário e senha abaixo.</p>
+      </div>
+
       <form id="login-form">
         <label>
           Usuário
-          <input id="username" name="username" required autocomplete="username" placeholder="Ex.: clinica ou admin" />
+          <input id="username" name="username" required autocomplete="username" placeholder="Ex.: radiologista ou admin" />
         </label>
         <label>
           Senha
@@ -30,6 +36,10 @@
         <p id="login-error" class="error hidden"></p>
         <button type="submit" id="login-btn">Acessar worklist</button>
       </form>
+
+      <p id="local-dev-hint" class="hint hidden" style="margin-top: 1rem;">
+        Dev: login local <code>clinica</code> / <code>lexclinica2024</code> também funciona.
+      </p>
       <p class="hint" style="margin-top: 1.25rem;">
         Paciente? <a href="/paciente/" style="color: #f87171;">Portal do paciente</a>
       </p>

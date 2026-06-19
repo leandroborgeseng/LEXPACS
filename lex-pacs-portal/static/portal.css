@@ -65,10 +65,16 @@ button {
   cursor: pointer;
 }
 
-button.ghost {
+button.ghost,
+button.secondary-btn {
   background: transparent;
   border: 1px solid var(--border);
   color: var(--text);
+}
+
+button.secondary-btn {
+  width: 100%;
+  border-color: var(--red);
 }
 
 button:disabled { opacity: 0.6; cursor: not-allowed; }

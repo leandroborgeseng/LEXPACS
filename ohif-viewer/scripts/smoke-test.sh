@@ -865,6 +865,76 @@ else
   fail "latest-status.json ausente após backup"
 fi
 
+echo "▶ Onda D — Papéis clínicos e OIDC produção"
+clinical_cfg=$(curl -s "${GATEWAY_URL}/clinica-api/auth/clinical/config")
+if echo "$clinical_cfg" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get('enabled') and d.get('redirect_uri') and 'local_auth_enabled' in d else 1)" 2>/dev/null; then
+  pass "GET /auth/clinical/config (redirect + local_auth)"
+else
+  fail "GET /auth/clinical/config incompleto"
+fi
+
+clinical_login
+me_perms=$(curl_auth "${GATEWAY_URL}/clinica-api/auth/clinical/me")
+if echo "$me_perms" | python3 -c "import sys,json; d=json.load(sys.stdin); p=d.get('permissions',{}); sys.exit(0 if p.get('can_draft') is not None and p.get('role_label') else 1)" 2>/dev/null; then
+  pass "Sessão clínica retorna permissions"
+else
+  fail "Sessão clínica sem permissions"
+fi
+
+keycloak_token() {
+  local user=$1 pass=$2
+  curl -s -X POST "${KEYCLOAK_URL}/realms/lex-pacs/protocol/openid-connect/token" \
+    -d "grant_type=password" \
+    -d "client_id=lex-clinical" \
+    -d "client_secret=${OIDC_CLIENT_SECRET}" \
+    -d "username=${user}" \
+    -d "password=${pass}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('access_token',''))" 2>/dev/null || true
+}
+
+RAD_TOKEN=$(keycloak_token radiologista lexrad2024)
+TEC_TOKEN=$(keycloak_token tecnico lextec2024)
+
+if [ -n "$RAD_TOKEN" ]; then
+  rad_me=$(curl -s -H "Authorization: Bearer ${RAD_TOKEN}" "${GATEWAY_URL}/clinica-api/auth/clinical/me")
+  if echo "$rad_me" | python3 -c "import sys,json; d=json.load(sys.stdin); p=d.get('permissions',{}); sys.exit(0 if p.get('can_sign') and p.get('role')=='radiologista' else 1)" 2>/dev/null; then
+    pass "Radiologista OIDC pode assinar (can_sign)"
+  else
+    fail "Radiologista sem can_sign"
+  fi
+else
+  fail "Token radiologista OIDC ausente"
+fi
+
+if [ -n "$TEC_TOKEN" ]; then
+  tec_me=$(curl -s -H "Authorization: Bearer ${TEC_TOKEN}" "${GATEWAY_URL}/clinica-api/auth/clinical/me")
+  if echo "$tec_me" | python3 -c "import sys,json; d=json.load(sys.stdin); p=d.get('permissions',{}); sys.exit(0 if not p.get('can_sign') and p.get('role')=='tecnico' else 1)" 2>/dev/null; then
+    pass "Técnico OIDC não pode assinar"
+  else
+    fail "Técnico com can_sign indevido"
+  fi
+else
+  fail "Token técnico OIDC ausente"
+fi
+
+load_study_uids
+sign_test_uid="${STUDY_UID_DRAFT:-${STUDY_UID:-}}"
+if [ -n "$sign_test_uid" ] && [ -n "$TEC_TOKEN" ]; then
+  tec_sign=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer ${TEC_TOKEN}" \
+    -X POST "${GATEWAY_URL}/clinica-api/reports/${sign_test_uid}/sign" \
+    -H "Content-Type: application/json" \
+    -d '{"signed_by":"Tecnico Smoke","signed_crm":""}')
+  [ "$tec_sign" = "403" ] && pass "Técnico bloqueado ao assinar → 403" || fail "Técnico assinou laudo (${tec_sign})"
+else
+  skip "Onda D: sem estudo ou token técnico para teste de assinatura"
+fi
+
+oidc_login_code=$(curl -s -o /dev/null -w "%{http_code}" "${GATEWAY_URL}/clinica-api/auth/clinical/oidc/login?next=%2Fviewer%2F")
+if [ "$oidc_login_code" = "307" ] || [ "$oidc_login_code" = "302" ]; then
+  pass "GET /auth/clinical/oidc/login redireciona Keycloak"
+else
+  fail "OIDC login não redireciona (${oidc_login_code})"
+fi
+
 curl_auth -X POST "${GATEWAY_URL}/clinica-api/auth/clinical/logout" >/dev/null
 code_logout=$(http_code_auth "${GATEWAY_URL}/dicom-web/studies?limit=1")
 if [ "$code_logout" = "401" ] || [ "$code_logout" = "302" ]; then

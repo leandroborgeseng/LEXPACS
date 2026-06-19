@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate, type NavigateFunction } from 'react-router-dom';
 import { useTranslation, type TFunction } from 'react-i18next';
 
@@ -7,6 +7,7 @@ import { useSystem } from '@ohif/core';
 import { StudyList, Icons, Button, useModal } from '@ohif/ui-next';
 import { PacsSettingsModal, PACS_MODAL_SHELL } from './PacsSettingsModal';
 import { lexClinicalLogout } from './lexClinicalAuth';
+import { fetchClinicalProfile, type ClinicalProfile } from './lexClinicalUser';
 
 export type SettingsMenuItem = {
   id: string;
@@ -89,6 +90,11 @@ export function StudyListSettingsPopover() {
   const { servicesManager } = useSystem();
   const { customizationService } = servicesManager.services as any;
   const { show } = useModal();
+  const [profile, setProfile] = useState<ClinicalProfile | null>(null);
+
+  useEffect(() => {
+    void fetchClinicalProfile().then(setProfile);
+  }, []);
 
   const defaults = defaultSettingsMenuItems({
     t,
@@ -110,6 +116,14 @@ export function StudyListSettingsPopover() {
 
   return (
     <StudyList.SettingsPopover>
+      {profile ? (
+        <span
+          className="text-muted-foreground hidden max-w-[140px] truncate text-[11px] leading-tight sm:inline"
+          title={`${profile.username} — ${profile.permissions.role_label}`}
+        >
+          {profile.permissions.role_label}
+        </span>
+      ) : null}
       <StudyList.SettingsPopover.Trigger>
         <Button
           variant="ghost"

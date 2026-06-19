@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import httpx
-from fastapi import APIRouter, File, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from .audit import log_event
-from .clinical_auth import get_optional_clinical_user
+from .clinical_auth import get_optional_clinical_user, require_can_sign, require_clinical_user
+from .clinical_session import ClinicalUser
 from .config import settings
 from .orthanc_client import OrthancClient
 from .report_storage import (
@@ -97,9 +98,14 @@ async def get_report(study_instance_uid: str, request: Request) -> ReportRespons
 
 
 @router.put("/{study_instance_uid}", response_model=ReportResponse)
-async def put_report(study_instance_uid: str, body: SaveDraftRequest) -> ReportResponse:
+async def put_report(
+    study_instance_uid: str,
+    body: SaveDraftRequest,
+    user: ClinicalUser = Depends(require_clinical_user),
+) -> ReportResponse:
     await _ensure_study_exists(study_instance_uid)
     data = save_draft(study_instance_uid, body.content_html, body.author_name)
+    log_event("report_draft", user.username, study_instance_uid=study_instance_uid, auth_method=user.auth_method)
     return _to_response(data)
 
 
@@ -107,17 +113,16 @@ async def put_report(study_instance_uid: str, body: SaveDraftRequest) -> ReportR
 async def post_sign(
     study_instance_uid: str,
     body: SignReportRequest,
-    request: Request,
+    user: ClinicalUser = Depends(require_can_sign),
 ) -> ReportResponse:
     await _ensure_study_exists(study_instance_uid)
     data = sign_report(study_instance_uid, body.signed_by, body.signed_crm)
-    user = get_optional_clinical_user(request)
     log_event(
         "report_signed",
-        user.username if user else body.signed_by,
+        user.username,
         study_instance_uid=study_instance_uid,
         signed_by=body.signed_by,
-        auth_method=user.auth_method if user else "unknown",
+        auth_method=user.auth_method,
     )
     return _to_response(data)
 
@@ -126,6 +131,7 @@ async def post_sign(
 async def post_pdf(
     study_instance_uid: str,
     file: UploadFile = File(...),
+    user: ClinicalUser = Depends(require_clinical_user),
 ) -> ReportResponse:
     await _ensure_study_exists(study_instance_uid)
     if file.content_type not in ("application/pdf", "application/octet-stream"):
@@ -135,6 +141,7 @@ async def post_pdf(
         )
     pdf_bytes = await file.read()
     data = save_pdf(study_instance_uid, pdf_bytes, file.filename or "report.pdf")
+    log_event("report_pdf_upload", user.username, study_instance_uid=study_instance_uid, auth_method=user.auth_method)
     return _to_response(data)
 
 
@@ -161,14 +168,22 @@ async def get_pdf(study_instance_uid: str, request: Request) -> FileResponse:
 
 
 @router.post("/{study_instance_uid}/release", response_model=ReportResponse)
-async def post_release(study_instance_uid: str) -> ReportResponse:
+async def post_release(
+    study_instance_uid: str,
+    user: ClinicalUser = Depends(require_can_sign),
+) -> ReportResponse:
     await _ensure_study_exists(study_instance_uid)
     data = release_to_patient(study_instance_uid)
+    log_event("report_release", user.username, study_instance_uid=study_instance_uid, auth_method=user.auth_method)
     return _to_response(data)
 
 
 @router.post("/{study_instance_uid}/revoke-patient", response_model=ReportResponse)
-async def post_revoke_patient(study_instance_uid: str) -> ReportResponse:
+async def post_revoke_patient(
+    study_instance_uid: str,
+    user: ClinicalUser = Depends(require_can_sign),
+) -> ReportResponse:
     await _ensure_study_exists(study_instance_uid)
     data = revoke_patient_visibility(study_instance_uid)
+    log_event("report_revoke", user.username, study_instance_uid=study_instance_uid, auth_method=user.auth_method)
     return _to_response(data)

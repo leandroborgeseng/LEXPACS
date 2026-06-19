@@ -23,8 +23,16 @@ class Settings(BaseSettings):
     backup_interval_hours: int = 24
     oidc_enabled: bool = False
     oidc_issuer_url: str = "http://keycloak:8080/realms/lex-pacs"
+    oidc_public_issuer_url: str = "http://localhost:8081/realms/lex-pacs"
     oidc_client_id: str = "lex-clinical"
     oidc_client_secret: str = "lex-clinical-dev-secret"
+    clinical_local_auth_enabled: bool = True
+
+
+    @property
+    def oidc_redirect_uri(self) -> str:
+        base = self.ohif_viewer_url.rstrip("/")
+        return f"{base}/clinica-api/auth/clinical/oidc/callback"
 
 
 settings = Settings()

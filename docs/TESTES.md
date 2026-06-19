@@ -46,10 +46,11 @@ chmod +x scripts/smoke-test.sh    # uma vez
 | **Onda B** | Formulário SQL MWL na aba Admin | `PUT /mwl-sql` na smoke Onda B |
 | **Onda B+** | Dashboard estatísticas na aba Admin | `GET /admin/pacs/stats` |
 | **Onda C** | Backup agendado + status | `GET /admin/pacs/backup/status` |
+| **Onda D** | Papéis (radiologista/técnico/admin), OIDC redirect, permissions | Smoke seção Onda D |
 
 ### Etapas pendentes (sem teste ainda)
 
-Nenhuma no roadmap E1–E15. Próximas ondas: ver [ROADMAP.md](./ROADMAP.md) (backup automático, OIDC pleno, E2E).
+Próximas ondas: ver [ROADMAP.md](./ROADMAP.md) (E2E Playwright, HTTPS produção).
 
 Rodar explicitamente: `./scripts/smoke-test.sh E7` → mostra "etapa ainda não implementada".
 

@@ -212,8 +212,8 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
       const status = await statusRes.json().catch(() => null);
       const entriesData = await entriesRes.json().catch(() => ({}));
 
-      const groups: string[] = Array.isArray(me.groups) ? me.groups : [];
-      const admin = groups.includes('admin') || me.username === 'admin';
+      const permissions = me.permissions as { can_admin?: boolean } | undefined;
+      const admin = Boolean(permissions?.can_admin);
       setIsAdmin(admin);
 
       if (!statusRes.ok) {
