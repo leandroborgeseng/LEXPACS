@@ -5,7 +5,7 @@ import { useTranslation, type TFunction } from 'react-i18next';
 import { useAppConfig } from '@state';
 import { useSystem } from '@ohif/core';
 import { StudyList, Icons, Button, useModal } from '@ohif/ui-next';
-import { PacsSettingsModal } from './PacsSettingsModal';
+import { PacsSettingsModal, PACS_MODAL_SHELL } from './PacsSettingsModal';
 import { lexClinicalLogout } from './lexClinicalAuth';
 
 export type SettingsMenuItem = {
@@ -37,7 +37,7 @@ export function defaultSettingsMenuItems({
         show({
           content: PacsSettingsModal,
           title: 'Configurações do PACS',
-          containerClassName: 'max-w-xl',
+          containerClassName: PACS_MODAL_SHELL,
         });
       },
     },

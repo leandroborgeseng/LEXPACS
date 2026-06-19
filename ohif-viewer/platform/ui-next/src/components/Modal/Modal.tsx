@@ -31,11 +31,11 @@ const Modal: React.FC<ModalProps> = ({
     >
       <DialogContent className={containerClassName}>
         {title && (
-          <DialogHeader>
+          <DialogHeader className="shrink-0">
             <DialogTitle>{title}</DialogTitle>
           </DialogHeader>
         )}
-        <div className={cn('mt-2')}>{children}</div>
+        <div className="mt-2 min-h-0 overflow-hidden">{children}</div>
       </DialogContent>
     </Dialog>
   );

@@ -1,8 +1,14 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Button, Input, Tabs, TabsContent, TabsList, TabsTrigger } from '@ohif/ui-next';
+import { PacsStatsPanel } from './PacsStatsCharts';
 
 const API_BASE = '/clinica-api/admin/pacs';
 const AUTH_ME = '/clinica-api/auth/clinical/me';
+
+/** Shell do Dialog OHIF — tamanho fixo com scroll interno. */
+export const PACS_MODAL_SHELL =
+  '!flex !max-w-[min(920px,calc(100vw-2rem))] !w-[min(920px,calc(100vw-2rem))] !max-h-[min(90vh,900px)] flex-col overflow-hidden';
 
 type EquipmentItem = {
   id?: string;
@@ -133,14 +139,12 @@ function formatTs(value: string): string {
   return parsed.toLocaleString('pt-BR');
 }
 
-function formatCount(value: number): string {
-  return value.toLocaleString('pt-BR');
-}
-
 export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
   const [tab, setTab] = useState('server');
+  const [expanded, setExpanded] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [statsLoading, setStatsLoading] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
 
@@ -160,20 +164,33 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
   const [mwlSql, setMwlSql] = useState<MwlSqlForm>(emptyMwlSql);
   const [pacsStats, setPacsStats] = useState<PacsStats | null>(null);
 
+  const loadStats = useCallback(async () => {
+    setStatsLoading(true);
+    try {
+      const statsRes = await fetch(`${API_BASE}/stats`, { credentials: 'include' });
+      const statsData = await statsRes.json().catch(() => null);
+      if (statsRes.ok && statsData) {
+        setPacsStats(statsData as PacsStats);
+      }
+    } catch {
+      setPacsStats(null);
+    } finally {
+      setStatsLoading(false);
+    }
+  }, []);
+
   const loadAdminData = useCallback(async () => {
     setAdminLoading(true);
     setError('');
     try {
-      const [meRes, statusRes, entriesRes, statsRes] = await Promise.all([
+      const [meRes, statusRes, entriesRes] = await Promise.all([
         fetch(AUTH_ME, { credentials: 'include' }),
         fetch(`${API_BASE}/mwl/status`, { credentials: 'include' }),
         fetch(`${API_BASE}/mwl/entries`, { credentials: 'include' }),
-        fetch(`${API_BASE}/stats`, { credentials: 'include' }),
       ]);
       const me = await meRes.json().catch(() => ({}));
       const status = await statusRes.json().catch(() => null);
       const entriesData = await entriesRes.json().catch(() => ({}));
-      const statsData = await statsRes.json().catch(() => null);
 
       const groups: string[] = Array.isArray(me.groups) ? me.groups : [];
       const admin = groups.includes('admin') || me.username === 'admin';
@@ -185,11 +202,7 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
       setMwlStatus(status);
       setMwlSql(mwlSqlFromStatus(status.sql));
       setMwlEntries(Array.isArray(entriesData.entries) ? entriesData.entries.slice(0, 20) : []);
-      if (statsRes.ok && statsData) {
-        setPacsStats(statsData as PacsStats);
-      } else {
-        setPacsStats(null);
-      }
+      await loadStats();
 
       if (admin) {
         const auditRes = await fetch(`${API_BASE}/audit?limit=30`, { credentials: 'include' });
@@ -205,7 +218,7 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
     } finally {
       setAdminLoading(false);
     }
-  }, []);
+  }, [loadStats]);
 
   useEffect(() => {
     let cancelled = false;
@@ -240,16 +253,34 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
         }
       }
     })();
+    void loadStats();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [loadStats]);
 
   useEffect(() => {
     if (tab === 'admin') {
       void loadAdminData();
     }
   }, [tab, loadAdminData]);
+
+  useEffect(() => {
+    if (!expanded) {
+      return;
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setExpanded(false);
+      }
+    };
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.body.style.overflow = '';
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [expanded]);
 
   const handleSaveServer = async () => {
     setSaving(true);
@@ -395,551 +426,533 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
     setViews(prev => prev.map((item, i) => (i === index ? { ...item, ...patch } : item)));
   };
 
-  return (
-    <div className="text-foreground flex w-[640px] flex-col gap-3 p-1">
-      {loading ? (
-        <p className="text-sm">Carregando…</p>
-      ) : (
-        <Tabs
-          value={tab}
-          onValueChange={setTab}
+  const refreshData = () => {
+    void (tab === 'admin' ? loadAdminData() : loadStats());
+  };
+
+  const panelBody = (
+    <>
+      <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={refreshData}
+          disabled={saving || statsLoading || adminLoading}
         >
-          <TabsList className="grid w-full grid-cols-4">
-            <TabsTrigger value="server">Servidor</TabsTrigger>
-            <TabsTrigger value="equipment">Equipamentos</TabsTrigger>
-            <TabsTrigger value="worklist">Worklist</TabsTrigger>
-            <TabsTrigger value="admin">Admin</TabsTrigger>
-          </TabsList>
-
-          <TabsContent
-            value="server"
-            className="mt-4 flex flex-col gap-3"
+          {statsLoading || adminLoading ? 'Atualizando…' : 'Atualizar dados'}
+        </Button>
+        {!expanded ? (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setExpanded(true)}
           >
-            <label className="flex flex-col gap-1 text-sm">
-              Nome da instituição
-              <Input
-                value={institutionName}
-                onChange={e => setInstitutionName(e.target.value)}
-                maxLength={64}
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-sm">
-              AE Title
-              <Input
-                value={dicomAet}
-                onChange={e => setDicomAet(e.target.value.toUpperCase())}
-                maxLength={16}
-              />
-            </label>
-            <label className="text-muted-foreground flex flex-col gap-1 text-sm">
-              Porta DICOM
-              <Input
-                value={dicomPort}
-                readOnly
-                disabled
-              />
-            </label>
-            <p className="text-muted-foreground text-xs">
-              A porta DICOM é definida no servidor. Alterá-la exige ajuste de firewall e reinício
-              manual do container.
-            </p>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={checkCalledAet}
-                onChange={e => setCheckCalledAet(e.target.checked)}
-              />
-              Verificar AE Title chamado nas conexões recebidas
-            </label>
-            <div className="flex justify-end">
-              <Button
-                onClick={handleSaveServer}
-                disabled={saving}
-              >
-                Salvar servidor
-              </Button>
-            </div>
-          </TabsContent>
+            Tela cheia
+          </Button>
+        ) : null}
+      </div>
 
-          <TabsContent
-            value="equipment"
-            className="mt-4 flex max-h-[360px] flex-col gap-3 overflow-y-auto"
+      <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain pr-1">
+        {loading ? (
+          <p className="text-sm">Carregando…</p>
+        ) : (
+          <Tabs
+            value={tab}
+            onValueChange={setTab}
+            className="flex w-full max-w-full flex-col"
           >
-            {equipment.map((item, index) => (
-              <div
-                key={item.id || index}
-                className="border-border flex flex-col gap-2 rounded border p-3"
-              >
-                <div className="grid grid-cols-2 gap-2">
-                  <Input
-                    placeholder="AE Title"
-                    value={item.aet}
-                    onChange={e => updateEquipment(index, { aet: e.target.value.toUpperCase() })}
-                  />
-                  <Input
-                    placeholder="Modalidade (DX, CT…)"
-                    value={item.modality}
-                    onChange={e => updateEquipment(index, { modality: e.target.value.toUpperCase() })}
-                  />
-                  <Input
-                    placeholder="IP / host"
-                    value={item.host}
-                    onChange={e => updateEquipment(index, { host: e.target.value })}
-                  />
-                  <Input
-                    placeholder="Porta"
-                    type="number"
-                    value={item.port}
-                    onChange={e => updateEquipment(index, { port: Number(e.target.value) || 104 })}
+            <TabsList className="grid w-full shrink-0 grid-cols-2 sm:grid-cols-4">
+              <TabsTrigger value="server">Servidor</TabsTrigger>
+              <TabsTrigger value="equipment">Equipamentos</TabsTrigger>
+              <TabsTrigger value="worklist">Worklist</TabsTrigger>
+              <TabsTrigger value="admin">Admin</TabsTrigger>
+            </TabsList>
+
+            <TabsContent
+              value="server"
+              className="mt-3 flex w-full max-w-full flex-col gap-4 data-[state=inactive]:hidden"
+            >
+              {statsLoading && !pacsStats ? (
+                <p className="text-muted-foreground text-sm">Carregando estatísticas…</p>
+              ) : pacsStats ? (
+                <div className="border-border rounded-lg border p-3">
+                  <PacsStatsPanel
+                    stats={pacsStats}
+                    compact={!expanded}
                   />
                 </div>
-                <Input
-                  placeholder="Descrição (ex.: RX Sala 1)"
-                  value={item.description}
-                  onChange={e => updateEquipment(index, { description: e.target.value })}
-                />
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="self-end"
-                  onClick={() => setEquipment(prev => prev.filter((_, i) => i !== index))}
+              ) : null}
+
+              <div className="border-border rounded-lg border p-3">
+                <p className="mb-3 text-sm font-medium">Configuração DICOM</p>
+                <div className="flex flex-col gap-3">
+                  <label className="flex flex-col gap-1 text-sm">
+                    Nome da instituição
+                    <Input
+                      value={institutionName}
+                      onChange={e => setInstitutionName(e.target.value)}
+                      maxLength={64}
+                    />
+                  </label>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <label className="flex flex-col gap-1 text-sm">
+                      AE Title
+                      <Input
+                        value={dicomAet}
+                        onChange={e => setDicomAet(e.target.value.toUpperCase())}
+                        maxLength={16}
+                      />
+                    </label>
+                    <label className="text-muted-foreground flex flex-col gap-1 text-sm">
+                      Porta DICOM
+                      <Input
+                        value={dicomPort}
+                        readOnly
+                        disabled
+                      />
+                    </label>
+                  </div>
+                  <p className="text-muted-foreground text-xs">
+                    A porta DICOM é definida no servidor. Alterá-la exige ajuste de firewall e
+                    reinício manual do container.
+                  </p>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={checkCalledAet}
+                      onChange={e => setCheckCalledAet(e.target.checked)}
+                    />
+                    Verificar AE Title chamado nas conexões recebidas
+                  </label>
+                  <div className="flex justify-end">
+                    <Button
+                      onClick={handleSaveServer}
+                      disabled={saving}
+                    >
+                      Salvar servidor
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </TabsContent>
+
+            <TabsContent
+              value="equipment"
+              className="mt-3 flex w-full max-w-full flex-col gap-3 data-[state=inactive]:hidden"
+            >
+              {equipment.map((item, index) => (
+                <div
+                  key={item.id || index}
+                  className="border-border flex flex-col gap-2 rounded border p-3"
                 >
-                  Remover
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <Input
+                      placeholder="AE Title"
+                      value={item.aet}
+                      onChange={e => updateEquipment(index, { aet: e.target.value.toUpperCase() })}
+                    />
+                    <Input
+                      placeholder="Modalidade (DX, CT…)"
+                      value={item.modality}
+                      onChange={e =>
+                        updateEquipment(index, { modality: e.target.value.toUpperCase() })
+                      }
+                    />
+                    <Input
+                      placeholder="IP / host"
+                      value={item.host}
+                      onChange={e => updateEquipment(index, { host: e.target.value })}
+                    />
+                    <Input
+                      placeholder="Porta"
+                      type="number"
+                      value={item.port}
+                      onChange={e => updateEquipment(index, { port: Number(e.target.value) || 104 })}
+                    />
+                  </div>
+                  <Input
+                    placeholder="Descrição (ex.: RX Sala 1)"
+                    value={item.description}
+                    onChange={e => updateEquipment(index, { description: e.target.value })}
+                  />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="self-end"
+                    onClick={() => setEquipment(prev => prev.filter((_, i) => i !== index))}
+                  >
+                    Remover
+                  </Button>
+                </div>
+              ))}
+              <Button
+                variant="outline"
+                onClick={() => setEquipment(prev => [...prev, emptyEquipment()])}
+              >
+                Adicionar equipamento
+              </Button>
+              <div className="flex justify-end">
+                <Button
+                  onClick={handleSaveEquipment}
+                  disabled={saving}
+                >
+                  Salvar equipamentos
                 </Button>
               </div>
-            ))}
-            <Button
-              variant="outline"
-              onClick={() => setEquipment(prev => [...prev, emptyEquipment()])}
-            >
-              Adicionar equipamento
-            </Button>
-            <div className="flex justify-end">
-              <Button
-                onClick={handleSaveEquipment}
-                disabled={saving}
-              >
-                Salvar equipamentos
-              </Button>
-            </div>
-          </TabsContent>
+            </TabsContent>
 
-          <TabsContent
-            value="worklist"
-            className="mt-4 flex max-h-[360px] flex-col gap-3 overflow-y-auto"
-          >
-            <p className="text-muted-foreground text-xs">
-              Visões salvas aparecem na barra da worklist. Use o id na URL: ?view=rx-sala-1
-            </p>
-            {views.map((view, index) => (
-              <div
-                key={view.id}
-                className="border-border flex flex-col gap-2 rounded border p-3"
-              >
-                <div className="grid grid-cols-2 gap-2">
+            <TabsContent
+              value="worklist"
+              className="mt-3 flex w-full max-w-full flex-col gap-3 data-[state=inactive]:hidden"
+            >
+              <p className="text-muted-foreground text-xs">
+                Visões salvas aparecem na barra da worklist. Use o id na URL: ?view=rx-sala-1
+              </p>
+              {views.map((view, index) => (
+                <div
+                  key={view.id}
+                  className="border-border flex flex-col gap-2 rounded border p-3"
+                >
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <Input
+                      placeholder="id (rx-sala-1)"
+                      value={view.id}
+                      onChange={e => updateView(index, { id: e.target.value })}
+                    />
+                    <Input
+                      placeholder="Nome exibido"
+                      value={view.label}
+                      onChange={e => updateView(index, { label: e.target.value })}
+                    />
+                  </div>
                   <Input
-                    placeholder="id (rx-sala-1)"
-                    value={view.id}
-                    onChange={e => updateView(index, { id: e.target.value })}
+                    placeholder="Modalidades (CT,MR)"
+                    value={(view.modalities || []).join(',')}
+                    onChange={e =>
+                      updateView(index, {
+                        modalities: e.target.value
+                          .split(',')
+                          .map(v => v.trim().toUpperCase())
+                          .filter(Boolean),
+                      })
+                    }
                   />
                   <Input
-                    placeholder="Nome exibido"
-                    value={view.label}
-                    onChange={e => updateView(index, { label: e.target.value })}
+                    placeholder="Filtro descrição"
+                    value={view.description}
+                    onChange={e => updateView(index, { description: e.target.value })}
+                  />
+                  <Input
+                    placeholder="Station AE (futuro MWL)"
+                    value={view.station_aet}
+                    onChange={e => updateView(index, { station_aet: e.target.value.toUpperCase() })}
                   />
                 </div>
-                <Input
-                  placeholder="Modalidades (CT,MR)"
-                  value={(view.modalities || []).join(',')}
-                  onChange={e =>
-                    updateView(index, {
-                      modalities: e.target.value
-                        .split(',')
-                        .map(v => v.trim().toUpperCase())
-                        .filter(Boolean),
-                    })
-                  }
-                />
-                <Input
-                  placeholder="Filtro descrição"
-                  value={view.description}
-                  onChange={e => updateView(index, { description: e.target.value })}
-                />
-                <Input
-                  placeholder="Station AE (futuro MWL)"
-                  value={view.station_aet}
-                  onChange={e => updateView(index, { station_aet: e.target.value.toUpperCase() })}
-                />
+              ))}
+              <div className="flex justify-end">
+                <Button
+                  onClick={handleSaveViews}
+                  disabled={saving}
+                >
+                  Salvar visões
+                </Button>
               </div>
-            ))}
-            <div className="flex justify-end">
-              <Button
-                onClick={handleSaveViews}
-                disabled={saving}
-              >
-                Salvar visões
-              </Button>
-            </div>
-          </TabsContent>
+            </TabsContent>
 
-          <TabsContent
-            value="admin"
-            className="mt-4 flex max-h-[520px] flex-col gap-3 overflow-y-auto"
-          >
-            {adminLoading ? (
-              <p className="text-sm">Carregando painel admin…</p>
-            ) : mwlStatus ? (
-              <>
-                {pacsStats ? (
-                  <div className="border-border rounded border p-3">
-                    <div className="mb-2 flex items-center justify-between gap-2">
-                      <p className="text-sm font-medium">Estatísticas do PACS</p>
-                      <p className="text-muted-foreground text-xs">
-                        Atualizado {formatTs(pacsStats.generated_at)}
+            <TabsContent
+              value="admin"
+              className="mt-3 flex w-full max-w-full flex-col gap-3 data-[state=inactive]:hidden"
+            >
+              {adminLoading ? (
+                <p className="text-sm">Carregando painel admin…</p>
+              ) : mwlStatus ? (
+                <>
+                  {pacsStats ? (
+                    <div className="border-border rounded-lg border p-3">
+                      <PacsStatsPanel stats={pacsStats} />
+                    </div>
+                  ) : null}
+
+                  <div className="border-border rounded border p-3 text-sm">
+                    <p className="font-medium">Status MWL</p>
+                    <p className="text-muted-foreground mt-1 text-xs">
+                      Plugin Orthanc: {mwlStatus.plugin_enabled ? 'ativo' : 'inativo'} · entradas
+                      SQL: {mwlStatus.entries_total}
+                    </p>
+                    <p className="text-muted-foreground text-xs">
+                      Último sync: {formatTs(mwlStatus.sync.last_at)} por{' '}
+                      {mwlStatus.sync.last_actor || '—'} ({mwlStatus.sync.last_synced} arquivo(s))
+                    </p>
+                    {mwlStatus.sync.last_error ? (
+                      <p className="text-destructive mt-1 text-xs">
+                        Último erro: {mwlStatus.sync.last_error}
                       </p>
+                    ) : null}
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        onClick={handleMwlSync}
+                        disabled={saving || !mwlSql.enabled}
+                      >
+                        Sincronizar MWL agora
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void loadAdminData()}
+                        disabled={saving}
+                      >
+                        Atualizar
+                      </Button>
                     </div>
-                    <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                      {[
-                        { label: 'Pacientes', value: pacsStats.patients },
-                        { label: 'Exames', value: pacsStats.studies },
-                        { label: 'Séries', value: pacsStats.series },
-                        { label: 'Instâncias', value: pacsStats.instances },
-                      ].map(item => (
-                        <div
-                          key={item.label}
-                          className="bg-muted/40 rounded p-2 text-center"
-                        >
-                          <p className="text-lg font-semibold">{formatCount(item.value)}</p>
-                          <p className="text-muted-foreground text-xs">{item.label}</p>
+                  </div>
+
+                  <div className="border-border rounded border p-3">
+                    <p className="mb-2 text-sm font-medium">Conexão SQL (agenda → MWL)</p>
+                    {!isAdmin ? (
+                      <p className="text-muted-foreground text-xs">
+                        {mwlSql.host}:{mwlSql.port}/{mwlSql.database} · tabela {mwlSql.table} ·
+                        sync a cada {mwlSql.sync_interval_minutes} min
+                        {mwlSql.enabled ? '' : ' (desabilitado)'}
+                      </p>
+                    ) : (
+                      <div className="flex flex-col gap-2">
+                        <label className="flex items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={mwlSql.enabled}
+                            onChange={e => setMwlSql(prev => ({ ...prev, enabled: e.target.checked }))}
+                          />
+                          Sync SQL habilitado
+                        </label>
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                          <label className="flex flex-col gap-1 text-xs">
+                            Host
+                            <Input
+                              value={mwlSql.host}
+                              onChange={e => setMwlSql(prev => ({ ...prev, host: e.target.value }))}
+                            />
+                          </label>
+                          <label className="flex flex-col gap-1 text-xs">
+                            Porta
+                            <Input
+                              type="number"
+                              value={mwlSql.port}
+                              onChange={e =>
+                                setMwlSql(prev => ({
+                                  ...prev,
+                                  port: Number(e.target.value) || 5432,
+                                }))
+                              }
+                            />
+                          </label>
+                          <label className="flex flex-col gap-1 text-xs">
+                            Banco
+                            <Input
+                              value={mwlSql.database}
+                              onChange={e =>
+                                setMwlSql(prev => ({ ...prev, database: e.target.value }))
+                              }
+                            />
+                          </label>
+                          <label className="flex flex-col gap-1 text-xs">
+                            Usuário
+                            <Input
+                              value={mwlSql.username}
+                              onChange={e =>
+                                setMwlSql(prev => ({ ...prev, username: e.target.value }))
+                              }
+                            />
+                          </label>
+                          <label className="flex flex-col gap-1 text-xs">
+                            Tabela
+                            <Input
+                              value={mwlSql.table}
+                              onChange={e => setMwlSql(prev => ({ ...prev, table: e.target.value }))}
+                            />
+                          </label>
+                          <label className="flex flex-col gap-1 text-xs">
+                            Env da senha
+                            <Input
+                              value={mwlSql.password_env}
+                              onChange={e =>
+                                setMwlSql(prev => ({ ...prev, password_env: e.target.value }))
+                              }
+                              placeholder="POSTGRES_PASSWORD"
+                            />
+                          </label>
+                          <label className="col-span-1 flex flex-col gap-1 text-xs sm:col-span-2">
+                            Intervalo sync automático (minutos)
+                            <Input
+                              type="number"
+                              min={1}
+                              max={1440}
+                              value={mwlSql.sync_interval_minutes}
+                              onChange={e =>
+                                setMwlSql(prev => ({
+                                  ...prev,
+                                  sync_interval_minutes: Math.max(
+                                    1,
+                                    Number(e.target.value) || 5
+                                  ),
+                                }))
+                              }
+                            />
+                          </label>
                         </div>
-                      ))}
-                    </div>
-
-                    <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                      <div>
-                        <p className="mb-1 text-xs font-medium">Exames por modalidade</p>
-                        {pacsStats.studies_by_modality.length === 0 ? (
-                          <p className="text-muted-foreground text-xs">Sem dados.</p>
-                        ) : (
-                          <table className="w-full text-left text-xs">
-                            <thead>
-                              <tr className="text-muted-foreground border-b">
-                                <th className="py-1 pr-2">Mod.</th>
-                                <th className="py-1 pr-2">Exames</th>
-                                <th className="py-1">Séries</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {pacsStats.studies_by_modality.map(row => (
-                                <tr
-                                  key={row.modality}
-                                  className="border-border/60 border-b"
-                                >
-                                  <td className="py-1 pr-2">{row.modality}</td>
-                                  <td className="py-1 pr-2">{formatCount(row.studies)}</td>
-                                  <td className="py-1">{formatCount(row.series)}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        )}
+                        <p className="text-muted-foreground text-xs">
+                          Senha via variável de ambiente{' '}
+                          <span className="font-mono">{mwlSql.password_env}</span>:{' '}
+                          {mwlSql.password_configured ? 'configurada' : 'ausente no servidor'}
+                        </p>
+                        <div className="flex justify-end">
+                          <Button
+                            size="sm"
+                            onClick={handleSaveMwlSql}
+                            disabled={saving}
+                          >
+                            Salvar conexão SQL
+                          </Button>
+                        </div>
                       </div>
+                    )}
+                  </div>
 
-                      <div>
-                        <p className="mb-1 text-xs font-medium">Idade dos exames (data do estudo)</p>
-                        <table className="w-full text-left text-xs">
+                  <div className="border-border rounded border p-3">
+                    <p className="mb-2 text-sm font-medium">Prévia MWL (SQL)</p>
+                    {mwlEntries.length === 0 ? (
+                      <p className="text-muted-foreground text-xs">Nenhuma entrada agendada.</p>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full min-w-[320px] text-left text-xs">
+                          <thead>
+                            <tr className="text-muted-foreground border-b">
+                              <th className="py-1 pr-2">Accession</th>
+                              <th className="py-1 pr-2">Paciente</th>
+                              <th className="py-1 pr-2">Mod.</th>
+                              <th className="py-1">Station</th>
+                            </tr>
+                          </thead>
                           <tbody>
-                            {pacsStats.study_date_age.map(row => (
+                            {mwlEntries.map(entry => (
                               <tr
-                                key={row.label}
+                                key={entry.accession_number}
                                 className="border-border/60 border-b"
                               >
-                                <td className="py-1 pr-2">{row.label}</td>
-                                <td className="py-1 text-right">{formatCount(row.count)}</td>
+                                <td className="py-1 pr-2">{entry.accession_number}</td>
+                                <td className="py-1 pr-2">{entry.patient_name}</td>
+                                <td className="py-1 pr-2">{entry.modality}</td>
+                                <td className="py-1">{entry.station_aet}</td>
                               </tr>
                             ))}
                           </tbody>
                         </table>
                       </div>
-                    </div>
-
-                    <div className="mb-3">
-                      <p className="mb-1 text-xs font-medium">Idade na ingestão (última atualização)</p>
-                      <table className="w-full text-left text-xs">
-                        <tbody>
-                          {pacsStats.received_age.map(row => (
-                            <tr
-                              key={`recv-${row.label}`}
-                              className="border-border/60 border-b"
-                            >
-                              <td className="py-1 pr-2">{row.label}</td>
-                              <td className="py-1 text-right">{formatCount(row.count)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-
-                    <div>
-                      <p className="mb-1 text-xs font-medium">
-                        Utilização de disco — total {pacsStats.disk_total_mb.toLocaleString('pt-BR')} MB
-                      </p>
-                      <table className="w-full text-left text-xs">
-                        <tbody>
-                          {pacsStats.disk.map(row => (
-                            <tr
-                              key={row.label}
-                              className="border-border/60 border-b"
-                            >
-                              <td className="py-1 pr-2">{row.label}</td>
-                              <td className="py-1 text-right">
-                                {row.mb.toLocaleString('pt-BR')} MB
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                ) : null}
-
-                <div className="border-border rounded border p-3 text-sm">
-                  <p className="font-medium">Status MWL</p>
-                  <p className="text-muted-foreground mt-1 text-xs">
-                    Plugin Orthanc: {mwlStatus.plugin_enabled ? 'ativo' : 'inativo'} · entradas SQL:{' '}
-                    {mwlStatus.entries_total}
-                  </p>
-                  <p className="text-muted-foreground text-xs">
-                    Último sync: {formatTs(mwlStatus.sync.last_at)} por{' '}
-                    {mwlStatus.sync.last_actor || '—'} ({mwlStatus.sync.last_synced} arquivo(s))
-                  </p>
-                  {mwlStatus.sync.last_error ? (
-                    <p className="text-destructive mt-1 text-xs">
-                      Último erro: {mwlStatus.sync.last_error}
-                    </p>
-                  ) : null}
-                  <div className="mt-2 flex gap-2">
-                    <Button
-                      size="sm"
-                      onClick={handleMwlSync}
-                      disabled={saving || !mwlSql.enabled}
-                    >
-                      Sincronizar MWL agora
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => void loadAdminData()}
-                      disabled={saving}
-                    >
-                      Atualizar
-                    </Button>
-                  </div>
-                </div>
-
-                <div className="border-border rounded border p-3">
-                  <p className="mb-2 text-sm font-medium">Conexão SQL (agenda → MWL)</p>
-                  {!isAdmin ? (
-                    <p className="text-muted-foreground text-xs">
-                      {mwlSql.host}:{mwlSql.port}/{mwlSql.database} · tabela {mwlSql.table} ·
-                      sync a cada {mwlSql.sync_interval_minutes} min
-                      {mwlSql.enabled ? '' : ' (desabilitado)'}
-                    </p>
-                  ) : (
-                    <div className="flex flex-col gap-2">
-                      <label className="flex items-center gap-2 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={mwlSql.enabled}
-                          onChange={e => setMwlSql(prev => ({ ...prev, enabled: e.target.checked }))}
-                        />
-                        Sync SQL habilitado
-                      </label>
-                      <div className="grid grid-cols-2 gap-2">
-                        <label className="flex flex-col gap-1 text-xs">
-                          Host
-                          <Input
-                            value={mwlSql.host}
-                            onChange={e => setMwlSql(prev => ({ ...prev, host: e.target.value }))}
-                          />
-                        </label>
-                        <label className="flex flex-col gap-1 text-xs">
-                          Porta
-                          <Input
-                            type="number"
-                            value={mwlSql.port}
-                            onChange={e =>
-                              setMwlSql(prev => ({
-                                ...prev,
-                                port: Number(e.target.value) || 5432,
-                              }))
-                            }
-                          />
-                        </label>
-                        <label className="flex flex-col gap-1 text-xs">
-                          Banco
-                          <Input
-                            value={mwlSql.database}
-                            onChange={e =>
-                              setMwlSql(prev => ({ ...prev, database: e.target.value }))
-                            }
-                          />
-                        </label>
-                        <label className="flex flex-col gap-1 text-xs">
-                          Usuário
-                          <Input
-                            value={mwlSql.username}
-                            onChange={e =>
-                              setMwlSql(prev => ({ ...prev, username: e.target.value }))
-                            }
-                          />
-                        </label>
-                        <label className="flex flex-col gap-1 text-xs">
-                          Tabela
-                          <Input
-                            value={mwlSql.table}
-                            onChange={e => setMwlSql(prev => ({ ...prev, table: e.target.value }))}
-                          />
-                        </label>
-                        <label className="flex flex-col gap-1 text-xs">
-                          Env da senha
-                          <Input
-                            value={mwlSql.password_env}
-                            onChange={e =>
-                              setMwlSql(prev => ({ ...prev, password_env: e.target.value }))
-                            }
-                            placeholder="POSTGRES_PASSWORD"
-                          />
-                        </label>
-                        <label className="col-span-2 flex flex-col gap-1 text-xs">
-                          Intervalo sync automático (minutos)
-                          <Input
-                            type="number"
-                            min={1}
-                            max={1440}
-                            value={mwlSql.sync_interval_minutes}
-                            onChange={e =>
-                              setMwlSql(prev => ({
-                                ...prev,
-                                sync_interval_minutes: Math.max(
-                                  1,
-                                  Number(e.target.value) || 5
-                                ),
-                              }))
-                            }
-                          />
-                        </label>
-                      </div>
-                      <p className="text-muted-foreground text-xs">
-                        Senha via variável de ambiente{' '}
-                        <span className="font-mono">{mwlSql.password_env}</span>:{' '}
-                        {mwlSql.password_configured ? 'configurada' : 'ausente no servidor'}
-                      </p>
-                      <div className="flex justify-end">
-                        <Button
-                          size="sm"
-                          onClick={handleSaveMwlSql}
-                          disabled={saving}
-                        >
-                          Salvar conexão SQL
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                <div className="border-border rounded border p-3">
-                  <p className="mb-2 text-sm font-medium">Prévia MWL (SQL)</p>
-                  {mwlEntries.length === 0 ? (
-                    <p className="text-muted-foreground text-xs">Nenhuma entrada agendada.</p>
-                  ) : (
-                    <table className="w-full text-left text-xs">
-                      <thead>
-                        <tr className="text-muted-foreground border-b">
-                          <th className="py-1 pr-2">Accession</th>
-                          <th className="py-1 pr-2">Paciente</th>
-                          <th className="py-1 pr-2">Mod.</th>
-                          <th className="py-1">Station</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {mwlEntries.map(entry => (
-                          <tr
-                            key={entry.accession_number}
-                            className="border-border/60 border-b"
-                          >
-                            <td className="py-1 pr-2">{entry.accession_number}</td>
-                            <td className="py-1 pr-2">{entry.patient_name}</td>
-                            <td className="py-1 pr-2">{entry.modality}</td>
-                            <td className="py-1">{entry.station_aet}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  )}
-                </div>
-
-                {isAdmin ? (
-                  <div className="border-border rounded border p-3">
-                    <p className="mb-2 text-sm font-medium">Auditoria (últimos 30 eventos)</p>
-                    {auditEvents.length === 0 ? (
-                      <p className="text-muted-foreground text-xs">Nenhum evento registrado.</p>
-                    ) : (
-                      <table className="w-full text-left text-xs">
-                        <thead>
-                          <tr className="text-muted-foreground border-b">
-                            <th className="py-1 pr-2">Quando</th>
-                            <th className="py-1 pr-2">Evento</th>
-                            <th className="py-1">Usuário</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {auditEvents.map((item, index) => (
-                            <tr
-                              key={`${item.timestamp}-${index}`}
-                              className="border-border/60 border-b"
-                            >
-                              <td className="py-1 pr-2 whitespace-nowrap">
-                                {formatTs(item.timestamp)}
-                              </td>
-                              <td className="py-1 pr-2">{item.event}</td>
-                              <td className="py-1">{item.actor}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
                     )}
                   </div>
-                ) : (
-                  <p className="text-muted-foreground text-xs">
-                    Log de auditoria visível apenas para usuários admin.
-                  </p>
-                )}
-              </>
-            ) : (
-              <Button
-                variant="outline"
-                onClick={() => void loadAdminData()}
-              >
-                Carregar painel admin
-              </Button>
-            )}
-          </TabsContent>
-        </Tabs>
-      )}
 
-      {error ? <p className="text-destructive text-sm">{error}</p> : null}
-      {message ? <p className="text-primary text-sm">{message}</p> : null}
+                  {isAdmin ? (
+                    <div className="border-border rounded border p-3">
+                      <p className="mb-2 text-sm font-medium">Auditoria (últimos 30 eventos)</p>
+                      {auditEvents.length === 0 ? (
+                        <p className="text-muted-foreground text-xs">Nenhum evento registrado.</p>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <table className="w-full min-w-[320px] text-left text-xs">
+                            <thead>
+                              <tr className="text-muted-foreground border-b">
+                                <th className="py-1 pr-2">Quando</th>
+                                <th className="py-1 pr-2">Evento</th>
+                                <th className="py-1">Usuário</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {auditEvents.map((item, index) => (
+                                <tr
+                                  key={`${item.timestamp}-${index}`}
+                                  className="border-border/60 border-b"
+                                >
+                                  <td className="py-1 pr-2 whitespace-nowrap">
+                                    {formatTs(item.timestamp)}
+                                  </td>
+                                  <td className="py-1 pr-2">{item.event}</td>
+                                  <td className="py-1">{item.actor}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-muted-foreground text-xs">
+                      Log de auditoria visível apenas para usuários admin.
+                    </p>
+                  )}
+                </>
+              ) : (
+                <Button
+                  variant="outline"
+                  onClick={() => void loadAdminData()}
+                >
+                  Carregar painel admin
+                </Button>
+              )}
+            </TabsContent>
+          </Tabs>
+        )}
+      </div>
 
-      <div className="flex justify-end pt-1">
+      {error ? <p className="text-destructive shrink-0 text-sm">{error}</p> : null}
+      {message ? <p className="text-primary shrink-0 text-sm">{message}</p> : null}
+
+      <div className="flex shrink-0 justify-end gap-2 border-t pt-2">
+        {expanded ? (
+          <Button
+            variant="outline"
+            onClick={() => setExpanded(false)}
+          >
+            Reduzir janela
+          </Button>
+        ) : null}
         <Button
           variant="ghost"
-          onClick={hide}
+          onClick={() => {
+            setExpanded(false);
+            hide?.();
+          }}
           disabled={saving}
         >
           Fechar
         </Button>
       </div>
+    </>
+  );
+
+  if (expanded) {
+    return createPortal(
+      <div className="fixed inset-0 z-[200] flex flex-col bg-muted p-3 sm:p-5">
+        <div className="mb-3 flex shrink-0 items-center justify-between gap-3">
+          <h2 className="text-primary text-lg font-semibold">Configurações do PACS</h2>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setExpanded(false)}
+          >
+            Reduzir janela
+          </Button>
+        </div>
+        <div className="text-foreground flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
+          {panelBody}
+        </div>
+      </div>,
+      document.body
+    );
+  }
+
+  return (
+    <div className="text-foreground flex h-[min(72vh,720px)] min-h-[380px] w-full max-w-full flex-col gap-2 overflow-hidden">
+      {panelBody}
     </div>
   );
 }
