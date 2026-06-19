@@ -7,6 +7,7 @@
   "Instances": "Instancias",
   "MRN": "MRN",
   "Modality": "Modalidad",
+  "Modalities": "Modalidades",
   "PatientName": "Nombre paciente",
   "Previous": "< Anterior",
   "Page": "Página",
@@ -14,5 +15,8 @@
   "Results per page": "Resultados por página",
   "Number of studies": "Estudios",
   "StudyDate": "Fecha del estudio",
-  "StudyList": "Lista de Estudios"
+  "StudyList": "Lista de Estudios",
+  "NoDescription": "Sin descripción",
+  "No studies available": "No hay estudios disponibles",
+  "Upload": "Subir"
 }

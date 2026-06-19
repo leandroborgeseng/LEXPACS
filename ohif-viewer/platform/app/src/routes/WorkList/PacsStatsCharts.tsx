@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 export type ChartItem = {
   label: string;
@@ -26,9 +27,12 @@ type HorizontalBarChartProps = {
   emptyLabel?: string;
 };
 
-export function HorizontalBarChart({ items, emptyLabel = 'Sem dados.' }: HorizontalBarChartProps) {
+export function HorizontalBarChart({ items, emptyLabel }: HorizontalBarChartProps) {
+  const { t, i18n } = useTranslation('LexPacs');
+  const empty = emptyLabel ?? t('stats.noData');
+
   if (items.length === 0) {
-    return <p className="text-muted-foreground text-xs">{emptyLabel}</p>;
+    return <p className="text-muted-foreground text-xs">{empty}</p>;
   }
 
   const max = Math.max(...items.map(item => item.value), 1);
@@ -55,7 +59,7 @@ export function HorizontalBarChart({ items, emptyLabel = 'Sem dados.' }: Horizon
                 style={{ width: `${width}%`, backgroundColor: color }}
               />
             </div>
-            <span className="text-right tabular-nums">{item.value.toLocaleString('pt-BR')}</span>
+            <span className="text-right tabular-nums">{item.value.toLocaleString(i18n.language)}</span>
           </div>
         );
       })}
@@ -78,53 +82,45 @@ type DonutChartProps = {
 export function DonutChart({ segments, centerLabel, centerValue }: DonutChartProps) {
   const total = segments.reduce((sum, item) => sum + item.value, 0);
   if (total <= 0) {
-    return <p className="text-muted-foreground text-xs">Sem dados de disco.</p>;
+    return null;
   }
 
-  let cursor = 0;
-  const gradientParts = segments.map((segment, index) => {
-    const start = (cursor / total) * 100;
-    cursor += segment.value;
-    const end = (cursor / total) * 100;
-    const color = segment.color || chartColor(index);
-    return `${color} ${start}% ${end}%`;
-  });
+  let cumulative = 0;
+  const gradientStops = segments
+    .map(segment => {
+      const start = (cumulative / total) * 100;
+      cumulative += segment.value;
+      const end = (cumulative / total) * 100;
+      const color = segment.color || chartColor(0);
+      return `${color} ${start}% ${end}%`;
+    })
+    .join(', ');
 
   return (
-    <div className="flex w-full max-w-full flex-col items-stretch gap-4 sm:flex-row sm:items-start">
+    <div className="flex flex-col items-center gap-3 sm:flex-row sm:items-center sm:gap-6">
       <div
-        className="relative mx-auto h-32 w-32 shrink-0 rounded-full sm:mx-0"
-        style={{ background: `conic-gradient(${gradientParts.join(', ')})` }}
+        className="relative h-28 w-28 shrink-0 rounded-full"
+        style={{ background: `conic-gradient(${gradientStops})` }}
       >
-        <div className="bg-background absolute inset-5 flex flex-col items-center justify-center rounded-full text-center">
-          <span className="text-lg font-semibold leading-none">{centerValue}</span>
-          <span className="text-muted-foreground mt-1 text-[10px] uppercase tracking-wide">
-            {centerLabel}
-          </span>
+        <div className="bg-background absolute inset-[18%] flex flex-col items-center justify-center rounded-full text-center">
+          <span className="text-muted-foreground text-[10px]">{centerLabel}</span>
+          <span className="text-xs font-semibold tabular-nums">{centerValue}</span>
         </div>
       </div>
-      <div className="grid min-w-0 w-full flex-1 gap-2">
-        {segments.map((segment, index) => {
-          const pct = ((segment.value / total) * 100).toFixed(1);
-          const color = segment.color || chartColor(index);
-          return (
-            <div
-              key={segment.label}
-              className="flex items-center justify-between gap-2 text-xs"
-            >
-              <div className="flex min-w-0 items-center gap-2">
-                <span
-                  className="h-2.5 w-2.5 shrink-0 rounded-full"
-                  style={{ backgroundColor: color }}
-                />
-                <span className="truncate">{segment.label}</span>
-              </div>
-              <span className="text-muted-foreground tabular-nums">
-                {segment.value.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} MB ({pct}%)
-              </span>
-            </div>
-          );
-        })}
+      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+        {segments.map((segment, index) => (
+          <div
+            key={segment.label}
+            className="flex items-center gap-2 text-xs"
+          >
+            <span
+              className="h-2.5 w-2.5 shrink-0 rounded-full"
+              style={{ backgroundColor: segment.color || chartColor(index) }}
+            />
+            <span className="text-muted-foreground truncate">{segment.label}</span>
+            <span className="ml-auto tabular-nums">{segment.value.toLocaleString()}</span>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -162,27 +158,27 @@ type PacsStatsPanelProps = {
   compact?: boolean;
 };
 
-function formatCount(value: number): string {
-  return value.toLocaleString('pt-BR');
-}
-
-function formatTs(value: string): string {
-  if (!value) {
-    return '—';
-  }
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return value;
-  }
-  return parsed.toLocaleString('pt-BR');
-}
-
 export function PacsStatsPanel({ stats, compact = false }: PacsStatsPanelProps) {
+  const { t, i18n } = useTranslation('LexPacs');
+
+  const formatCount = (value: number) => value.toLocaleString(i18n.language);
+
+  const formatTs = (value: string) => {
+    if (!value) {
+      return '—';
+    }
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+      return value;
+    }
+    return parsed.toLocaleString(i18n.language);
+  };
+
   const volumeItems: ChartItem[] = [
-    { label: 'Pacientes', value: stats.patients, color: chartColor(0) },
-    { label: 'Exames', value: stats.studies, color: chartColor(1) },
-    { label: 'Séries', value: stats.series, color: chartColor(2) },
-    { label: 'Imagens', value: stats.instances, color: chartColor(3) },
+    { label: t('stats.patients'), value: stats.patients, color: chartColor(0) },
+    { label: t('stats.studies'), value: stats.studies, color: chartColor(1) },
+    { label: t('stats.series'), value: stats.series, color: chartColor(2) },
+    { label: t('stats.instances'), value: stats.instances, color: chartColor(3) },
   ];
 
   const modalityItems: ChartItem[] = stats.studies_by_modality.map((row, index) => ({
@@ -210,49 +206,51 @@ export function PacsStatsPanel({ stats, compact = false }: PacsStatsPanelProps) 
   return (
     <div className="flex w-full max-w-full flex-col gap-2 overflow-hidden sm:gap-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm font-medium">Estatísticas do servidor</p>
-        <p className="text-muted-foreground text-xs">Atualizado {formatTs(stats.generated_at)}</p>
+        <p className="text-sm font-medium">{t('stats.title')}</p>
+        <p className="text-muted-foreground text-xs">
+          {t('stats.updated', { date: formatTs(stats.generated_at) })}
+        </p>
       </div>
 
       <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
         <StatCard
-          label="Pacientes"
+          label={t('stats.patients')}
           value={formatCount(stats.patients)}
         />
         <StatCard
-          label="Exames"
+          label={t('stats.studies')}
           value={formatCount(stats.studies)}
         />
         <StatCard
-          label="Séries"
+          label={t('stats.series')}
           value={formatCount(stats.series)}
         />
         <StatCard
-          label="Imagens"
+          label={t('stats.instances')}
           value={formatCount(stats.instances)}
         />
       </div>
 
       <div className={`grid w-full max-w-full gap-4 ${compact ? 'grid-cols-1' : 'grid-cols-1 xl:grid-cols-2'}`}>
         <div className="border-border rounded-lg border p-3">
-          <p className="mb-3 text-xs font-medium">Volume de dados</p>
+          <p className="mb-3 text-xs font-medium">{t('stats.volume')}</p>
           <HorizontalBarChart items={volumeItems} />
         </div>
 
         <div className="border-border rounded-lg border p-3">
-          <p className="mb-3 text-xs font-medium">Exames por modalidade</p>
+          <p className="mb-3 text-xs font-medium">{t('stats.byModality')}</p>
           <HorizontalBarChart items={modalityItems} />
         </div>
 
         {!compact ? (
           <>
             <div className="border-border rounded-lg border p-3">
-              <p className="mb-3 text-xs font-medium">Idade dos exames (data do estudo)</p>
+              <p className="mb-3 text-xs font-medium">{t('stats.studyAge')}</p>
               <HorizontalBarChart items={ageItems} />
             </div>
 
             <div className="border-border rounded-lg border p-3">
-              <p className="mb-3 text-xs font-medium">Idade na ingestão</p>
+              <p className="mb-3 text-xs font-medium">{t('stats.receivedAge')}</p>
               <HorizontalBarChart
                 items={stats.received_age
                   .filter(row => row.count > 0)
@@ -267,11 +265,11 @@ export function PacsStatsPanel({ stats, compact = false }: PacsStatsPanelProps) 
         ) : null}
 
         <div className={`border-border rounded-lg border p-3 ${compact ? '' : 'xl:col-span-2'}`}>
-          <p className="mb-3 text-xs font-medium">Utilização de disco</p>
+          <p className="mb-3 text-xs font-medium">{t('stats.diskUsage')}</p>
           <DonutChart
             segments={diskSegments}
-            centerLabel="Total"
-            centerValue={`${stats.disk_total_mb.toLocaleString('pt-BR')} MB`}
+            centerLabel={t('stats.total')}
+            centerValue={`${stats.disk_total_mb.toLocaleString(i18n.language)} MB`}
           />
         </div>
       </div>

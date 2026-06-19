@@ -199,6 +199,27 @@
     <title>LEX PACS</title>
 
     <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem('lex-theme');
+          var theme =
+            stored === 'light' || stored === 'dark'
+              ? stored
+              : window.matchMedia('(prefers-color-scheme: light)').matches
+                ? 'light'
+                : 'dark';
+          document.documentElement.setAttribute('data-theme', theme);
+          var meta = document.querySelector('meta[name="theme-color"]');
+          if (meta) {
+            meta.setAttribute('content', theme === 'light' ? '#f4f4f5' : '#0f0f0f');
+          }
+        } catch (e) {
+          document.documentElement.setAttribute('data-theme', 'dark');
+        }
+      })();
+    </script>
+
+    <script>
       function browserImportFunction(moduleId) {
         return import(moduleId);
       }

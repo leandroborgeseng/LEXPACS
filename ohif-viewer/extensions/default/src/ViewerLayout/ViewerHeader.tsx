@@ -73,7 +73,7 @@ function ViewerHeader({ appConfig }: withAppTypes<{ appConfig: AppTypes.Config }
   ];
 
   menuOptions.push({
-    title: 'Sair',
+    title: t('LexPacs:workList.settings.logout'),
     icon: 'power-off',
     onClick: () => {
       void lexClinicalLogout();

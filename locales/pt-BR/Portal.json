@@ -1,0 +1,49 @@
+{
+  "meta": {
+    "title": "LEX PACS — Portal do Paciente",
+    "subtitle": "Portal do Paciente"
+  },
+  "login": {
+    "title": "Acesse seus exames",
+    "hint": "Informe os dados cadastrados na clínica. O ID do paciente é o mesmo informado na recepção ou no laudo.",
+    "patientId": "ID do paciente",
+    "patientIdPlaceholder": "Ex.: 98890234",
+    "birthDate": "Data de nascimento",
+    "birthDatePlaceholder": "DD/MM/AAAA",
+    "accessCode": "Código de acesso",
+    "accessCodePlaceholder": "Fornecido pela clínica",
+    "submit": "Entrar",
+    "submitting": "Entrando…"
+  },
+  "studies": {
+    "title": "Meus exames",
+    "empty": "Nenhum exame encontrado.",
+    "logout": "Sair",
+    "patientLabel": "{{name}} · ID {{id}}",
+    "defaultPatient": "Paciente",
+    "studyDefault": "Exame",
+    "date": "Data:",
+    "modality": "Modalidade:",
+    "series": "Séries:",
+    "instances": "Imagens:",
+    "viewStudy": "Visualizar exame",
+    "viewReport": "Ver laudo"
+  },
+  "report": {
+    "title": "Laudo do exame",
+    "back": "Voltar",
+    "signedBy": "Assinado por {{name}}{{crm}}",
+    "signedByCrm": " — CRM {{crm}}",
+    "noText": "Laudo sem texto — consulte o PDF se disponível.",
+    "openPdf": "Abrir PDF do laudo",
+    "pdfError": "Não foi possível abrir o PDF."
+  },
+  "errors": {
+    "generic": "Não foi possível completar a operação.",
+    "openViewer": "Não foi possível abrir o exame."
+  },
+  "theme": {
+    "switchToLight": "Usar tema claro",
+    "switchToDark": "Usar tema escuro"
+  }
+}

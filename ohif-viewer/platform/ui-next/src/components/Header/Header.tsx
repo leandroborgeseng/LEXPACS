@@ -8,6 +8,7 @@ import {
   Icons,
   Button,
   ToolButton,
+  LexThemeToggle,
 } from '../';
 import { IconPresentationProvider } from '@ohif/ui-next';
 
@@ -83,10 +84,11 @@ function Header({
           <div className="flex shrink-0 select-none items-center gap-1">
             {UndoRedo && <>{UndoRedo}<div className="border-foreground/15 mx-1 h-5 border-r" /></>}
             {PatientInfo && <>{PatientInfo}<div className="border-foreground/15 mx-1 h-5 border-r" /></>}
+            <LexThemeToggle className="text-foreground/60 hover:text-foreground hover:bg-accent h-8 w-8" />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="icon"
-                  className="text-foreground/60 hover:text-foreground hover:bg-white/10 h-8 w-8">
+                  className="text-foreground/60 hover:text-foreground hover:bg-accent h-8 w-8">
                   <Icons.GearSettings className="h-5 w-5" />
                 </Button>
               </DropdownMenuTrigger>

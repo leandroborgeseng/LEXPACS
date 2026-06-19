@@ -1,5 +1,6 @@
 // Import components for StudyList namespace
 import {
+  createDefaultColumns,
   defaultColumns,
   textColumn,
   COLUMN_IDS,
@@ -32,6 +33,7 @@ type StudyListNamespace = typeof Layout & {
   OpenPreviewButton: typeof OpenPreviewButton;
   ClosePreviewButton: typeof ClosePreviewButton;
   defaultColumns: typeof defaultColumns;
+  createDefaultColumns: typeof createDefaultColumns;
   textColumn: typeof textColumn;
 };
 
@@ -46,5 +48,6 @@ export const StudyList: StudyListNamespace = Object.assign(Layout, {
   OpenPreviewButton,
   ClosePreviewButton,
   defaultColumns,
+  createDefaultColumns,
   textColumn,
 });

@@ -12,6 +12,7 @@
 | [TESTES.md](./TESTES.md) | **Smoke tests e checklist por etapa** |
 | [UPGRADE.md](./UPGRADE.md) | **Runbook de upgrade e rollback** |
 | [../ohif-viewer/.env.example](../ohif-viewer/.env.example) | Variáveis de ambiente |
+| [I18N.md](./I18N.md) | **Traduções (pt-BR, en-US, es)** |
 
 ---
 
@@ -46,6 +47,8 @@
 | **E13** | MWL DICOM + sync SQL | `./scripts/smoke-test.sh E13` |
 | **E14** | SSO OIDC (Keycloak) + Basic em transição | Token Bearer na API clínica |
 | **E15** | Auditoria estruturada | `GET /clinica-api/admin/pacs/audit` |
+| **i18n** | Traduções pt-BR, en-US, es (viewer, portal, login clínico) | `?lng=en-US` / `docs/I18N.md` |
+| **Tema** | Modo claro e escuro + botão de alternância (viewer, portal, clínica) | `localStorage lex-theme`; ver `docs/I18N.md` § tema |
 
 ### Pós-roadmap (ondas de polish)
 
@@ -407,7 +410,11 @@ Atualize esta tabela ao concluir cada etapa:
 | E3 | Concluído | 2026-06 | PostgreSQL + orthanc-storage |
 | Onda A | Concluído | 2026-06 | Admin, logout, sync MWL |
 | Onda B | Concluído | 2026-06 | Form SQL MWL na UI |
+| Onda C | Concluído | 2026-06 | Backup agendado + status Admin |
+| Onda D | Concluído | 2026-06 | OIDC redirect, papéis UI, laudo por perfil |
+| i18n | Concluído | 2026-06 | pt-BR, en-US, es — `locales/` + sync |
+| Tema claro/escuro | Concluído | 2026-06 | Viewer + portal + clínica |
 
 ---
 
-*Próximo passo de implementação: **E9.1** — API de laudos + volume `lex-reports` + painel básico no visualizador.*
+*Próximo passo sugerido: **E5** — job automático de backup (profile `backup`) ou evolução pós-v0.7 conforme demanda clínica.*

@@ -11,6 +11,7 @@ import {
   useByteArray,
 } from './SmartScrollbar';
 import { ThemeWrapper } from './ThemeWrapper';
+import { LexThemeToggle } from './LexThemeToggle';
 import {
   Command,
   CommandDialog,
@@ -163,6 +164,7 @@ export {
   Button,
   buttonVariants,
   ThemeWrapper,
+  LexThemeToggle,
   DoubleSlider,
   Command,
   CommandDialog,

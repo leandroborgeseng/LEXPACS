@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
 import { Button, Input, Tabs, TabsContent, TabsList, TabsTrigger } from '@ohif/ui-next';
 import { PacsStatsPanel } from './PacsStatsCharts';
 
@@ -140,7 +141,7 @@ const emptyEquipment = (): EquipmentItem => ({
   modality: '',
 });
 
-function formatTs(value: string): string {
+function formatTs(value: string, locale: string): string {
   if (!value) {
     return '—';
   }
@@ -148,10 +149,11 @@ function formatTs(value: string): string {
   if (Number.isNaN(parsed.getTime())) {
     return value;
   }
-  return parsed.toLocaleString('pt-BR');
+  return parsed.toLocaleString(locale);
 }
 
 export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
+  const { t, i18n } = useTranslation('LexPacs');
   const [tab, setTab] = useState('server');
   const [expanded, setExpanded] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -217,7 +219,7 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
       setIsAdmin(admin);
 
       if (!statusRes.ok) {
-        throw new Error(status?.detail || 'Não foi possível carregar status MWL.');
+        throw new Error(status?.detail || t('pacsSettings.errors.loadMwl'));
       }
       setMwlStatus(status);
       setMwlSql(mwlSqlFromStatus(status.sql));
@@ -234,7 +236,7 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
         }
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao carregar painel admin.');
+      setError(err instanceof Error ? err.message : t('pacsSettings.errors.loadAdmin'));
     } finally {
       setAdminLoading(false);
     }
@@ -253,7 +255,7 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
         const equipmentData = await equipmentRes.json().catch(() => ({}));
         const viewsData = await viewsRes.json().catch(() => ({}));
         if (!settingsRes.ok) {
-          throw new Error(settings.detail || 'Não foi possível carregar as configurações.');
+          throw new Error(settings.detail || t('pacsSettings.errors.loadSettings'));
         }
         if (!cancelled) {
           setDicomAet(settings.dicom_aet || '');
@@ -265,7 +267,7 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
         }
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Erro ao carregar configurações.');
+          setError(err instanceof Error ? err.message : t('pacsSettings.errors.loadSettings'));
         }
       } finally {
         if (!cancelled) {
@@ -319,11 +321,11 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(data.detail || 'Não foi possível salvar.');
+        throw new Error(data.detail || t('pacsSettings.errors.save'));
       }
-      setMessage(data.message || 'Configurações do servidor salvas.');
+      setMessage(data.message || t('pacsSettings.messages.serverSaved'));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao salvar.');
+      setError(err instanceof Error ? err.message : t('pacsSettings.errors.save'));
     } finally {
       setSaving(false);
     }
@@ -342,12 +344,12 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(data.detail || 'Não foi possível salvar equipamentos.');
+        throw new Error(data.detail || t('pacsSettings.errors.saveEquipment'));
       }
       setEquipment(data.items || equipment);
-      setMessage('Equipamentos salvos e sincronizados com o servidor DICOM.');
+      setMessage(t('pacsSettings.messages.equipmentSaved'));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao salvar.');
+      setError(err instanceof Error ? err.message : t('pacsSettings.errors.saveEquipment'));
     } finally {
       setSaving(false);
     }
@@ -366,12 +368,12 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(data.detail || 'Não foi possível salvar visões.');
+        throw new Error(data.detail || t('pacsSettings.errors.saveViews'));
       }
       setViews(data.views || views);
-      setMessage('Visões de worklist salvas.');
+      setMessage(t('pacsSettings.messages.viewsSaved'));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao salvar.');
+      setError(err instanceof Error ? err.message : t('pacsSettings.errors.saveViews'));
     } finally {
       setSaving(false);
     }
@@ -388,14 +390,17 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(data.detail || 'Falha ao sincronizar MWL.');
+        throw new Error(data.detail || t('pacsSettings.errors.mwlSync'));
       }
       setMessage(
-        `MWL sincronizado: ${data.synced} arquivo(s), plugin ${data.plugin_enabled ? 'ativo' : 'inativo'}.`
+        t('pacsSettings.messages.mwlSynced', {
+          count: data.synced,
+          status: data.plugin_enabled ? t('pacsSettings.mwlActive') : t('pacsSettings.mwlInactive'),
+        })
       );
       await loadAdminData();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao sincronizar MWL.');
+      setError(err instanceof Error ? err.message : t('pacsSettings.errors.mwlSync'));
     } finally {
       setSaving(false);
     }
@@ -426,13 +431,13 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(data.detail || 'Não foi possível salvar configuração SQL.');
+        throw new Error(data.detail || t('pacsSettings.errors.saveSql'));
       }
       setMwlSql(mwlSqlFromStatus(data));
-      setMessage('Configuração SQL MWL salva.');
+      setMessage(t('pacsSettings.messages.sqlSaved'));
       await loadAdminData();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao salvar SQL MWL.');
+      setError(err instanceof Error ? err.message : t('pacsSettings.errors.saveSql'));
     } finally {
       setSaving(false);
     }
@@ -459,7 +464,7 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
           onClick={refreshData}
           disabled={saving || statsLoading || adminLoading}
         >
-          {statsLoading || adminLoading ? 'Atualizando…' : 'Atualizar dados'}
+          {statsLoading || adminLoading ? t('pacsSettings.refreshing') : t('pacsSettings.refresh')}
         </Button>
         {!expanded ? (
           <Button
@@ -467,14 +472,14 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
             size="sm"
             onClick={() => setExpanded(true)}
           >
-            Tela cheia
+            {t('pacsSettings.fullscreen')}
           </Button>
         ) : null}
       </div>
 
       <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain pr-1">
         {loading ? (
-          <p className="text-sm">Carregando…</p>
+          <p className="text-sm">{t('pacsSettings.loading')}</p>
         ) : (
           <Tabs
             value={tab}
@@ -482,10 +487,10 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
             className="flex w-full max-w-full flex-col"
           >
             <TabsList className="grid w-full shrink-0 grid-cols-2 sm:grid-cols-4">
-              <TabsTrigger value="server">Servidor</TabsTrigger>
-              <TabsTrigger value="equipment">Equipamentos</TabsTrigger>
-              <TabsTrigger value="worklist">Worklist</TabsTrigger>
-              <TabsTrigger value="admin">Admin</TabsTrigger>
+              <TabsTrigger value="server">{t('pacsSettings.tabs.server')}</TabsTrigger>
+              <TabsTrigger value="equipment">{t('pacsSettings.tabs.equipment')}</TabsTrigger>
+              <TabsTrigger value="worklist">{t('pacsSettings.tabs.worklist')}</TabsTrigger>
+              <TabsTrigger value="admin">{t('pacsSettings.tabs.admin')}</TabsTrigger>
             </TabsList>
 
             <TabsContent
@@ -493,7 +498,7 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
               className="mt-3 flex w-full max-w-full flex-col gap-4 data-[state=inactive]:hidden"
             >
               {statsLoading && !pacsStats ? (
-                <p className="text-muted-foreground text-sm">Carregando estatísticas…</p>
+                <p className="text-muted-foreground text-sm">{t('pacsSettings.loadingStats')}</p>
               ) : pacsStats ? (
                 <div className="border-border rounded-lg border p-3">
                   <PacsStatsPanel
@@ -504,10 +509,10 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
               ) : null}
 
               <div className="border-border rounded-lg border p-3">
-                <p className="mb-3 text-sm font-medium">Configuração DICOM</p>
+                <p className="mb-3 text-sm font-medium">{t('pacsSettings.dicomConfig')}</p>
                 <div className="flex flex-col gap-3">
                   <label className="flex flex-col gap-1 text-sm">
-                    Nome da instituição
+                    {t('pacsSettings.institutionName')}
                     <Input
                       value={institutionName}
                       onChange={e => setInstitutionName(e.target.value)}
@@ -516,7 +521,7 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
                   </label>
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <label className="flex flex-col gap-1 text-sm">
-                      AE Title
+                      {t('pacsSettings.aeTitle')}
                       <Input
                         value={dicomAet}
                         onChange={e => setDicomAet(e.target.value.toUpperCase())}
@@ -524,7 +529,7 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
                       />
                     </label>
                     <label className="text-muted-foreground flex flex-col gap-1 text-sm">
-                      Porta DICOM
+                      {t('pacsSettings.dicomPort')}
                       <Input
                         value={dicomPort}
                         readOnly
@@ -532,24 +537,21 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
                       />
                     </label>
                   </div>
-                  <p className="text-muted-foreground text-xs">
-                    A porta DICOM é definida no servidor. Alterá-la exige ajuste de firewall e
-                    reinício manual do container.
-                  </p>
+                  <p className="text-muted-foreground text-xs">{t('pacsSettings.dicomPortNote')}</p>
                   <label className="flex items-center gap-2 text-sm">
                     <input
                       type="checkbox"
                       checked={checkCalledAet}
                       onChange={e => setCheckCalledAet(e.target.checked)}
                     />
-                    Verificar AE Title chamado nas conexões recebidas
+                    {t('pacsSettings.checkCalledAet')}
                   </label>
                   <div className="flex justify-end">
                     <Button
                       onClick={handleSaveServer}
                       disabled={saving}
                     >
-                      Salvar servidor
+                      {t('pacsSettings.saveServer')}
                     </Button>
                   </div>
                 </div>
@@ -567,31 +569,31 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
                 >
                   <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                     <Input
-                      placeholder="AE Title"
+                      placeholder={t('pacsSettings.aeTitle')}
                       value={item.aet}
                       onChange={e => updateEquipment(index, { aet: e.target.value.toUpperCase() })}
                     />
                     <Input
-                      placeholder="Modalidade (DX, CT…)"
+                      placeholder={t('pacsSettings.placeholders.modality')}
                       value={item.modality}
                       onChange={e =>
                         updateEquipment(index, { modality: e.target.value.toUpperCase() })
                       }
                     />
                     <Input
-                      placeholder="IP / host"
+                      placeholder={t('pacsSettings.placeholders.host')}
                       value={item.host}
                       onChange={e => updateEquipment(index, { host: e.target.value })}
                     />
                     <Input
-                      placeholder="Porta"
+                      placeholder={t('pacsSettings.port')}
                       type="number"
                       value={item.port}
                       onChange={e => updateEquipment(index, { port: Number(e.target.value) || 104 })}
                     />
                   </div>
                   <Input
-                    placeholder="Descrição (ex.: RX Sala 1)"
+                    placeholder={t('pacsSettings.placeholders.equipmentDescription')}
                     value={item.description}
                     onChange={e => updateEquipment(index, { description: e.target.value })}
                   />
@@ -601,7 +603,7 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
                     className="self-end"
                     onClick={() => setEquipment(prev => prev.filter((_, i) => i !== index))}
                   >
-                    Remover
+                    {t('pacsSettings.remove')}
                   </Button>
                 </div>
               ))}
@@ -609,14 +611,14 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
                 variant="outline"
                 onClick={() => setEquipment(prev => [...prev, emptyEquipment()])}
               >
-                Adicionar equipamento
+                {t('pacsSettings.addEquipment')}
               </Button>
               <div className="flex justify-end">
                 <Button
                   onClick={handleSaveEquipment}
                   disabled={saving}
                 >
-                  Salvar equipamentos
+                  {t('pacsSettings.saveEquipment')}
                 </Button>
               </div>
             </TabsContent>
@@ -625,9 +627,7 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
               value="worklist"
               className="mt-3 flex w-full max-w-full flex-col gap-3 data-[state=inactive]:hidden"
             >
-              <p className="text-muted-foreground text-xs">
-                Visões salvas aparecem na barra da worklist. Use o id na URL: ?view=rx-sala-1
-              </p>
+              <p className="text-muted-foreground text-xs">{t('pacsSettings.worklistHint')}</p>
               {views.map((view, index) => (
                 <div
                   key={view.id}
@@ -635,18 +635,18 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
                 >
                   <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                     <Input
-                      placeholder="id (rx-sala-1)"
+                      placeholder={t('pacsSettings.placeholders.viewId')}
                       value={view.id}
                       onChange={e => updateView(index, { id: e.target.value })}
                     />
                     <Input
-                      placeholder="Nome exibido"
+                      placeholder={t('pacsSettings.placeholders.viewLabel')}
                       value={view.label}
                       onChange={e => updateView(index, { label: e.target.value })}
                     />
                   </div>
                   <Input
-                    placeholder="Modalidades (CT,MR)"
+                    placeholder={t('pacsSettings.placeholders.viewModalities')}
                     value={(view.modalities || []).join(',')}
                     onChange={e =>
                       updateView(index, {
@@ -658,12 +658,12 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
                     }
                   />
                   <Input
-                    placeholder="Filtro descrição"
+                    placeholder={t('pacsSettings.placeholders.viewDescription')}
                     value={view.description}
                     onChange={e => updateView(index, { description: e.target.value })}
                   />
                   <Input
-                    placeholder="Station AE (futuro MWL)"
+                    placeholder={t('pacsSettings.placeholders.stationAetFuture')}
                     value={view.station_aet}
                     onChange={e => updateView(index, { station_aet: e.target.value.toUpperCase() })}
                   />
@@ -674,7 +674,7 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
                   onClick={handleSaveViews}
                   disabled={saving}
                 >
-                  Salvar visões
+                  {t('pacsSettings.saveViews')}
                 </Button>
               </div>
             </TabsContent>
@@ -684,7 +684,7 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
               className="mt-3 flex w-full max-w-full flex-col gap-3 data-[state=inactive]:hidden"
             >
               {adminLoading ? (
-                <p className="text-sm">Carregando painel admin…</p>
+                <p className="text-sm">{t('pacsSettings.loadingAdmin')}</p>
               ) : mwlStatus ? (
                 <>
                   {pacsStats ? (
@@ -694,44 +694,53 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
                   ) : null}
 
                   <div className="border-border rounded border p-3 text-sm">
-                    <p className="font-medium">Backup</p>
+                    <p className="font-medium">{t('pacsSettings.backup')}</p>
                     {backupStatus ? (
                       <>
                         <p className="text-muted-foreground mt-1 text-xs">
-                          Último backup:{' '}
+                          {t('pacsSettings.lastBackup')}{' '}
                           {backupStatus.last_at
-                            ? formatTs(backupStatus.last_at)
-                            : 'nenhum registrado'}
+                            ? formatTs(backupStatus.last_at, i18n.language)
+                            : t('pacsSettings.noBackup')}
                           {backupStatus.last_path ? ` (${backupStatus.last_path})` : ''}
                         </p>
                         <p className="text-muted-foreground text-xs">
-                          Agendamento: a cada {backupStatus.interval_hours}h · retenção{' '}
-                          {backupStatus.retention_days} dias
+                          {t('pacsSettings.backupSchedule', {
+                            hours: backupStatus.interval_hours,
+                            days: backupStatus.retention_days,
+                          })}
                           {backupStatus.configured && backupStatus.success
-                            ? ' · último OK'
+                            ? t('pacsSettings.backupOk')
                             : backupStatus.configured
-                              ? ' · último com falha'
-                              : ' · ative: docker compose --profile backup up -d backup'}
+                              ? t('pacsSettings.backupFailed')
+                              : t('pacsSettings.backupEnable')}
                         </p>
                       </>
                     ) : (
-                      <p className="text-muted-foreground mt-1 text-xs">Carregando status…</p>
+                      <p className="text-muted-foreground mt-1 text-xs">
+                        {t('pacsSettings.loadingBackupStatus')}
+                      </p>
                     )}
                   </div>
 
                   <div className="border-border rounded border p-3 text-sm">
-                    <p className="font-medium">Status MWL</p>
+                    <p className="font-medium">{t('pacsSettings.mwlStatus')}</p>
                     <p className="text-muted-foreground mt-1 text-xs">
-                      Plugin Orthanc: {mwlStatus.plugin_enabled ? 'ativo' : 'inativo'} · entradas
-                      SQL: {mwlStatus.entries_total}
+                      {t('pacsSettings.mwlPlugin')}{' '}
+                      {mwlStatus.plugin_enabled
+                        ? t('pacsSettings.mwlActive')
+                        : t('pacsSettings.mwlInactive')}{' '}
+                      · {t('pacsSettings.mwlEntries')} {mwlStatus.entries_total}
                     </p>
                     <p className="text-muted-foreground text-xs">
-                      Último sync: {formatTs(mwlStatus.sync.last_at)} por{' '}
-                      {mwlStatus.sync.last_actor || '—'} ({mwlStatus.sync.last_synced} arquivo(s))
+                      {t('pacsSettings.mwlLastSync')}{' '}
+                      {formatTs(mwlStatus.sync.last_at, i18n.language)} {t('pacsSettings.mwlBy')}{' '}
+                      {mwlStatus.sync.last_actor || '—'} ({mwlStatus.sync.last_synced}{' '}
+                      {t('pacsSettings.mwlFiles')})
                     </p>
                     {mwlStatus.sync.last_error ? (
                       <p className="text-destructive mt-1 text-xs">
-                        Último erro: {mwlStatus.sync.last_error}
+                        {t('pacsSettings.mwlLastError')} {mwlStatus.sync.last_error}
                       </p>
                     ) : null}
                     <div className="mt-2 flex flex-wrap gap-2">
@@ -740,7 +749,7 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
                         onClick={handleMwlSync}
                         disabled={saving || !mwlSql.enabled}
                       >
-                        Sincronizar MWL agora
+                        {t('pacsSettings.mwlSyncNow')}
                       </Button>
                       <Button
                         size="sm"
@@ -748,18 +757,23 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
                         onClick={() => void loadAdminData()}
                         disabled={saving}
                       >
-                        Atualizar
+                        {t('pacsSettings.mwlRefresh')}
                       </Button>
                     </div>
                   </div>
 
                   <div className="border-border rounded border p-3">
-                    <p className="mb-2 text-sm font-medium">Conexão SQL (agenda → MWL)</p>
+                    <p className="mb-2 text-sm font-medium">{t('pacsSettings.sqlConnection')}</p>
                     {!isAdmin ? (
                       <p className="text-muted-foreground text-xs">
-                        {mwlSql.host}:{mwlSql.port}/{mwlSql.database} · tabela {mwlSql.table} ·
-                        sync a cada {mwlSql.sync_interval_minutes} min
-                        {mwlSql.enabled ? '' : ' (desabilitado)'}
+                        {t('pacsSettings.sqlReadonly', {
+                          host: mwlSql.host,
+                          port: mwlSql.port,
+                          database: mwlSql.database,
+                          table: mwlSql.table,
+                          minutes: mwlSql.sync_interval_minutes,
+                          disabled: mwlSql.enabled ? '' : t('pacsSettings.sqlDisabled'),
+                        })}
                       </p>
                     ) : (
                       <div className="flex flex-col gap-2">
@@ -769,18 +783,18 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
                             checked={mwlSql.enabled}
                             onChange={e => setMwlSql(prev => ({ ...prev, enabled: e.target.checked }))}
                           />
-                          Sync SQL habilitado
+                          {t('pacsSettings.sqlEnabled')}
                         </label>
                         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                           <label className="flex flex-col gap-1 text-xs">
-                            Host
+                            {t('pacsSettings.host')}
                             <Input
                               value={mwlSql.host}
                               onChange={e => setMwlSql(prev => ({ ...prev, host: e.target.value }))}
                             />
                           </label>
                           <label className="flex flex-col gap-1 text-xs">
-                            Porta
+                            {t('pacsSettings.port')}
                             <Input
                               type="number"
                               value={mwlSql.port}
@@ -793,7 +807,7 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
                             />
                           </label>
                           <label className="flex flex-col gap-1 text-xs">
-                            Banco
+                            {t('pacsSettings.sqlDatabase')}
                             <Input
                               value={mwlSql.database}
                               onChange={e =>
@@ -802,7 +816,7 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
                             />
                           </label>
                           <label className="flex flex-col gap-1 text-xs">
-                            Usuário
+                            {t('pacsSettings.sqlUser')}
                             <Input
                               value={mwlSql.username}
                               onChange={e =>
@@ -811,24 +825,24 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
                             />
                           </label>
                           <label className="flex flex-col gap-1 text-xs">
-                            Tabela
+                            {t('pacsSettings.sqlTable')}
                             <Input
                               value={mwlSql.table}
                               onChange={e => setMwlSql(prev => ({ ...prev, table: e.target.value }))}
                             />
                           </label>
                           <label className="flex flex-col gap-1 text-xs">
-                            Env da senha
+                            {t('pacsSettings.sqlPasswordEnv')}
                             <Input
                               value={mwlSql.password_env}
                               onChange={e =>
                                 setMwlSql(prev => ({ ...prev, password_env: e.target.value }))
                               }
-                              placeholder="POSTGRES_PASSWORD"
+                              placeholder={t('pacsSettings.placeholders.postgresPassword')}
                             />
                           </label>
                           <label className="col-span-1 flex flex-col gap-1 text-xs sm:col-span-2">
-                            Intervalo sync automático (minutos)
+                            {t('pacsSettings.sqlInterval')}
                             <Input
                               type="number"
                               min={1}
@@ -847,9 +861,10 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
                           </label>
                         </div>
                         <p className="text-muted-foreground text-xs">
-                          Senha via variável de ambiente{' '}
-                          <span className="font-mono">{mwlSql.password_env}</span>:{' '}
-                          {mwlSql.password_configured ? 'configurada' : 'ausente no servidor'}
+                          {t('pacsSettings.sqlPasswordStatus', { env: mwlSql.password_env })}{' '}
+                          {mwlSql.password_configured
+                            ? t('pacsSettings.sqlPasswordSet')
+                            : t('pacsSettings.sqlPasswordMissing')}
                         </p>
                         <div className="flex justify-end">
                           <Button
@@ -857,7 +872,7 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
                             onClick={handleSaveMwlSql}
                             disabled={saving}
                           >
-                            Salvar conexão SQL
+                            {t('pacsSettings.saveSql')}
                           </Button>
                         </div>
                       </div>
@@ -865,18 +880,20 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
                   </div>
 
                   <div className="border-border rounded border p-3">
-                    <p className="mb-2 text-sm font-medium">Prévia MWL (SQL)</p>
+                    <p className="mb-2 text-sm font-medium">{t('pacsSettings.mwlPreview')}</p>
                     {mwlEntries.length === 0 ? (
-                      <p className="text-muted-foreground text-xs">Nenhuma entrada agendada.</p>
+                      <p className="text-muted-foreground text-xs">
+                        {t('pacsSettings.mwlNoEntriesScheduled')}
+                      </p>
                     ) : (
                       <div className="overflow-x-auto">
                         <table className="w-full min-w-[320px] text-left text-xs">
                           <thead>
                             <tr className="text-muted-foreground border-b">
-                              <th className="py-1 pr-2">Accession</th>
-                              <th className="py-1 pr-2">Paciente</th>
-                              <th className="py-1 pr-2">Mod.</th>
-                              <th className="py-1">Station</th>
+                              <th className="py-1 pr-2">{t('pacsSettings.mwlAccession')}</th>
+                              <th className="py-1 pr-2">{t('pacsSettings.mwlPatient')}</th>
+                              <th className="py-1 pr-2">{t('pacsSettings.mwlModShort')}</th>
+                              <th className="py-1">{t('pacsSettings.mwlStation')}</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -899,17 +916,17 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
 
                   {isAdmin ? (
                     <div className="border-border rounded border p-3">
-                      <p className="mb-2 text-sm font-medium">Auditoria (últimos 30 eventos)</p>
+                      <p className="mb-2 text-sm font-medium">{t('pacsSettings.auditTitle')}</p>
                       {auditEvents.length === 0 ? (
-                        <p className="text-muted-foreground text-xs">Nenhum evento registrado.</p>
+                        <p className="text-muted-foreground text-xs">{t('pacsSettings.auditEmpty')}</p>
                       ) : (
                         <div className="overflow-x-auto">
                           <table className="w-full min-w-[320px] text-left text-xs">
                             <thead>
                               <tr className="text-muted-foreground border-b">
-                                <th className="py-1 pr-2">Quando</th>
-                                <th className="py-1 pr-2">Evento</th>
-                                <th className="py-1">Usuário</th>
+                                <th className="py-1 pr-2">{t('pacsSettings.auditWhen')}</th>
+                                <th className="py-1 pr-2">{t('pacsSettings.auditEvent')}</th>
+                                <th className="py-1">{t('pacsSettings.auditUser')}</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -919,7 +936,7 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
                                   className="border-border/60 border-b"
                                 >
                                   <td className="py-1 pr-2 whitespace-nowrap">
-                                    {formatTs(item.timestamp)}
+                                    {formatTs(item.timestamp, i18n.language)}
                                   </td>
                                   <td className="py-1 pr-2">{item.event}</td>
                                   <td className="py-1">{item.actor}</td>
@@ -931,9 +948,7 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
                       )}
                     </div>
                   ) : (
-                    <p className="text-muted-foreground text-xs">
-                      Log de auditoria visível apenas para usuários admin.
-                    </p>
+                    <p className="text-muted-foreground text-xs">{t('pacsSettings.auditAdminOnly')}</p>
                   )}
                 </>
               ) : (
@@ -941,7 +956,7 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
                   variant="outline"
                   onClick={() => void loadAdminData()}
                 >
-                  Carregar painel admin
+                  {t('pacsSettings.loadAdmin')}
                 </Button>
               )}
             </TabsContent>
@@ -958,7 +973,7 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
             variant="outline"
             onClick={() => setExpanded(false)}
           >
-            Reduzir janela
+            {t('pacsSettings.reduceWindow')}
           </Button>
         ) : null}
         <Button
@@ -969,7 +984,7 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
           }}
           disabled={saving}
         >
-          Fechar
+          {t('pacsSettings.close')}
         </Button>
       </div>
     </>
@@ -979,13 +994,15 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
     return createPortal(
       <div className="fixed inset-0 z-[200] flex flex-col bg-muted p-3 sm:p-5">
         <div className="mb-3 flex shrink-0 items-center justify-between gap-3">
-          <h2 className="text-primary text-lg font-semibold">Configurações do PACS</h2>
+          <h2 className="text-primary text-lg font-semibold">
+            {t('workList.settings.modalTitle')}
+          </h2>
           <Button
             variant="outline"
             size="sm"
             onClick={() => setExpanded(false)}
           >
-            Reduzir janela
+            {t('pacsSettings.reduceWindow')}
           </Button>
         </div>
         <div className="text-foreground flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">

@@ -1,0 +1,49 @@
+{
+  "meta": {
+    "title": "LEX PACS — Portal del Paciente",
+    "subtitle": "Portal del Paciente"
+  },
+  "login": {
+    "title": "Acceda a sus estudios",
+    "hint": "Ingrese los datos registrados en la clínica. El ID del paciente es el mismo proporcionado en recepción o en el informe.",
+    "patientId": "ID del paciente",
+    "patientIdPlaceholder": "Ej.: 98890234",
+    "birthDate": "Fecha de nacimiento",
+    "birthDatePlaceholder": "DD/MM/AAAA",
+    "accessCode": "Código de acceso",
+    "accessCodePlaceholder": "Proporcionado por la clínica",
+    "submit": "Entrar",
+    "submitting": "Entrando…"
+  },
+  "studies": {
+    "title": "Mis estudios",
+    "empty": "Ningún estudio encontrado.",
+    "logout": "Salir",
+    "patientLabel": "{{name}} · ID {{id}}",
+    "defaultPatient": "Paciente",
+    "studyDefault": "Estudio",
+    "date": "Fecha:",
+    "modality": "Modalidad:",
+    "series": "Series:",
+    "instances": "Imágenes:",
+    "viewStudy": "Ver estudio",
+    "viewReport": "Ver informe"
+  },
+  "report": {
+    "title": "Informe del estudio",
+    "back": "Volver",
+    "signedBy": "Firmado por {{name}}{{crm}}",
+    "signedByCrm": " — Matrícula {{crm}}",
+    "noText": "Informe sin texto — consulte el PDF si está disponible.",
+    "openPdf": "Abrir PDF del informe",
+    "pdfError": "No se pudo abrir el PDF."
+  },
+  "errors": {
+    "generic": "No se pudo completar la operación.",
+    "openViewer": "No se pudo abrir el estudio."
+  },
+  "theme": {
+    "switchToLight": "Usar tema claro",
+    "switchToDark": "Usar tema oscuro"
+  }
+}

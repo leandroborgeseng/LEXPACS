@@ -1,50 +1,73 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="pt-BR" data-i18n-title-key="meta.title" data-i18n-title-ns="ClinicalLogin">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0f0f0f" />
   <title>LEX PACS — Acesso Clínico</title>
+  <script>
+    (function () {
+      try {
+        var s = localStorage.getItem('lex-theme');
+        var t = s === 'light' || s === 'dark' ? s : (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+        document.documentElement.setAttribute('data-theme', t);
+      } catch (e) {
+        document.documentElement.setAttribute('data-theme', 'dark');
+      }
+    })();
+  </script>
   <link rel="stylesheet" href="/static/portal.css" />
 </head>
 <body>
   <div class="page">
     <header class="header">
-      <div class="logo">
-        <span class="logo-lex">LEX</span><span class="logo-pacs">PACS</span>
+      <div class="header-main">
+        <div class="logo">
+          <span class="logo-lex">LEX</span><span class="logo-pacs">PACS</span>
+        </div>
+        <p class="subtitle" data-i18n="meta.subtitle" data-i18n-ns="ClinicalLogin"></p>
       </div>
-      <p class="subtitle">Área clínica — worklist e laudos</p>
+      <button type="button" class="theme-toggle" data-theme-toggle aria-label="Theme">
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
+        </svg>
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <path d="M21 14.5A8.5 8.5 0 1 1 9.5 3 7 7 0 0 0 21 14.5z"/>
+        </svg>
+      </button>
     </header>
 
     <main class="card">
-      <h1>Entrar</h1>
-      <p class="hint" id="login-hint">Use suas credenciais institucionais (Keycloak).</p>
+      <h1 data-i18n="login.title" data-i18n-ns="ClinicalLogin"></h1>
+      <p class="hint" id="login-hint" data-i18n="login.hintDefault" data-i18n-ns="ClinicalLogin"></p>
 
       <div id="oidc-section" class="hidden" style="margin-bottom: 1rem;">
-        <button type="button" id="oidc-btn" class="secondary-btn">Entrar com Keycloak</button>
-        <p class="hint" style="margin-top: 0.75rem;">Ou use usuário e senha abaixo.</p>
+        <button type="button" id="oidc-btn" class="secondary-btn" data-i18n="login.keycloak" data-i18n-ns="ClinicalLogin"></button>
+        <p class="hint" style="margin-top: 0.75rem;" data-i18n="login.orPassword" data-i18n-ns="ClinicalLogin"></p>
       </div>
 
       <form id="login-form">
         <label>
-          Usuário
-          <input id="username" name="username" required autocomplete="username" placeholder="Ex.: radiologista ou admin" />
+          <span data-i18n="login.username" data-i18n-ns="ClinicalLogin"></span>
+          <input id="username" name="username" required autocomplete="username" data-i18n-placeholder="login.usernamePlaceholder" data-i18n-ns="ClinicalLogin" />
         </label>
         <label>
-          Senha
+          <span data-i18n="login.password" data-i18n-ns="ClinicalLogin"></span>
           <input id="password" name="password" type="password" required autocomplete="current-password" />
         </label>
         <p id="login-error" class="error hidden"></p>
-        <button type="submit" id="login-btn">Acessar worklist</button>
+        <button type="submit" id="login-btn" data-i18n="login.submit" data-i18n-ns="ClinicalLogin"></button>
       </form>
 
-      <p id="local-dev-hint" class="hint hidden" style="margin-top: 1rem;">
-        Dev: login local <code>clinica</code> / <code>lexclinica2024</code> também funciona.
-      </p>
+      <p id="local-dev-hint" class="hint hidden" style="margin-top: 1rem;" data-i18n="login.devHint" data-i18n-ns="ClinicalLogin"></p>
       <p class="hint" style="margin-top: 1.25rem;">
-        Paciente? <a href="/paciente/" style="color: #f87171;">Portal do paciente</a>
+        <span data-i18n="login.patientLink" data-i18n-ns="ClinicalLogin"></span>
+        <a href="/paciente/" style="color: #f87171;" data-i18n="login.patientPortal" data-i18n-ns="ClinicalLogin"></a>
       </p>
     </main>
   </div>
+  <script src="/static/theme.js"></script>
+  <script src="/static/i18n.js"></script>
   <script src="/static/clinica.js"></script>
 </body>
 </html>

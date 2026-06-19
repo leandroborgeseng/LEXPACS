@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useImageViewer } from '@ohif/ui-next';
 import { Button, Input, Separator } from '@ohif/ui-next';
 import { fetchClinicalProfile, type ClinicalPermissions } from '../../../../platform/app/src/routes/WorkList/lexClinicalUser';
@@ -19,6 +20,7 @@ type ReportData = {
 };
 
 function PanelLexReport() {
+  const { t, i18n } = useTranslation('LexPacs');
   const { StudyInstanceUIDs } = useImageViewer();
   const studyUid = StudyInstanceUIDs?.[0] || '';
   const editorRef = useRef<HTMLDivElement>(null);
@@ -40,6 +42,9 @@ function PanelLexReport() {
   const isSigned = status === 'signed';
   const canSign = permissions?.can_sign ?? true;
   const canDraft = permissions?.can_draft ?? true;
+  const roleLabel = permissions?.role
+    ? t(`roles.${permissions.role}`, { defaultValue: permissions.role_label })
+    : '';
 
   const loadReport = useCallback(async () => {
     if (!studyUid) {
@@ -53,7 +58,7 @@ function PanelLexReport() {
       });
       const data = (await response.json().catch(() => ({}))) as ReportData & { detail?: string };
       if (!response.ok) {
-        throw new Error(data.detail || 'Não foi possível carregar o laudo.');
+        throw new Error(data.detail || t('report.errors.load'));
       }
       setStatus(data.status);
       setAuthorName(data.author_name || '');
@@ -67,11 +72,11 @@ function PanelLexReport() {
         editorRef.current.innerHTML = data.content_html || '';
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao carregar laudo.');
+      setError(err instanceof Error ? err.message : t('report.errors.load'));
     } finally {
       setLoading(false);
     }
-  }, [studyUid]);
+  }, [studyUid, t]);
 
   useEffect(() => {
     loadReport();
@@ -107,12 +112,12 @@ function PanelLexReport() {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(data.detail || 'Não foi possível salvar o rascunho.');
+        throw new Error(data.detail || t('report.errors.save'));
       }
-      setMessage('Rascunho salvo.');
+      setMessage(t('report.draftSaved'));
       setStatus(data.status);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao salvar.');
+      setError(err instanceof Error ? err.message : t('report.errors.save'));
     } finally {
       setLoading(false);
     }
@@ -135,13 +140,13 @@ function PanelLexReport() {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(data.detail || 'Não foi possível anexar o PDF.');
+        throw new Error(data.detail || t('report.errors.upload'));
       }
       setHasPdf(true);
       setPdfFilename(data.pdf_filename);
-      setMessage('PDF anexado ao exame.');
+      setMessage(t('report.pdfAttached'));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro no upload.');
+      setError(err instanceof Error ? err.message : t('report.errors.upload'));
     } finally {
       setLoading(false);
       if (fileInputRef.current) {
@@ -166,13 +171,13 @@ function PanelLexReport() {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(data.detail || 'Não foi possível assinar o laudo.');
+        throw new Error(data.detail || t('report.errors.sign'));
       }
       setStatus('signed');
       setSignedAt(data.signed_at);
-      setMessage('Laudo assinado e bloqueado para edição.');
+      setMessage(t('report.signedLocked'));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao assinar.');
+      setError(err instanceof Error ? err.message : t('report.errors.sign'));
     } finally {
       setLoading(false);
     }
@@ -193,16 +198,12 @@ function PanelLexReport() {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(data.detail || 'Não foi possível atualizar a liberação.');
+        throw new Error(data.detail || t('report.errors.release'));
       }
       setVisibleToPatient(Boolean(data.visible_to_patient));
-      setMessage(
-        release
-          ? 'Laudo liberado no portal do paciente.'
-          : 'Laudo removido do portal do paciente.'
-      );
+      setMessage(release ? t('report.released') : t('report.revoked'));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao liberar laudo.');
+      setError(err instanceof Error ? err.message : t('report.errors.release'));
     } finally {
       setLoading(false);
     }
@@ -210,42 +211,44 @@ function PanelLexReport() {
 
   if (!studyUid) {
     return (
-      <div className="text-muted-foreground p-4 text-sm">Abra um exame para editar o laudo.</div>
+      <div className="text-muted-foreground p-4 text-sm">{t('report.openStudyHint')}</div>
     );
   }
+
+  const signedLine =
+    isSigned && signedAt
+      ? t('report.signedBy', {
+          name: signedBy,
+          crm: signedCrm ? t('report.signedByCrm', { crm: signedCrm }) : '',
+          date: new Date(signedAt).toLocaleString(i18n.language),
+        })
+      : null;
 
   return (
     <div className="text-foreground flex h-full flex-col gap-3 overflow-y-auto p-3">
       <div className="flex items-center justify-between gap-2">
-        <h3 className="text-primary text-sm font-semibold">Laudo</h3>
+        <h3 className="text-primary text-sm font-semibold">{t('report.title')}</h3>
         <div className="flex items-center gap-2">
-          {permissions?.role_label ? (
-            <span className="text-muted-foreground text-[10px] uppercase tracking-wide">
-              {permissions.role_label}
-            </span>
+          {roleLabel ? (
+            <span className="text-muted-foreground text-[10px] uppercase tracking-wide">{roleLabel}</span>
           ) : null}
           <span
             className={`rounded px-2 py-0.5 text-xs ${isSigned ? 'bg-primary/20 text-primary' : 'bg-muted text-muted-foreground'}`}
           >
-            {isSigned ? 'Assinado' : 'Rascunho'}
+            {isSigned ? t('report.signed') : t('report.draft')}
           </span>
         </div>
       </div>
 
-      {isSigned && signedAt ? (
-        <p className="text-muted-foreground text-xs">
-          Assinado por {signedBy}
-          {signedCrm ? ` — CRM ${signedCrm}` : ''} em {new Date(signedAt).toLocaleString('pt-BR')}
-        </p>
-      ) : null}
+      {signedLine ? <p className="text-muted-foreground text-xs">{signedLine}</p> : null}
 
       <label className="flex flex-col gap-1 text-xs">
-        Autor do laudo
+        {t('report.authorLabel')}
         <Input
           value={authorName}
           onChange={e => setAuthorName(e.target.value)}
           disabled={isSigned || loading}
-          placeholder="Nome do radiologista"
+          placeholder={t('report.authorPlaceholder')}
         />
       </label>
 
@@ -273,7 +276,7 @@ function PanelLexReport() {
             variant="ghost"
             onClick={() => execCommand('insertUnorderedList')}
           >
-            • Lista
+            {t('report.listButton')}
           </Button>
         </div>
       ) : null}
@@ -288,7 +291,7 @@ function PanelLexReport() {
       <Separator />
 
       <div className="flex flex-col gap-2">
-        <span className="text-xs font-medium">PDF do laudo</span>
+        <span className="text-xs font-medium">{t('report.pdfSection')}</span>
         {hasPdf ? (
           <a
             className="text-primary text-xs underline"
@@ -296,10 +299,10 @@ function PanelLexReport() {
             target="_blank"
             rel="noreferrer"
           >
-            {pdfFilename || 'Abrir PDF anexado'}
+            {pdfFilename || t('report.openPdf')}
           </a>
         ) : (
-          <p className="text-muted-foreground text-xs">Nenhum PDF anexado.</p>
+          <p className="text-muted-foreground text-xs">{t('report.noPdf')}</p>
         )}
         {!isSigned ? (
           <>
@@ -315,9 +318,7 @@ function PanelLexReport() {
                 }
               }}
             />
-            <p className="text-muted-foreground text-xs">
-              Ou redija o laudo acima — pode usar texto, PDF ou ambos antes de assinar.
-            </p>
+            <p className="text-muted-foreground text-xs">{t('report.pdfHint')}</p>
           </>
         ) : null}
       </div>
@@ -326,29 +327,26 @@ function PanelLexReport() {
         <>
           <Separator />
           <label className="flex flex-col gap-1 text-xs">
-            Assinar como
+            {t('report.signAsLabel')}
             <Input
               value={signedBy}
               onChange={e => setSignedBy(e.target.value)}
-              placeholder="Nome para assinatura"
+              placeholder={t('report.signAsPlaceholder')}
             />
           </label>
           <label className="flex flex-col gap-1 text-xs">
-            CRM (opcional)
+            {t('report.crmLabel')}
             <Input
               value={signedCrm}
               onChange={e => setSignedCrm(e.target.value)}
-              placeholder="Ex.: 12345-SP"
+              placeholder={t('report.crmPlaceholder')}
             />
           </label>
         </>
       ) : null}
 
       {!isSigned && !canSign ? (
-        <p className="text-muted-foreground text-xs">
-          Perfil técnico: você pode redigir rascunho e anexar PDF. Assinatura é feita pelo
-          radiologista.
-        </p>
+        <p className="text-muted-foreground text-xs">{t('report.technicianHint')}</p>
       ) : null}
 
       {error ? <p className="text-destructive text-xs">{error}</p> : null}
@@ -360,7 +358,7 @@ function PanelLexReport() {
             onClick={saveDraft}
             disabled={loading || !canDraft}
           >
-            Salvar rascunho
+            {t('report.saveDraft')}
           </Button>
           {canSign ? (
             <Button
@@ -369,17 +367,15 @@ function PanelLexReport() {
               onClick={signReport}
               disabled={loading || !signedBy.trim()}
             >
-              Assinar laudo
+              {t('report.signReport')}
             </Button>
           ) : null}
         </div>
       ) : canSign ? (
         <div className="mt-auto flex flex-col gap-2 border-t pt-3">
-          <span className="text-xs font-medium">Portal do paciente</span>
+          <span className="text-xs font-medium">{t('report.patientPortal')}</span>
           <p className="text-muted-foreground text-xs">
-            {visibleToPatient
-              ? 'O paciente pode ver este laudo no portal.'
-              : 'O laudo ainda não está visível para o paciente.'}
+            {visibleToPatient ? t('report.patientVisible') : t('report.patientHidden')}
           </p>
           {visibleToPatient ? (
             <Button
@@ -387,21 +383,19 @@ function PanelLexReport() {
               onClick={() => releaseToPatient(false)}
               disabled={loading}
             >
-              Remover do portal
+              {t('report.removeFromPortal')}
             </Button>
           ) : (
             <Button
               onClick={() => releaseToPatient(true)}
               disabled={loading}
             >
-              Liberar laudo ao paciente
+              {t('report.releaseToPatient')}
             </Button>
           )}
         </div>
       ) : isSigned ? (
-        <p className="text-muted-foreground mt-auto text-xs">
-          Laudo assinado. Liberação ao paciente é feita pelo radiologista.
-        </p>
+        <p className="text-muted-foreground mt-auto text-xs">{t('report.signedReleaseHint')}</p>
       ) : null}
     </div>
   );

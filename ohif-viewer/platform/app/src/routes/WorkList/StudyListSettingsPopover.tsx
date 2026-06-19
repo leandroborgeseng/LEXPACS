@@ -33,18 +33,18 @@ export function defaultSettingsMenuItems({
   const items: SettingsMenuItem[] = [
     {
       id: 'pacsSettings',
-      label: 'Configurações DICOM',
+      label: t('LexPacs:workList.settings.dicom'),
       onClick: () => {
         show({
           content: PacsSettingsModal,
-          title: 'Configurações do PACS',
+          title: t('LexPacs:workList.settings.modalTitle'),
           containerClassName: PACS_MODAL_SHELL,
         });
       },
     },
     {
       id: 'about',
-      label: 'Sobre o LEX PACS',
+      label: t('LexPacs:workList.settings.about'),
       onClick: () => {
         const AboutModal = customizationService.getCustomization('ohif.aboutModal');
         show({
@@ -56,7 +56,7 @@ export function defaultSettingsMenuItems({
     },
     {
       id: 'userPreferences',
-      label: 'User Preferences',
+      label: t('LexPacs:workList.settings.userPreferences'),
       onClick: () => {
         const UserPreferencesModal = customizationService.getCustomization(
           'ohif.userPreferencesModal'
@@ -73,7 +73,7 @@ export function defaultSettingsMenuItems({
 
   items.push({
     id: 'logout',
-    label: 'Sair',
+    label: t('LexPacs:workList.settings.logout'),
     onClick: () => {
       void lexClinicalLogout();
     },
@@ -119,9 +119,9 @@ export function StudyListSettingsPopover() {
       {profile ? (
         <span
           className="text-muted-foreground hidden max-w-[140px] truncate text-[11px] leading-tight sm:inline"
-          title={`${profile.username} — ${profile.permissions.role_label}`}
+          title={`${profile.username} — ${t(`LexPacs:roles.${profile.permissions.role}`, { defaultValue: profile.permissions.role_label })}`}
         >
-          {profile.permissions.role_label}
+          {t(`LexPacs:roles.${profile.permissions.role}`, { defaultValue: profile.permissions.role_label })}
         </span>
       ) : null}
       <StudyList.SettingsPopover.Trigger>

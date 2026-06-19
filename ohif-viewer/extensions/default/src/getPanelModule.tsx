@@ -27,8 +27,8 @@ function getPanelModule({ commandsManager, extensionManager, servicesManager }) 
     {
       name: 'lexReport',
       iconName: 'tab-linear',
-      iconLabel: 'Laudo',
-      label: 'Laudo',
+      iconLabel: i18n.t('LexPacs:report.title'),
+      label: i18n.t('LexPacs:report.title'),
       component: () => <PanelLexReport />,
     },
   ];

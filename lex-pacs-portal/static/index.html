@@ -1,70 +1,94 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="pt-BR" data-i18n-title-key="meta.title" data-i18n-title-ns="Portal">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0f0f0f" />
   <title>LEX PACS — Portal do Paciente</title>
-  <link rel="stylesheet" href="static/portal.css" />
+  <script>
+    (function () {
+      try {
+        var s = localStorage.getItem('lex-theme');
+        var t = s === 'light' || s === 'dark' ? s : (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+        document.documentElement.setAttribute('data-theme', t);
+      } catch (e) {
+        document.documentElement.setAttribute('data-theme', 'dark');
+      }
+    })();
+  </script>
+  <link rel="stylesheet" href="/static/portal.css" />
 </head>
 <body>
   <div class="page">
     <header class="header">
-      <div class="logo">
-        <span class="logo-lex">LEX</span><span class="logo-pacs">PACS</span>
+      <div class="header-main">
+        <div class="logo">
+          <span class="logo-lex">LEX</span><span class="logo-pacs">PACS</span>
+        </div>
+        <p class="subtitle" data-i18n="meta.subtitle"></p>
       </div>
-      <p class="subtitle">Portal do Paciente</p>
+      <button type="button" class="theme-toggle" data-theme-toggle aria-label="Theme">
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
+        </svg>
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <path d="M21 14.5A8.5 8.5 0 1 1 9.5 3 7 7 0 0 0 21 14.5z"/>
+        </svg>
+      </button>
     </header>
 
     <main id="app">
       <section id="login-view" class="card">
-        <h1>Acesse seus exames</h1>
-        <p class="hint">Informe os dados cadastrados na clínica. O <strong>ID do paciente</strong> é o mesmo informado na recepção ou no laudo.</p>
+        <h1 data-i18n="login.title"></h1>
+        <p class="hint" data-i18n-html="login.hint"></p>
         <form id="login-form">
           <label>
-            ID do paciente
-            <input id="patient-id" name="patient_id" required autocomplete="username" placeholder="Ex.: 98890234" />
+            <span data-i18n="login.patientId"></span>
+            <input id="patient-id" name="patient_id" required autocomplete="username" data-i18n-placeholder="login.patientIdPlaceholder" />
           </label>
           <label>
-            Data de nascimento
-            <input id="birth-date" name="birth_date" required autocomplete="bday" placeholder="DD/MM/AAAA" />
+            <span data-i18n="login.birthDate"></span>
+            <input id="birth-date" name="birth_date" required autocomplete="bday" data-i18n-placeholder="login.birthDatePlaceholder" />
           </label>
           <label id="access-code-wrap" class="hidden">
-            Código de acesso
-            <input id="access-code" name="access_code" placeholder="Fornecido pela clínica" />
+            <span data-i18n="login.accessCode"></span>
+            <input id="access-code" name="access_code" data-i18n-placeholder="login.accessCodePlaceholder" />
           </label>
           <p id="login-error" class="error hidden"></p>
-          <button type="submit" id="login-btn">Entrar</button>
+          <button type="submit" id="login-btn" data-i18n="login.submit"></button>
         </form>
       </section>
 
       <section id="studies-view" class="card hidden">
         <div class="studies-header">
           <div>
-            <h1>Meus exames</h1>
+            <h1 data-i18n="studies.title"></h1>
             <p id="patient-label" class="hint"></p>
           </div>
-          <button type="button" id="logout-btn" class="ghost">Sair</button>
+          <button type="button" id="logout-btn" class="ghost" data-i18n="studies.logout"></button>
         </div>
         <div id="studies-list" class="studies-list"></div>
-        <p id="studies-empty" class="hint hidden">Nenhum exame encontrado.</p>
+        <p id="studies-empty" class="hint hidden" data-i18n="studies.empty"></p>
       </section>
 
       <section id="report-view" class="card hidden">
         <div class="studies-header">
           <div>
-            <h1>Laudo do exame</h1>
+            <h1 data-i18n="report.title"></h1>
             <p id="report-meta" class="hint"></p>
           </div>
-          <button type="button" id="report-back-btn" class="ghost">Voltar</button>
+          <button type="button" id="report-back-btn" class="ghost" data-i18n="report.back"></button>
         </div>
         <div id="report-content" class="report-content"></div>
         <p id="report-pdf-link" class="hint hidden">
-          <a id="report-pdf-anchor" href="#" target="_blank" rel="noreferrer">Abrir PDF do laudo</a>
+          <a id="report-pdf-anchor" href="#" target="_blank" rel="noreferrer" data-i18n="report.openPdf"></a>
         </p>
         <p id="report-error" class="error hidden"></p>
       </section>
     </main>
   </div>
-  <script src="static/portal.js"></script>
+  <script src="/static/theme.js"></script>
+  <script src="/static/i18n.js"></script>
+  <script src="/static/portal.js"></script>
 </body>
 </html>

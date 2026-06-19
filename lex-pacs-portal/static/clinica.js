@@ -6,6 +6,10 @@ const oidcBtn = document.getElementById('oidc-btn');
 const localDevHint = document.getElementById('local-dev-hint');
 const loginHint = document.getElementById('login-hint');
 
+function t(key) {
+  return LexI18n.t(key, 'ClinicalLogin');
+}
+
 function safeNextPath() {
   const params = new URLSearchParams(window.location.search);
   const next = params.get('next') || '/viewer/';
@@ -24,7 +28,7 @@ async function loadAuthConfig() {
   const params = new URLSearchParams(window.location.search);
   const urlError = params.get('error');
   if (urlError) {
-    showError('Login Keycloak cancelado ou falhou. Tente novamente.');
+    showError(t('errors.keycloakFailed'));
   }
 
   try {
@@ -36,12 +40,12 @@ async function loadAuthConfig() {
         const next = encodeURIComponent(safeNextPath());
         window.location.href = `/clinica-api/auth/clinical/oidc/login?next=${next}`;
       });
-      loginHint.textContent = 'Autenticação institucional via Keycloak.';
+      loginHint.textContent = t('login.hintKeycloak');
     }
     if (cfg.local_auth_enabled) {
       localDevHint.classList.remove('hidden');
     } else {
-      loginHint.textContent = 'Use o botão Keycloak ou credenciais institucionais.';
+      loginHint.textContent = t('login.hintPasswordOnly');
     }
   } catch {
     /* config opcional */
@@ -52,7 +56,8 @@ form.addEventListener('submit', async event => {
   event.preventDefault();
   errorEl.classList.add('hidden');
   submitBtn.disabled = true;
-  submitBtn.textContent = 'Entrando…';
+  const submitLabel = submitBtn.textContent;
+  submitBtn.textContent = t('login.submitting');
 
   const username = document.getElementById('username').value.trim();
   const password = document.getElementById('password').value;
@@ -66,16 +71,37 @@ form.addEventListener('submit', async event => {
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
-      showError(data.detail || 'Usuário ou senha incorretos.');
+      showError(data.detail || t('errors.invalidCredentials'));
       return;
     }
     window.location.href = data.redirect_url || safeNextPath();
   } catch {
-    showError('Não foi possível conectar ao servidor.');
+    showError(t('errors.connection'));
   } finally {
     submitBtn.disabled = false;
-    submitBtn.textContent = 'Acessar worklist';
+    submitBtn.textContent = submitLabel;
   }
 });
 
-void loadAuthConfig();
+function updateThemeToggleLabel() {
+  const theme = document.documentElement.getAttribute('data-theme') || 'dark';
+  const label =
+    theme === 'dark'
+      ? LexI18n.t('theme.switchToLight', 'ClinicalLogin')
+      : LexI18n.t('theme.switchToDark', 'ClinicalLogin');
+  document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+    btn.setAttribute('aria-label', label);
+    btn.setAttribute('title', label);
+  });
+}
+
+(async function bootstrap() {
+  LexTheme.init();
+  LexTheme.bindToggleButtons();
+  await LexI18n.init(['ClinicalLogin']);
+  updateThemeToggleLabel();
+  document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+    btn.addEventListener('click', () => setTimeout(updateThemeToggleLabel, 0));
+  });
+  await loadAuthConfig();
+})();

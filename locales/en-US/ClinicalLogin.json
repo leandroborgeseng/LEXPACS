@@ -1,0 +1,31 @@
+{
+  "meta": {
+    "title": "LEX PACS — Clinical Access",
+    "subtitle": "Clinical area — worklist and reports"
+  },
+  "login": {
+    "title": "Sign in",
+    "hintDefault": "Use your institutional credentials (Keycloak).",
+    "hintKeycloak": "Institutional authentication via Keycloak.",
+    "hintPasswordOnly": "Use the Keycloak button or institutional credentials.",
+    "username": "Username",
+    "usernamePlaceholder": "e.g. radiologist or admin",
+    "password": "Password",
+    "submit": "Access worklist",
+    "submitting": "Signing in…",
+    "keycloak": "Sign in with Keycloak",
+    "orPassword": "Or use username and password below.",
+    "devHint": "Dev: local login clinica / lexclinica2024 also works.",
+    "patientLink": "Patient?",
+    "patientPortal": "Patient portal"
+  },
+  "errors": {
+    "keycloakFailed": "Keycloak login cancelled or failed. Try again.",
+    "invalidCredentials": "Incorrect username or password.",
+    "connection": "Could not connect to the server."
+  },
+  "theme": {
+    "switchToLight": "Use light theme",
+    "switchToDark": "Use dark theme"
+  }
+}

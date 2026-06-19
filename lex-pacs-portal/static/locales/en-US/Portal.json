@@ -1,0 +1,49 @@
+{
+  "meta": {
+    "title": "LEX PACS — Patient Portal",
+    "subtitle": "Patient Portal"
+  },
+  "login": {
+    "title": "Access your studies",
+    "hint": "Enter the details registered at the clinic. The patient ID is the same provided at reception or on your report.",
+    "patientId": "Patient ID",
+    "patientIdPlaceholder": "e.g. 98890234",
+    "birthDate": "Date of birth",
+    "birthDatePlaceholder": "MM/DD/YYYY",
+    "accessCode": "Access code",
+    "accessCodePlaceholder": "Provided by the clinic",
+    "submit": "Sign in",
+    "submitting": "Signing in…"
+  },
+  "studies": {
+    "title": "My studies",
+    "empty": "No studies found.",
+    "logout": "Sign out",
+    "patientLabel": "{{name}} · ID {{id}}",
+    "defaultPatient": "Patient",
+    "studyDefault": "Study",
+    "date": "Date:",
+    "modality": "Modality:",
+    "series": "Series:",
+    "instances": "Images:",
+    "viewStudy": "View study",
+    "viewReport": "View report"
+  },
+  "report": {
+    "title": "Study report",
+    "back": "Back",
+    "signedBy": "Signed by {{name}}{{crm}}",
+    "signedByCrm": " — License {{crm}}",
+    "noText": "Report has no text — see PDF if available.",
+    "openPdf": "Open report PDF",
+    "pdfError": "Could not open the PDF."
+  },
+  "errors": {
+    "generic": "Could not complete the operation.",
+    "openViewer": "Could not open the study."
+  },
+  "theme": {
+    "switchToLight": "Switch to light theme",
+    "switchToDark": "Switch to dark theme"
+  }
+}

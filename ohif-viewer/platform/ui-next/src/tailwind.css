@@ -4,7 +4,8 @@
 @tailwind utilities;
 
 @layer base {
-  :root {
+  :root,
+  [data-theme='dark'] {
     --background: 0 0% 6%;
     --foreground: 0 0% 96%;
     --card: 0 0% 8%;
@@ -29,6 +30,33 @@
     --neutral: 0 0% 45%;
     --neutral-light: 0 0% 65%;
     --neutral-dark: 0 0% 12%;
+  }
+
+  [data-theme='light'] {
+    --background: 0 0% 97%;
+    --foreground: 0 0% 12%;
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 12%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 12%;
+    --primary: 0 85% 40%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 0 0% 94%;
+    --secondary-foreground: 0 0% 28%;
+    --muted: 0 0% 94%;
+    --muted-foreground: 0 0% 42%;
+    --accent: 0 0% 92%;
+    --accent-foreground: 0 0% 12%;
+    --destructive: 0 72% 46%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 0 0% 86%;
+    --input: 0 0% 90%;
+    --ring: 0 85% 40%;
+    --radius: 0.5rem;
+    --highlight: 0 85% 44%;
+    --neutral: 0 0% 50%;
+    --neutral-light: 0 0% 72%;
+    --neutral-dark: 0 0% 22%;
   }
 }
 

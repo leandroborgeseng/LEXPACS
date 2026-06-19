@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { useAppConfig } from '@state';
 import { preserveQueryParameters } from '../../utils/preserveQueryParameters';
 import { useStudyListStateSync, useWorkListToolbarActions } from '../../hooks';
 
-import { StudyList, Icons, InvestigationalUseDialog, type StudyRow } from '@ohif/ui-next';
+import { StudyList, Icons, InvestigationalUseDialog, LexThemeToggle, type StudyRow } from '@ohif/ui-next';
 import { StudyListSettingsPopover } from './StudyListSettingsPopover';
 import { SidePanelPreview } from './SidePanelPreview';
 import { WorkListViewBar } from './WorkListViewBar';
@@ -29,6 +30,7 @@ export default function WorkList({
   servicesManager,
   extensionManager,
 }: Props) {
+  const { t, i18n } = useTranslation();
   const [appConfig] = useAppConfig();
   const { customizationService } = servicesManager.services;
   const LoadingIndicatorProgress = customizationService.getCustomization(
@@ -50,11 +52,12 @@ export default function WorkList({
   const [isPreviewOpen, setPreviewOpen] = useState(true);
 
   const columns = useMemo(() => {
-    // `workList.columns` is registered as a value (StudyList.defaultColumns) and
-    // merged via customization commands, so we read the result directly.
     const customized = customizationService.getCustomization('workList.columns');
-    return Array.isArray(customized) ? customized : StudyList.defaultColumns;
-  }, [customizationService]);
+    if (Array.isArray(customized) && customized !== StudyList.defaultColumns) {
+      return customized;
+    }
+    return StudyList.createDefaultColumns();
+  }, [customizationService, i18n.language]);
 
   const logoComponent = appConfig?.whiteLabeling?.createLogoComponentFn?.(React) ?? (
     <Icons.LexPacsLogo
@@ -114,7 +117,7 @@ export default function WorkList({
   };
 
   return (
-    <div className="flex h-screen min-h-0 flex-col overflow-hidden bg-black">
+    <div className="bg-background flex h-screen min-h-0 flex-col overflow-hidden">
       <InvestigationalUseDialog dialogConfiguration={appConfig?.investigationalUseDialog} />
       <div className="flex h-full min-h-0 flex-col">
         <div className="flex min-h-0 flex-1 flex-col">
@@ -142,12 +145,12 @@ export default function WorkList({
               isLoading={showStudyListLoading}
               loadingComponent={
                 LoadingIndicatorProgress ? (
-                  <LoadingIndicatorProgress className="!relative bg-black" />
+                  <LoadingIndicatorProgress className="!relative bg-background" />
                 ) : (
                   <div className="h-8 w-8" />
                 )
               }
-              title={'Study List'}
+              title={t('StudyList:StudyList')}
               onSelectionChange={sel => setSelected((sel as StudyRow[])[0] ?? null)}
               toolbarLeftComponent={logoComponent}
               toolbarRightActionsComponent={toolbarActions}
@@ -158,12 +161,11 @@ export default function WorkList({
                 />
               }
               toolbarRightComponent={
-                !isPreviewOpen ? (
-                  <div className="relative -top-px mt-1 ml-2 flex items-center gap-1">
-                    <StudyListSettingsPopover />
-                    <StudyList.OpenPreviewButton />
-                  </div>
-                ) : undefined
+                <div className="relative -top-px mt-1 ml-2 flex items-center gap-1">
+                  <LexThemeToggle />
+                  <StudyListSettingsPopover />
+                  {!isPreviewOpen ? <StudyList.OpenPreviewButton /> : null}
+                </div>
               }
             />
             <StudyList.Preview>

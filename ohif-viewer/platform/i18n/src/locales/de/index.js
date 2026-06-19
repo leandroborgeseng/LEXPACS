@@ -2,26 +2,26 @@ import AboutModal from './AboutModal.json';
 import Buttons from './Buttons.json';
 import CineDialog from './CineDialog.json';
 import Common from './Common.json';
+import DataRow from './DataRow.json';
 import DatePicker from './DatePicker.json';
 import Header from './Header.json';
 import MeasurementTable from './MeasurementTable.json';
-import DataRow from './DataRow.json';
 import StudyList from './StudyList.json';
 import UserPreferencesModal from './UserPreferencesModal.json';
 import ViewportDownloadForm from './ViewportDownloadForm.json';
 
-export default {
-  de: {
+export default { 
+  'de': {
     AboutModal,
     Buttons,
     CineDialog,
     Common,
+    DataRow,
     DatePicker,
     Header,
     MeasurementTable,
-    DataRow,
     StudyList,
     UserPreferencesModal,
     ViewportDownloadForm,
-  },
+  }
 };

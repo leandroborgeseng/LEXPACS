@@ -17,6 +17,10 @@ const reportPdfAnchor = document.getElementById('report-pdf-anchor');
 const reportError = document.getElementById('report-error');
 const reportBackBtn = document.getElementById('report-back-btn');
 
+function t(key, params) {
+  return LexI18n.t(key, 'Portal', params);
+}
+
 function showError(message) {
   loginError.textContent = message;
   loginError.classList.remove('hidden');
@@ -27,24 +31,23 @@ function clearError() {
   loginError.classList.add('hidden');
 }
 
-function formatDate(value) {
-  if (!value || value.length !== 8) return value || '—';
-  return `${value.slice(6, 8)}/${value.slice(4, 6)}/${value.slice(0, 4)}`;
-}
-
 function formatPatientName(name) {
-  if (!name) return 'Paciente';
+  if (!name) {
+    return t('studies.defaultPatient');
+  }
   return name.replace(/\^/g, ' ');
 }
 
 async function api(path, options = {}) {
   const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
   const token = localStorage.getItem(TOKEN_KEY);
-  if (token) headers.Authorization = `Bearer ${token}`;
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
   const response = await fetch(`${API_BASE}${path}`, { ...options, headers, credentials: 'same-origin' });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(data.detail || 'Não foi possível completar a operação.');
+    throw new Error(data.detail || t('errors.generic'));
   }
   return data;
 }
@@ -77,7 +80,7 @@ async function openViewer(studyUid) {
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(data.detail || 'Não foi possível abrir o exame.');
+    throw new Error(data.detail || t('errors.openViewer'));
   }
   window.location.href = data.redirect_url;
 }
@@ -89,24 +92,24 @@ async function openReport(studyUid, studyDescription) {
   try {
     const data = await api(`/studies/${encodeURIComponent(studyUid)}/report`);
     const signedLine = data.signed_by
-      ? `Assinado por ${data.signed_by}${data.signed_crm ? ` — CRM ${data.signed_crm}` : ''}`
+      ? t('report.signedBy', {
+          name: data.signed_by,
+          crm: data.signed_crm ? t('report.signedByCrm', { crm: data.signed_crm }) : '',
+        })
       : '';
-    reportMeta.textContent = `${studyDescription || 'Exame'}${signedLine ? ` · ${signedLine}` : ''}`;
-    reportContent.innerHTML = data.content_html || '<p class="hint">Laudo sem texto — consulte o PDF se disponível.</p>';
+    reportMeta.textContent = `${studyDescription || t('studies.studyDefault')}${signedLine ? ` · ${signedLine}` : ''}`;
+    reportContent.innerHTML = data.content_html || `<p class="hint">${t('report.noText')}</p>`;
     if (data.has_pdf) {
       reportPdfLink.classList.remove('hidden');
-      reportPdfAnchor.textContent = data.pdf_filename || 'Abrir PDF do laudo';
+      reportPdfAnchor.textContent = data.pdf_filename || t('report.openPdf');
       reportPdfAnchor.onclick = async event => {
         event.preventDefault();
-        const pdfResponse = await fetch(
-          `${API_BASE}/studies/${encodeURIComponent(studyUid)}/report/pdf`,
-          {
-            headers: { Authorization: `Bearer ${localStorage.getItem(TOKEN_KEY)}` },
-            credentials: 'same-origin',
-          }
-        );
+        const pdfResponse = await fetch(`${API_BASE}/studies/${encodeURIComponent(studyUid)}/report/pdf`, {
+          headers: { Authorization: `Bearer ${localStorage.getItem(TOKEN_KEY)}` },
+          credentials: 'same-origin',
+        });
         if (!pdfResponse.ok) {
-          reportError.textContent = 'Não foi possível abrir o PDF.';
+          reportError.textContent = t('report.pdfError');
           reportError.classList.remove('hidden');
           return;
         }
@@ -124,7 +127,10 @@ async function openReport(studyUid, studyDescription) {
 
 async function loadStudies() {
   const data = await api('/studies');
-  patientLabel.textContent = `${formatPatientName(data.patient_name)} · ID ${data.patient_id}`;
+  patientLabel.textContent = t('studies.patientLabel', {
+    name: formatPatientName(data.patient_name),
+    id: data.patient_id,
+  });
   studiesList.innerHTML = '';
 
   if (!data.studies?.length) {
@@ -139,16 +145,16 @@ async function loadStudies() {
     const modalities = (study.modalities || []).join(', ') || '—';
     const uid = study.study_instance_uid;
     item.innerHTML = `
-      <strong>${study.study_description || 'Exame'}</strong>
-      <div class="study-meta">Data: ${formatDate(study.study_date)} · Modalidade: ${modalities}</div>
-      <div class="study-meta">Séries: ${study.series_count || 0} · Imagens: ${study.instance_count || 0}</div>
+      <strong>${study.study_description || t('studies.studyDefault')}</strong>
+      <div class="study-meta">${t('studies.date')} ${LexI18n.formatDate(study.study_date)} · ${t('studies.modality')} ${modalities}</div>
+      <div class="study-meta">${t('studies.series')} ${study.series_count || 0} · ${t('studies.instances')} ${study.instance_count || 0}</div>
       <div class="study-actions"></div>
     `;
     const actions = item.querySelector('.study-actions');
     if (uid) {
       const viewBtn = document.createElement('button');
       viewBtn.type = 'button';
-      viewBtn.textContent = 'Visualizar exame';
+      viewBtn.textContent = t('studies.viewStudy');
       viewBtn.addEventListener('click', async () => {
         viewBtn.disabled = true;
         try {
@@ -164,7 +170,7 @@ async function loadStudies() {
         const reportBtn = document.createElement('button');
         reportBtn.type = 'button';
         reportBtn.className = 'secondary';
-        reportBtn.textContent = 'Ver laudo';
+        reportBtn.textContent = t('studies.viewReport');
         reportBtn.addEventListener('click', () => openReport(uid, study.study_description));
         actions.appendChild(reportBtn);
       }
@@ -178,13 +184,17 @@ loginForm.addEventListener('submit', async event => {
   clearError();
   const btn = document.getElementById('login-btn');
   btn.disabled = true;
+  const submitLabel = btn.textContent;
+  btn.textContent = t('login.submitting');
   try {
     const payload = {
       patient_id: document.getElementById('patient-id').value.trim(),
       birth_date: document.getElementById('birth-date').value.trim(),
     };
     const accessCode = document.getElementById('access-code').value.trim();
-    if (accessCode) payload.access_code = accessCode;
+    if (accessCode) {
+      payload.access_code = accessCode;
+    }
 
     const data = await api('/auth/login', {
       method: 'POST',
@@ -197,6 +207,7 @@ loginForm.addEventListener('submit', async event => {
     showError(error.message);
   } finally {
     btn.disabled = false;
+    btn.textContent = submitLabel;
   }
 });
 
@@ -210,7 +221,26 @@ reportBackBtn.addEventListener('click', () => {
   showStudies();
 });
 
+function updateThemeToggleLabel() {
+  const theme = document.documentElement.getAttribute('data-theme') || 'dark';
+  const label =
+    theme === 'dark'
+      ? LexI18n.t('theme.switchToLight', 'Portal')
+      : LexI18n.t('theme.switchToDark', 'Portal');
+  document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+    btn.setAttribute('aria-label', label);
+    btn.setAttribute('title', label);
+  });
+}
+
 (async function bootstrap() {
+  LexTheme.init();
+  LexTheme.bindToggleButtons();
+  await LexI18n.init(['Portal']);
+  updateThemeToggleLabel();
+  document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+    btn.addEventListener('click', () => setTimeout(updateThemeToggleLabel, 0));
+  });
   const token = localStorage.getItem(TOKEN_KEY);
   if (!token) {
     showLogin();
