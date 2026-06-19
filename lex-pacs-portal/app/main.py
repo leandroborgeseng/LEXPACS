@@ -35,6 +35,7 @@ from .clinical_auth import (
 from .clinical_oidc import exchange_oidc_code, oidc_authorize_url, parse_oidc_state
 from .config import settings
 from .reports import router as reports_router
+from .bootstrap import bootstrap_runtime_files
 from .mwl_scheduler import start_mwl_scheduler
 from .orthanc_client import OrthancClient
 from .report_storage import get_patient_report, is_visible_to_patient, load_report, pdf_path
@@ -58,6 +59,7 @@ orthanc = OrthancClient()
 
 @app.on_event("startup")
 async def on_startup() -> None:
+    bootstrap_runtime_files()
     start_mwl_scheduler()
 
 

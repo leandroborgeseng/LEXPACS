@@ -1,0 +1,92 @@
+{
+  "realm": "lex-pacs",
+  "enabled": true,
+  "sslRequired": "${KEYCLOAK_SSL_REQUIRED}",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": false,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": false,
+  "editUsernameAllowed": false,
+  "groups": [
+    { "name": "radiologista", "path": "/radiologista" },
+    { "name": "tecnico", "path": "/tecnico" },
+    { "name": "admin", "path": "/admin" }
+  ],
+  "clients": [
+    {
+      "clientId": "lex-clinical",
+      "name": "LEX PACS Clínica",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "${OIDC_CLIENT_SECRET}",
+      "directAccessGrantsEnabled": true,
+      "standardFlowEnabled": true,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "${LEX_PUBLIC_URL}/*",
+        "${LEX_PUBLIC_URL}/clinica-api/auth/clinical/oidc/callback"
+      ],
+      "webOrigins": ["${LEX_PUBLIC_URL}", "${KEYCLOAK_PUBLIC_URL}"],
+      "protocol": "openid-connect",
+      "attributes": {
+        "post.logout.redirect.uris": "${LEX_PUBLIC_URL}/*"
+      },
+      "protocolMappers": [
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "consentRequired": false,
+          "config": {
+            "full.path": "false",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "claim.name": "groups",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "radiologista",
+      "enabled": true,
+      "email": "radiologista@lex.local",
+      "emailVerified": true,
+      "requiredActions": [],
+      "firstName": "Radio",
+      "lastName": "Logista",
+      "credentials": [
+        { "type": "password", "value": "lexrad2024", "temporary": false }
+      ],
+      "groups": ["/radiologista"]
+    },
+    {
+      "username": "tecnico",
+      "enabled": true,
+      "email": "tecnico@lex.local",
+      "emailVerified": true,
+      "requiredActions": [],
+      "firstName": "Tec",
+      "lastName": "Nico",
+      "credentials": [
+        { "type": "password", "value": "lextec2024", "temporary": false }
+      ],
+      "groups": ["/tecnico"]
+    },
+    {
+      "username": "admin",
+      "enabled": true,
+      "email": "admin@lex.local",
+      "emailVerified": true,
+      "requiredActions": [],
+      "firstName": "Admin",
+      "lastName": "LEX",
+      "credentials": [
+        { "type": "password", "value": "lexadmin2024", "temporary": false }
+      ],
+      "groups": ["/admin", "/radiologista"]
+    }
+  ]
+}

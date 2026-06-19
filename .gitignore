@@ -1,5 +1,6 @@
 # Segredos e artefatos locais
 **/.env
+**/.env.coolify
 **/nginx/.htpasswd
 **/__pycache__/
 **/*.pyc

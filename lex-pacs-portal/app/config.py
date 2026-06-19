@@ -31,6 +31,8 @@ class Settings(BaseSettings):
     oidc_client_id: str = "lex-clinical"
     oidc_client_secret: str = "lex-clinical-dev-secret"
     clinical_local_auth_enabled: bool = True
+    clinical_bootstrap_user: str = ""
+    clinical_bootstrap_password: str = ""
 
 
     @property

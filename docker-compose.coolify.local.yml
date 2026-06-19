@@ -1,0 +1,8 @@
+# Override local — expõe gateway :3000 e keycloak :8081
+services:
+  gateway:
+    ports:
+      - "3000:80"
+  keycloak:
+    ports:
+      - "8081:8080"

@@ -13,6 +13,7 @@
 | [UPGRADE.md](./UPGRADE.md) | **Runbook de upgrade e rollback** |
 | [../ohif-viewer/.env.example](../ohif-viewer/.env.example) | Variáveis de ambiente |
 | [I18N.md](./I18N.md) | **Traduções (pt-BR, en-US, es)** |
+| [COOLIFY.md](./COOLIFY.md) | **Deploy Docker no Coolify** |
 | [BACKUP.md](./BACKUP.md) | **Backup, retenção 7+4 e restore** |
 
 ---
