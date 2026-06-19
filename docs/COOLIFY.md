@@ -6,11 +6,12 @@ Guia para publicar o stack completo (gateway, viewer, portal, Orthanc, PostgreSQ
 
 ## Visão geral
 
+**Um único domínio público.** O Keycloak roda na rede interna do Docker e é exposto pelo gateway em `/auth/` — não é necessário (nem recomendado) um segundo domínio no Coolify.
+
 ```mermaid
 flowchart TB
   subgraph coolify [Coolify / Traefik]
-    DOM1[pacs.seudominio.com]
-    DOM2[auth.seudominio.com]
+    DOM[pacs.seudominio.com]
   end
   subgraph stack [docker-compose.coolify.yml]
     GW[gateway :80]
@@ -18,10 +19,10 @@ flowchart TB
     PORTAL[patient-portal]
     ORTH[orthanc]
     PG[(postgres)]
-    KC[keycloak]
+    KC[keycloak interno]
   end
-  DOM1 --> GW
-  DOM2 --> KC
+  DOM --> GW
+  GW -->|"/auth/"| KC
   GW --> OHIF
   GW --> PORTAL
   GW --> ORTH
@@ -33,10 +34,18 @@ flowchart TB
 
 | Serviço | Público no Coolify? | Porta |
 |---------|---------------------|-------|
-| **gateway** | Sim — domínio principal | 80 |
-| **keycloak** | Sim — subdomínio auth (recomendado) | 8080 |
+| **gateway** | Sim — domínio principal (`https://pacs...`) | 80 |
+| keycloak | Não — proxy interno via gateway `/auth/` | 8080 (rede Docker) |
 | ohif, patient-portal, orthanc, postgres | Não (rede interna) | — |
 | orthanc DICOM | Opcional — TCP `4242` no host | 4242 |
+
+**URLs OIDC:**
+
+| Uso | Valor |
+|-----|-------|
+| Browser / redirects | `https://pacs.seudominio.com/auth/realms/lex-pacs` |
+| Portal → Keycloak (rede Docker) | `http://keycloak:8080/auth/realms/lex-pacs` |
+| Admin Keycloak | `https://pacs.seudominio.com/auth/admin` |
 
 ---
 
@@ -63,14 +72,15 @@ cp .env.coolify.example .env.coolify
 1. **+ Add Resource** → **Docker Compose** → conectar repositório GitHub
 2. **Base Directory:** `/` (raiz do repo)
 3. **Docker Compose file:** `docker-compose.coolify.yml`
-4. **Build Pack:** Docker Compose (build automático das imagens `ohif` e `patient-portal`)
+4. **Build Pack:** Docker Compose (build automático das imagens `ohif` and `patient-portal`)
 
-### Domínios
+### Domínio (apenas um)
 
 | Serviço | Domínio exemplo | HTTPS |
 |---------|-----------------|-------|
 | `gateway` | `pacs.hospital.com` | Ativado (Let's Encrypt) |
-| `keycloak` | `auth.hospital.com` | Ativado |
+
+**Não** atribua domínio ao serviço `keycloak`. Ele fica acessível só via `https://pacs.hospital.com/auth/`.
 
 ### Variáveis de ambiente (aba Environment)
 
@@ -79,14 +89,19 @@ Copie de `.env.coolify.example`. **Obrigatórias:**
 | Variável | Exemplo |
 |----------|---------|
 | `OHIF_VIEWER_URL` | `https://pacs.hospital.com` |
-| `OIDC_PUBLIC_ISSUER_URL` | `https://auth.hospital.com/realms/lex-pacs` |
-| `KEYCLOAK_PUBLIC_URL` | `https://auth.hospital.com` |
-| `KEYCLOAK_PUBLIC_HOSTNAME` | `auth.hospital.com` |
 | `PORTAL_JWT_SECRET` | segredo ≥ 32 chars |
 | `POSTGRES_PASSWORD` | senha forte |
 | `KEYCLOAK_ADMIN_PASSWORD` | senha forte |
 | `OIDC_CLIENT_SECRET` | mesmo valor do client Keycloak |
 | `COOKIE_SECURE` | `true` |
+
+**Opcionais** (derivadas automaticamente se omitidas):
+
+| Variável | Padrão |
+|----------|--------|
+| `OIDC_PUBLIC_ISSUER_URL` | `${OHIF_VIEWER_URL}/auth/realms/lex-pacs` |
+| `OIDC_ISSUER_URL` | `http://keycloak:8080/auth/realms/lex-pacs` |
+| `KEYCLOAK_HTTP_RELATIVE_PATH` | `/auth` |
 
 **Dica Coolify:** defina cada variável **no compose** (`${NOME}`) e preencha o valor na UI. Se usar remapeamento (`OHIF_VIEWER_URL=${SERVICE_FQDN_GATEWAY}`), desative **Inject** para essa variável na UI.
 
@@ -103,7 +118,7 @@ Copie de `.env.coolify.example`. **Obrigatórias:**
 
 ```bash
 curl -fsS https://pacs.hospital.com/clinica/login | head
-curl -fsS https://auth.hospital.com/realms/lex-pacs/.well-known/openid-configuration | head
+curl -fsS https://pacs.hospital.com/auth/realms/lex-pacs/.well-known/openid-configuration | head
 ```
 
 No servidor (SSH):
@@ -130,6 +145,8 @@ Usuários de demo importados no realm (altere senhas no Keycloak Admin):
 | `radiologista` | radiologista | `lexrad2024` |
 | `tecnico` | tecnico | `lextec2024` |
 | `admin` | admin | `lexadmin2024` |
+
+Admin Keycloak: `https://pacs.hospital.com/auth/admin` (usuário `KEYCLOAK_ADMIN`).
 
 ### Fallback htpasswd (emergência / dev)
 
@@ -185,10 +202,11 @@ Rollback: redeploy commit anterior no Coolify (volumes intactos).
 | Sintoma | Causa provável | Ação |
 |---------|----------------|------|
 | OIDC redirect errado | `OHIF_VIEWER_URL` incorreta | Conferir URL exata com HTTPS, sem barra final |
-| Keycloak 502 | Realm ainda importando | Aguardar healthcheck; ver logs `keycloak` |
+| Keycloak 502 em `/auth/` | Realm ainda importando | Aguardar healthcheck; ver logs `keycloak` |
 | Login 401 após OIDC | `OIDC_CLIENT_SECRET` divergente | Igualar secret no Coolify e realm |
 | Cookie não persiste | `COOKIE_SECURE=true` sem HTTPS | Ativar TLS no Coolify |
 | Modalidade não envia | Firewall 4242 | Abrir porta para IP da modalidade |
+| Issuer OIDC errado | `OIDC_PUBLIC_ISSUER_URL` manual desatualizada | Omitir variável (usa `${OHIF_VIEWER_URL}/auth/realms/lex-pacs`) |
 
 Logs:
 
@@ -204,27 +222,28 @@ docker logs lex-pacs-keycloak-1 --tail 100
 
 ```bash
 cp .env.coolify.example .env.coolify
-# Ajuste para http://localhost:3000 e OIDC local
-docker compose -f docker-compose.coolify.yml --env-file .env.coolify up -d --build
-```
-
-Para simular produção local com gateway na 3000, adicione override:
-
-```yaml
-# docker-compose.coolify.local.yml
-services:
-  gateway:
-    ports:
-      - "3000:80"
-  keycloak:
-    ports:
-      - "8081:8080"
-```
-
-```bash
-docker compose -f docker-compose.coolify.yml -f docker-compose.coolify.local.yml \
+# Ajuste para http://localhost:3000 (sem HTTPS)
+docker compose -f docker-compose.coolify.yml \
+  -f docker-compose.coolify.local.yml \
   --env-file .env.coolify up -d --build
 ```
+
+Keycloak local: `http://localhost:3000/auth/` (via gateway, não porta separada).
+
+Stack de dev alternativo (`ohif-viewer/docker-compose.yml`) usa o mesmo padrão `/auth/`.
+
+---
+
+## O que ainda falta para go-live no Coolify
+
+| Item | Status |
+|------|--------|
+| Compose + um domínio + Keycloak interno | Feito |
+| Push GitHub + tag release | Pendente (auth git) |
+| Deploy real no Coolify + smoke remoto | Pendente |
+| Backup automático no host (sem `docker.sock`) | Pendente — ver [BACKUP.md](./BACKUP.md) |
+| Keycloak `start` + Postgres dedicado (vs `start-dev`) | Recomendado pós-MVP |
+| Trocar senhas demo do realm | Obrigatório antes de produção |
 
 ---
 

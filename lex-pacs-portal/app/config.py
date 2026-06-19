@@ -26,8 +26,8 @@ class Settings(BaseSettings):
     login_rate_limit_attempts: int = 20
     login_rate_limit_window_seconds: int = 60
     oidc_enabled: bool = False
-    oidc_issuer_url: str = "http://keycloak:8080/realms/lex-pacs"
-    oidc_public_issuer_url: str = "http://localhost:8081/realms/lex-pacs"
+    oidc_issuer_url: str = "http://keycloak:8080/auth/realms/lex-pacs"
+    oidc_public_issuer_url: str = "http://localhost:3000/auth/realms/lex-pacs"
     oidc_client_id: str = "lex-clinical"
     oidc_client_secret: str = "lex-clinical-dev-secret"
     clinical_local_auth_enabled: bool = True

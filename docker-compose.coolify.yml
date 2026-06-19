@@ -3,8 +3,8 @@
 # No Coolify:
 #   - Tipo: Docker Compose (GitHub)
 #   - Compose file: docker-compose.coolify.yml
-#   - Domínio público → serviço `gateway` porta 80
-#   - Domínio auth (opcional) → serviço `keycloak` porta 8080
+#   - Um único domínio público → serviço `gateway` porta 80
+#   - Keycloak fica na rede interna; OIDC em /auth/ via proxy do gateway
 #   - Variáveis: ver .env.coolify.example e docs/COOLIFY.md
 #
 # Desenvolvimento local:
@@ -18,8 +18,9 @@ services:
     image: alpine:3.20
     environment:
       OHIF_VIEWER_URL: ${OHIF_VIEWER_URL:-http://localhost:3000}
-      OIDC_PUBLIC_ISSUER_URL: ${OIDC_PUBLIC_ISSUER_URL:-http://localhost:8080/realms/lex-pacs}
+      OIDC_PUBLIC_ISSUER_URL: ${OIDC_PUBLIC_ISSUER_URL:-}
       KEYCLOAK_PUBLIC_URL: ${KEYCLOAK_PUBLIC_URL:-}
+      KEYCLOAK_HTTP_RELATIVE_PATH: ${KEYCLOAK_HTTP_RELATIVE_PATH:-/auth}
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-lex-clinical-dev-secret}
       KEYCLOAK_SSL_REQUIRED: ${KEYCLOAK_SSL_REQUIRED:-none}
     volumes:
@@ -31,8 +32,12 @@ services:
         set -eu
         apk add --no-cache gettext >/dev/null
         LEX_PUBLIC_URL=$$(echo "$$OHIF_VIEWER_URL" | sed 's:/*$$::')
-        KEYCLOAK_PUBLIC_URL=$${KEYCLOAK_PUBLIC_URL:-$$(echo "$$OIDC_PUBLIC_ISSUER_URL" | sed 's|/realms/lex-pacs/*$$||' | sed 's:/*$$::')}
+        KC_PATH=$${KEYCLOAK_HTTP_RELATIVE_PATH:-/auth}
+        KC_PATH=$$(echo "$$KC_PATH" | sed 's:/*$$::')
+        KEYCLOAK_PUBLIC_URL=$${KEYCLOAK_PUBLIC_URL:-$$LEX_PUBLIC_URL$$KC_PATH}
+        OIDC_PUBLIC_ISSUER_URL=$${OIDC_PUBLIC_ISSUER_URL:-$$LEX_PUBLIC_URL$$KC_PATH/realms/lex-pacs}
         export LEX_PUBLIC_URL KEYCLOAK_PUBLIC_URL OIDC_CLIENT_SECRET KEYCLOAK_SSL_REQUIRED
+        echo "OIDC público: $$OIDC_PUBLIC_ISSUER_URL"
         case "$$LEX_PUBLIC_URL" in
           https://*) export KEYCLOAK_SSL_REQUIRED=$${KEYCLOAK_SSL_REQUIRED:-external} ;;
         esac
@@ -60,12 +65,13 @@ services:
 
   keycloak:
     image: quay.io/keycloak/keycloak:26.0
-    command: start-dev --import-realm --http-port=8080
+    command: start-dev --import-realm --http-port=8080 --http-relative-path=${KEYCLOAK_HTTP_RELATIVE_PATH:-/auth}
     environment:
       KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
       KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?defina KEYCLOAK_ADMIN_PASSWORD}
       KC_HEALTH_ENABLED: "true"
       KC_HTTP_ENABLED: "true"
+      KC_HTTP_RELATIVE_PATH: ${KEYCLOAK_HTTP_RELATIVE_PATH:-/auth}
       KC_PROXY: ${KEYCLOAK_PROXY:-edge}
       KC_HOSTNAME: ${KEYCLOAK_PUBLIC_HOSTNAME:-}
       KC_HOSTNAME_STRICT: ${KEYCLOAK_HOSTNAME_STRICT:-false}
@@ -77,7 +83,7 @@ services:
       keycloak-realm-init:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/realms/lex-pacs >/dev/null 2>&1 || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080${KEYCLOAK_HTTP_RELATIVE_PATH:-/auth}/realms/lex-pacs >/dev/null 2>&1 || exit 1"]
       interval: 15s
       timeout: 10s
       retries: 20
@@ -152,8 +158,8 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD}
       LEX_PACS_VERSION: ${LEX_PACS_VERSION:-0.7.0}
       OIDC_ENABLED: ${OIDC_ENABLED:-true}
-      OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:-http://keycloak:8080/realms/lex-pacs}
-      OIDC_PUBLIC_ISSUER_URL: ${OIDC_PUBLIC_ISSUER_URL:?defina OIDC_PUBLIC_ISSUER_URL}
+      OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:-http://keycloak:8080/auth/realms/lex-pacs}
+      OIDC_PUBLIC_ISSUER_URL: ${OIDC_PUBLIC_ISSUER_URL:-${OHIF_VIEWER_URL}/auth/realms/lex-pacs}
       OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-lex-clinical}
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:?defina OIDC_CLIENT_SECRET}
       CLINICAL_LOCAL_AUTH_ENABLED: ${CLINICAL_LOCAL_AUTH_ENABLED:-false}
@@ -199,6 +205,8 @@ services:
       patient-portal:
         condition: service_healthy
       orthanc:
+        condition: service_healthy
+      keycloak:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1/clinica/login"]

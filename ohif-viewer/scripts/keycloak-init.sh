@@ -2,7 +2,7 @@
 # Corrige usuários OIDC após import do realm (dev).
 set -euo pipefail
 
-KC_URL="${KEYCLOAK_URL:-http://localhost:8081}"
+KC_URL="${KEYCLOAK_URL:-http://localhost:3000/auth}"
 ADMIN_USER="${KEYCLOAK_ADMIN:-admin}"
 ADMIN_PASS="${KEYCLOAK_ADMIN_PASSWORD:-admin}"
 REALM="${KEYCLOAK_REALM:-lex-pacs}"

@@ -20,6 +20,14 @@ require POSTGRES_PASSWORD
 require OIDC_CLIENT_SECRET
 require KEYCLOAK_ADMIN_PASSWORD
 
+if [ -z "${OIDC_PUBLIC_ISSUER_URL:-}" ]; then
+  base="${OHIF_VIEWER_URL%/}"
+  OIDC_PUBLIC_ISSUER_URL="${base}/auth/realms/lex-pacs"
+  echo "→ OIDC_PUBLIC_ISSUER_URL derivada: ${OIDC_PUBLIC_ISSUER_URL}"
+else
+  echo "✓ OIDC_PUBLIC_ISSUER_URL"
+fi
+
 if [ "${PORTAL_JWT_SECRET:-change-me-in-production}" = "change-me-in-production" ]; then
   echo "✗ PORTAL_JWT_SECRET ainda é o valor padrão inseguro" >&2
   missing=1

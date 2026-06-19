@@ -28,7 +28,7 @@ CLINIC_PASS="${CLINIC_PASS:-lexclinica2024}"
 PATIENT_ID="${PATIENT_ID:-+oYVjq}"
 PATIENT_BIRTH="${PATIENT_BIRTH:-25/08/1947}"
 SMOKE_BACKUP_DIR="${SMOKE_BACKUP_DIR:-/tmp/lex-pacs-smoke-backup}"
-KEYCLOAK_URL="${KEYCLOAK_URL:-http://localhost:8081}"
+KEYCLOAK_URL="${KEYCLOAK_URL:-${GATEWAY_URL}/auth}"
 OIDC_CLIENT_SECRET="${OIDC_CLIENT_SECRET:-lex-clinical-dev-secret}"
 
 # Etapas com testes automatizados prontos

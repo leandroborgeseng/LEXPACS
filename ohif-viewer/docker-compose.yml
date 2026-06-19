@@ -86,8 +86,8 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-orthanc}
       LEX_PACS_VERSION: ${LEX_PACS_VERSION:-0.7.0}
       OIDC_ENABLED: ${OIDC_ENABLED:-true}
-      OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:-http://keycloak:8080/realms/lex-pacs}
-      OIDC_PUBLIC_ISSUER_URL: ${OIDC_PUBLIC_ISSUER_URL:-http://localhost:8081/realms/lex-pacs}
+      OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:-http://keycloak:8080/auth/realms/lex-pacs}
+      OIDC_PUBLIC_ISSUER_URL: ${OIDC_PUBLIC_ISSUER_URL:-http://localhost:3000/auth/realms/lex-pacs}
       OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-lex-clinical}
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-lex-clinical-dev-secret}
       CLINICAL_LOCAL_AUTH_ENABLED: ${CLINICAL_LOCAL_AUTH_ENABLED:-true}
@@ -115,15 +115,17 @@ services:
   keycloak:
     image: quay.io/keycloak/keycloak:26.0
     container_name: lex-pacs-keycloak
-    command: start-dev --import-realm --http-port=8080
+    command: start-dev --import-realm --http-port=8080 --http-relative-path=/auth
     environment:
       KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
       KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
       KC_HEALTH_ENABLED: "true"
+      KC_HTTP_RELATIVE_PATH: /auth
+      KC_PROXY: edge
     volumes:
       - ./keycloak/lex-pacs-realm.json:/opt/keycloak/data/import/lex-pacs-realm.json:ro
-    ports:
-      - "8081:8080"
+    expose:
+      - "8080"
     restart: unless-stopped
 
   backup:
