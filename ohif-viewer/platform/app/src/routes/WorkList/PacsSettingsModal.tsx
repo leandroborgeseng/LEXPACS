@@ -38,6 +38,7 @@ type MwlStatus = {
     port: number;
     database: string;
     username: string;
+    password_env?: string;
     table: string;
     sync_interval_minutes: number;
     password_configured: boolean;
@@ -52,16 +53,66 @@ type MwlStatus = {
   entries_total: number;
 };
 
+type MwlSqlForm = {
+  enabled: boolean;
+  host: string;
+  port: number;
+  database: string;
+  username: string;
+  password_env: string;
+  table: string;
+  sync_interval_minutes: number;
+  password_configured: boolean;
+};
+
 type AuditEvent = {
-  ts: string;
+  timestamp: string;
   event: string;
-  user: string;
-  detail?: Record<string, unknown>;
+  actor: string;
+};
+
+type PacsStats = {
+  patients: number;
+  studies: number;
+  series: number;
+  instances: number;
+  studies_by_modality: { modality: string; studies: number; series: number }[];
+  study_date_age: { label: string; count: number }[];
+  received_age: { label: string; count: number }[];
+  disk: { label: string; bytes: number; mb: number }[];
+  disk_total_mb: number;
+  generated_at: string;
 };
 
 type PacsSettingsModalProps = {
   hide?: () => void;
 };
+
+const emptyMwlSql = (): MwlSqlForm => ({
+  enabled: true,
+  host: 'postgres',
+  port: 5432,
+  database: 'orthanc',
+  username: 'orthanc',
+  password_env: 'POSTGRES_PASSWORD',
+  table: 'lex_mwl_schedule',
+  sync_interval_minutes: 5,
+  password_configured: false,
+});
+
+function mwlSqlFromStatus(sql: MwlStatus['sql']): MwlSqlForm {
+  return {
+    enabled: sql.enabled,
+    host: sql.host,
+    port: sql.port,
+    database: sql.database,
+    username: sql.username,
+    password_env: sql.password_env || 'POSTGRES_PASSWORD',
+    table: sql.table,
+    sync_interval_minutes: sql.sync_interval_minutes,
+    password_configured: sql.password_configured,
+  };
+}
 
 const emptyEquipment = (): EquipmentItem => ({
   aet: '',
@@ -80,6 +131,10 @@ function formatTs(value: string): string {
     return value;
   }
   return parsed.toLocaleString('pt-BR');
+}
+
+function formatCount(value: number): string {
+  return value.toLocaleString('pt-BR');
 }
 
 export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
@@ -102,19 +157,23 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
   const [mwlStatus, setMwlStatus] = useState<MwlStatus | null>(null);
   const [mwlEntries, setMwlEntries] = useState<MwlEntry[]>([]);
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
+  const [mwlSql, setMwlSql] = useState<MwlSqlForm>(emptyMwlSql);
+  const [pacsStats, setPacsStats] = useState<PacsStats | null>(null);
 
   const loadAdminData = useCallback(async () => {
     setAdminLoading(true);
     setError('');
     try {
-      const [meRes, statusRes, entriesRes] = await Promise.all([
+      const [meRes, statusRes, entriesRes, statsRes] = await Promise.all([
         fetch(AUTH_ME, { credentials: 'include' }),
         fetch(`${API_BASE}/mwl/status`, { credentials: 'include' }),
         fetch(`${API_BASE}/mwl/entries`, { credentials: 'include' }),
+        fetch(`${API_BASE}/stats`, { credentials: 'include' }),
       ]);
       const me = await meRes.json().catch(() => ({}));
       const status = await statusRes.json().catch(() => null);
       const entriesData = await entriesRes.json().catch(() => ({}));
+      const statsData = await statsRes.json().catch(() => null);
 
       const groups: string[] = Array.isArray(me.groups) ? me.groups : [];
       const admin = groups.includes('admin') || me.username === 'admin';
@@ -124,7 +183,13 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
         throw new Error(status?.detail || 'Não foi possível carregar status MWL.');
       }
       setMwlStatus(status);
+      setMwlSql(mwlSqlFromStatus(status.sql));
       setMwlEntries(Array.isArray(entriesData.entries) ? entriesData.entries.slice(0, 20) : []);
+      if (statsRes.ok && statsData) {
+        setPacsStats(statsData as PacsStats);
+      } else {
+        setPacsStats(null);
+      }
 
       if (admin) {
         const auditRes = await fetch(`${API_BASE}/audit?limit=30`, { credentials: 'include' });
@@ -277,10 +342,46 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
       setMessage(
         `MWL sincronizado: ${data.synced} arquivo(s), plugin ${data.plugin_enabled ? 'ativo' : 'inativo'}.`
       );
-      setMwlStatus(null);
       await loadAdminData();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao sincronizar MWL.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSaveMwlSql = async () => {
+    if (!isAdmin) {
+      return;
+    }
+    setSaving(true);
+    setError('');
+    setMessage('');
+    try {
+      const response = await fetch(`${API_BASE}/mwl-sql`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          enabled: mwlSql.enabled,
+          host: mwlSql.host.trim(),
+          port: mwlSql.port,
+          database: mwlSql.database.trim(),
+          username: mwlSql.username.trim(),
+          password_env: mwlSql.password_env.trim() || 'POSTGRES_PASSWORD',
+          table: mwlSql.table.trim(),
+          sync_interval_minutes: mwlSql.sync_interval_minutes,
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.detail || 'Não foi possível salvar configuração SQL.');
+      }
+      setMwlSql(mwlSqlFromStatus(data));
+      setMessage('Configuração SQL MWL salva.');
+      await loadAdminData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao salvar SQL MWL.');
     } finally {
       setSaving(false);
     }
@@ -483,20 +584,128 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
 
           <TabsContent
             value="admin"
-            className="mt-4 flex max-h-[420px] flex-col gap-3 overflow-y-auto"
+            className="mt-4 flex max-h-[520px] flex-col gap-3 overflow-y-auto"
           >
             {adminLoading ? (
               <p className="text-sm">Carregando painel admin…</p>
             ) : mwlStatus ? (
               <>
+                {pacsStats ? (
+                  <div className="border-border rounded border p-3">
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <p className="text-sm font-medium">Estatísticas do PACS</p>
+                      <p className="text-muted-foreground text-xs">
+                        Atualizado {formatTs(pacsStats.generated_at)}
+                      </p>
+                    </div>
+                    <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                      {[
+                        { label: 'Pacientes', value: pacsStats.patients },
+                        { label: 'Exames', value: pacsStats.studies },
+                        { label: 'Séries', value: pacsStats.series },
+                        { label: 'Instâncias', value: pacsStats.instances },
+                      ].map(item => (
+                        <div
+                          key={item.label}
+                          className="bg-muted/40 rounded p-2 text-center"
+                        >
+                          <p className="text-lg font-semibold">{formatCount(item.value)}</p>
+                          <p className="text-muted-foreground text-xs">{item.label}</p>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <div>
+                        <p className="mb-1 text-xs font-medium">Exames por modalidade</p>
+                        {pacsStats.studies_by_modality.length === 0 ? (
+                          <p className="text-muted-foreground text-xs">Sem dados.</p>
+                        ) : (
+                          <table className="w-full text-left text-xs">
+                            <thead>
+                              <tr className="text-muted-foreground border-b">
+                                <th className="py-1 pr-2">Mod.</th>
+                                <th className="py-1 pr-2">Exames</th>
+                                <th className="py-1">Séries</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {pacsStats.studies_by_modality.map(row => (
+                                <tr
+                                  key={row.modality}
+                                  className="border-border/60 border-b"
+                                >
+                                  <td className="py-1 pr-2">{row.modality}</td>
+                                  <td className="py-1 pr-2">{formatCount(row.studies)}</td>
+                                  <td className="py-1">{formatCount(row.series)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        )}
+                      </div>
+
+                      <div>
+                        <p className="mb-1 text-xs font-medium">Idade dos exames (data do estudo)</p>
+                        <table className="w-full text-left text-xs">
+                          <tbody>
+                            {pacsStats.study_date_age.map(row => (
+                              <tr
+                                key={row.label}
+                                className="border-border/60 border-b"
+                              >
+                                <td className="py-1 pr-2">{row.label}</td>
+                                <td className="py-1 text-right">{formatCount(row.count)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    <div className="mb-3">
+                      <p className="mb-1 text-xs font-medium">Idade na ingestão (última atualização)</p>
+                      <table className="w-full text-left text-xs">
+                        <tbody>
+                          {pacsStats.received_age.map(row => (
+                            <tr
+                              key={`recv-${row.label}`}
+                              className="border-border/60 border-b"
+                            >
+                              <td className="py-1 pr-2">{row.label}</td>
+                              <td className="py-1 text-right">{formatCount(row.count)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <div>
+                      <p className="mb-1 text-xs font-medium">
+                        Utilização de disco — total {pacsStats.disk_total_mb.toLocaleString('pt-BR')} MB
+                      </p>
+                      <table className="w-full text-left text-xs">
+                        <tbody>
+                          {pacsStats.disk.map(row => (
+                            <tr
+                              key={row.label}
+                              className="border-border/60 border-b"
+                            >
+                              <td className="py-1 pr-2">{row.label}</td>
+                              <td className="py-1 text-right">
+                                {row.mb.toLocaleString('pt-BR')} MB
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ) : null}
+
                 <div className="border-border rounded border p-3 text-sm">
-                  <p className="font-medium">Modality Worklist (SQL → Orthanc)</p>
+                  <p className="font-medium">Status MWL</p>
                   <p className="text-muted-foreground mt-1 text-xs">
-                    SQL: {mwlStatus.sql.host}:{mwlStatus.sql.port}/{mwlStatus.sql.database} ·
-                    tabela {mwlStatus.sql.table} · intervalo automático{' '}
-                    {mwlStatus.sql.sync_interval_minutes} min
-                  </p>
-                  <p className="text-muted-foreground text-xs">
                     Plugin Orthanc: {mwlStatus.plugin_enabled ? 'ativo' : 'inativo'} · entradas SQL:{' '}
                     {mwlStatus.entries_total}
                   </p>
@@ -513,22 +722,130 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
                     <Button
                       size="sm"
                       onClick={handleMwlSync}
-                      disabled={saving || !mwlStatus.sql.enabled}
+                      disabled={saving || !mwlSql.enabled}
                     >
                       Sincronizar MWL agora
                     </Button>
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => {
-                        setMwlStatus(null);
-                        void loadAdminData();
-                      }}
+                      onClick={() => void loadAdminData()}
                       disabled={saving}
                     >
                       Atualizar
                     </Button>
                   </div>
+                </div>
+
+                <div className="border-border rounded border p-3">
+                  <p className="mb-2 text-sm font-medium">Conexão SQL (agenda → MWL)</p>
+                  {!isAdmin ? (
+                    <p className="text-muted-foreground text-xs">
+                      {mwlSql.host}:{mwlSql.port}/{mwlSql.database} · tabela {mwlSql.table} ·
+                      sync a cada {mwlSql.sync_interval_minutes} min
+                      {mwlSql.enabled ? '' : ' (desabilitado)'}
+                    </p>
+                  ) : (
+                    <div className="flex flex-col gap-2">
+                      <label className="flex items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={mwlSql.enabled}
+                          onChange={e => setMwlSql(prev => ({ ...prev, enabled: e.target.checked }))}
+                        />
+                        Sync SQL habilitado
+                      </label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <label className="flex flex-col gap-1 text-xs">
+                          Host
+                          <Input
+                            value={mwlSql.host}
+                            onChange={e => setMwlSql(prev => ({ ...prev, host: e.target.value }))}
+                          />
+                        </label>
+                        <label className="flex flex-col gap-1 text-xs">
+                          Porta
+                          <Input
+                            type="number"
+                            value={mwlSql.port}
+                            onChange={e =>
+                              setMwlSql(prev => ({
+                                ...prev,
+                                port: Number(e.target.value) || 5432,
+                              }))
+                            }
+                          />
+                        </label>
+                        <label className="flex flex-col gap-1 text-xs">
+                          Banco
+                          <Input
+                            value={mwlSql.database}
+                            onChange={e =>
+                              setMwlSql(prev => ({ ...prev, database: e.target.value }))
+                            }
+                          />
+                        </label>
+                        <label className="flex flex-col gap-1 text-xs">
+                          Usuário
+                          <Input
+                            value={mwlSql.username}
+                            onChange={e =>
+                              setMwlSql(prev => ({ ...prev, username: e.target.value }))
+                            }
+                          />
+                        </label>
+                        <label className="flex flex-col gap-1 text-xs">
+                          Tabela
+                          <Input
+                            value={mwlSql.table}
+                            onChange={e => setMwlSql(prev => ({ ...prev, table: e.target.value }))}
+                          />
+                        </label>
+                        <label className="flex flex-col gap-1 text-xs">
+                          Env da senha
+                          <Input
+                            value={mwlSql.password_env}
+                            onChange={e =>
+                              setMwlSql(prev => ({ ...prev, password_env: e.target.value }))
+                            }
+                            placeholder="POSTGRES_PASSWORD"
+                          />
+                        </label>
+                        <label className="col-span-2 flex flex-col gap-1 text-xs">
+                          Intervalo sync automático (minutos)
+                          <Input
+                            type="number"
+                            min={1}
+                            max={1440}
+                            value={mwlSql.sync_interval_minutes}
+                            onChange={e =>
+                              setMwlSql(prev => ({
+                                ...prev,
+                                sync_interval_minutes: Math.max(
+                                  1,
+                                  Number(e.target.value) || 5
+                                ),
+                              }))
+                            }
+                          />
+                        </label>
+                      </div>
+                      <p className="text-muted-foreground text-xs">
+                        Senha via variável de ambiente{' '}
+                        <span className="font-mono">{mwlSql.password_env}</span>:{' '}
+                        {mwlSql.password_configured ? 'configurada' : 'ausente no servidor'}
+                      </p>
+                      <div className="flex justify-end">
+                        <Button
+                          size="sm"
+                          onClick={handleSaveMwlSql}
+                          disabled={saving}
+                        >
+                          Salvar conexão SQL
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div className="border-border rounded border p-3">
@@ -579,12 +896,14 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
                         <tbody>
                           {auditEvents.map((item, index) => (
                             <tr
-                              key={`${item.ts}-${index}`}
+                              key={`${item.timestamp}-${index}`}
                               className="border-border/60 border-b"
                             >
-                              <td className="py-1 pr-2 whitespace-nowrap">{formatTs(item.ts)}</td>
+                              <td className="py-1 pr-2 whitespace-nowrap">
+                                {formatTs(item.timestamp)}
+                              </td>
                               <td className="py-1 pr-2">{item.event}</td>
-                              <td className="py-1">{item.user}</td>
+                              <td className="py-1">{item.actor}</td>
                             </tr>
                           ))}
                         </tbody>

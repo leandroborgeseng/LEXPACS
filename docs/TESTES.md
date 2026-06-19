@@ -42,10 +42,13 @@ chmod +x scripts/smoke-test.sh    # uma vez
 | **E13** | Plugin MWL, sync SQL, filtro station_aet, arquivos .wl |
 | **E14** | Keycloak OIDC + Bearer na API + Basic legado |
 | **E15** | Log JSONL: study_open, mwl_sync, report_signed, export_pdf |
+| **Onda A** | Admin UI, logout, `/mwl/status`, sync automático | Smoke seção Onda A |
+| **Onda B** | Formulário SQL MWL na aba Admin | `PUT /mwl-sql` na smoke Onda B |
+| **Onda B+** | Dashboard estatísticas na aba Admin | `GET /admin/pacs/stats` |
 
 ### Etapas pendentes (sem teste ainda)
 
-Nenhuma — roadmap E1–E15 coberto pelo smoke test.
+Nenhuma no roadmap E1–E15. Próximas ondas: ver [ROADMAP.md](./ROADMAP.md) (backup automático, OIDC pleno, E2E).
 
 Rodar explicitamente: `./scripts/smoke-test.sh E7` → mostra "etapa ainda não implementada".
 

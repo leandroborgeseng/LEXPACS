@@ -16,6 +16,7 @@ from .lex_settings import (
     save_worklist_views,
 )
 from .pacs_config import get_pacs_settings, update_server_settings
+from .pacs_stats import collect_pacs_stats
 
 router = APIRouter(prefix="/api/admin/pacs", tags=["admin"])
 
@@ -125,6 +126,37 @@ class AuditEvent(BaseModel):
 
 class AuditListResponse(BaseModel):
     events: list[dict]
+
+
+class StatsBucketItem(BaseModel):
+    label: str
+    count: int
+
+
+class StatsModalityItem(BaseModel):
+    modality: str
+    studies: int
+    series: int
+
+
+class StatsDiskItem(BaseModel):
+    label: str
+    bytes: int
+    mb: float
+
+
+class PacsStatsResponse(BaseModel):
+    patients: int
+    studies: int
+    series: int
+    instances: int
+    studies_by_modality: list[StatsModalityItem]
+    study_date_age: list[StatsBucketItem]
+    received_age: list[StatsBucketItem]
+    disk: list[StatsDiskItem]
+    disk_total_bytes: int
+    disk_total_mb: float
+    generated_at: str
 
 
 @router.get("/settings", response_model=PacsSettingsResponse)
@@ -248,6 +280,13 @@ async def read_mwl_entries(
 ) -> MwlEntriesResponse:
     entries = [MwlEntry(**item) for item in list_mwl_entries(station_aet)]
     return MwlEntriesResponse(entries=entries)
+
+
+@router.get("/stats", response_model=PacsStatsResponse)
+async def read_pacs_stats(
+    _: ClinicalUser = Depends(require_clinical_user),
+) -> PacsStatsResponse:
+    return PacsStatsResponse(**await collect_pacs_stats())
 
 
 @router.get("/audit", response_model=AuditListResponse)

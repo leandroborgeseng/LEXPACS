@@ -821,7 +821,7 @@ sys.exit(0 if needed.intersection(events) else 1)
   echo
 fi
 
-# ── Onda A ──
+# ── Onda A / B ──
 echo "▶ Onda A — Admin, logout e status MWL"
 mwl_status=$(curl_auth "${GATEWAY_URL}/clinica-api/admin/pacs/mwl/status")
 if echo "$mwl_status" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get('sync') is not None and d.get('sql') else 1)" 2>/dev/null; then
@@ -829,6 +829,27 @@ if echo "$mwl_status" | python3 -c "import sys,json; d=json.load(sys.stdin); sys
 else
   fail "GET /admin/pacs/mwl/status"
 fi
+
+pacs_stats=$(curl_auth "${GATEWAY_URL}/clinica-api/admin/pacs/stats")
+if echo "$pacs_stats" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get('studies',0)>=0 and d.get('patients',0)>=0 and isinstance(d.get('disk'),list) and d.get('studies_by_modality') is not None else 1)" 2>/dev/null; then
+  pass "GET /admin/pacs/stats (exames, pacientes, disco)"
+else
+  fail "GET /admin/pacs/stats"
+fi
+
+echo "▶ Onda B — Config SQL MWL na UI (API)"
+mwl_saved=$(curl_auth -X PUT "${GATEWAY_URL}/clinica-api/admin/pacs/mwl-sql" \
+  -H "Content-Type: application/json" \
+  -d '{"enabled":true,"host":"postgres","port":5432,"database":"orthanc","username":"orthanc","password_env":"POSTGRES_PASSWORD","table":"lex_mwl_schedule","sync_interval_minutes":7}')
+mwl_interval=$(echo "$mwl_saved" | python3 -c "import sys,json; print(json.load(sys.stdin).get('sync_interval_minutes',0))" 2>/dev/null || echo 0)
+if [ "${mwl_interval:-0}" = "7" ]; then
+  pass "PUT /admin/pacs/mwl-sql persiste intervalo"
+else
+  fail "PUT /admin/pacs/mwl-sql não persistiu (${mwl_interval:-0})"
+fi
+curl_auth -X PUT "${GATEWAY_URL}/clinica-api/admin/pacs/mwl-sql" \
+  -H "Content-Type: application/json" \
+  -d '{"enabled":true,"host":"postgres","port":5432,"database":"orthanc","username":"orthanc","password_env":"POSTGRES_PASSWORD","table":"lex_mwl_schedule","sync_interval_minutes":5}' >/dev/null
 
 curl_auth -X POST "${GATEWAY_URL}/clinica-api/auth/clinical/logout" >/dev/null
 code_logout=$(http_code_auth "${GATEWAY_URL}/dicom-web/studies?limit=1")

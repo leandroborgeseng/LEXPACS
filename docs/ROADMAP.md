@@ -47,6 +47,14 @@
 | **E14** | SSO OIDC (Keycloak) + Basic em transição | Token Bearer na API clínica |
 | **E15** | Auditoria estruturada | `GET /clinica-api/admin/pacs/audit` |
 
+### Pós-roadmap (ondas de polish)
+
+| Onda | Entrega | Teste |
+|------|---------|-------|
+| **A** | Aba Admin (status/sync MWL, auditoria, logout clínico, sync automático) | `./scripts/smoke-test.sh` (seção Onda A) |
+| **B** | Formulário config SQL MWL na aba Admin | `./scripts/smoke-test.sh` (seção Onda B) |
+| **B+** | Estatísticas admin (exames, pacientes, modalidade, idade, disco) | `GET /clinica-api/admin/pacs/stats` |
+
 ---
 
 ## Visão do produto final
@@ -393,8 +401,10 @@ Atualize esta tabela ao concluir cada etapa:
 | E9 | Concluído (MVP) | 2026-06 | Painel Laudo + API + volume |
 | E10 | Concluído (MVP) | 2026-06 | Upload PDF |
 | E11 | Concluído (MVP) | 2026-06 | Assinatura lógica + bloqueio |
-| E5 | Pendente | | |
-| E3 | Pendente | | |
+| E5 | Pendente (job automático) | Script manual OK |
+| E3 | Concluído | 2026-06 | PostgreSQL + orthanc-storage |
+| Onda A | Concluído | 2026-06 | Admin, logout, sync MWL |
+| Onda B | Concluído | 2026-06 | Form SQL MWL na UI |
 
 ---
 
