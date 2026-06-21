@@ -14,8 +14,8 @@ COMPOSE_FILE="${PROJECT_DIR}/docker-compose.yml"
 BASE_CONFIG="${PROJECT_DIR}/orthanc/orthanc.base.json"
 
 OLD_VOL="ohif-viewer_orthanc-data"
-STORAGE_VOL="ohif-viewer_orthanc-storage"
-CONFIG_VOL="ohif-viewer_orthanc-config"
+STORAGE_VOL="ohif-viewer_server-data"
+CONFIG_VOL="ohif-viewer_server-config"
 FLAG_NAME=".e3-migrated"
 POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-orthanc}"
 
@@ -39,8 +39,8 @@ if flag_exists 2>/dev/null; then
   exit 0
 fi
 
-echo "  • Parando orthanc..."
-docker compose -f "${COMPOSE_FILE}" stop orthanc 2>/dev/null || true
+echo "  • Parando server..."
+docker compose -f "${COMPOSE_FILE}" stop server 2>/dev/null || true
 
 MIGRATED_STORAGE=0
 if docker volume inspect "${OLD_VOL}" >/dev/null 2>&1; then
@@ -95,9 +95,9 @@ subprocess.run(
 print("  • Configuração mesclada com template E3/E4")
 PY
 
-echo "  • Subindo postgres e orthanc..."
+echo "  • Subindo database e server..."
 export POSTGRES_PASSWORD
-docker compose -f "${COMPOSE_FILE}" up -d postgres orthanc
+docker compose -f "${COMPOSE_FILE}" up -d database server
 
 echo "  • Aguardando servidor DICOM..."
 for _ in $(seq 1 60); do

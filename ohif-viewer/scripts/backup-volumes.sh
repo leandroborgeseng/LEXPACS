@@ -16,32 +16,47 @@ fi
 
 echo "Backup LEX PACS → ${DEST}"
 
-for vol in ohif-viewer_orthanc-storage ohif-viewer_orthanc-config ohif-viewer_lex-reports ohif-viewer_lex-audit; do
-  if docker volume inspect "$vol" >/dev/null 2>&1; then
+vol_exists() {
+  docker volume inspect "$1" >/dev/null 2>&1
+}
+
+backup_vol() {
+  local vol=$1
+  if vol_exists "$vol"; then
     echo "  • ${vol}"
     docker run --rm -v "${vol}:/data:ro" -v "${DEST}:/backup" alpine \
       tar czf "/backup/${vol}.tar.gz" -C /data .
-  else
-    echo "  • ${vol} (não encontrado — ignorando)"
+    return 0
   fi
+  return 1
+}
+
+for prefix in lex-pacs ohif-viewer; do
+  for suffix in server-data server-config lex-reports lex-audit; do
+    backup_vol "${prefix}_${suffix}" || true
+  done
 done
 
-# Volume legado (pré-E3) — incluir se ainda existir
-if docker volume inspect ohif-viewer_orthanc-data >/dev/null 2>&1; then
+# Volumes legados (pré-renome)
+for vol in ohif-viewer_orthanc-storage ohif-viewer_orthanc-config lex-pacs_orthanc-storage lex-pacs_orthanc-config; do
+  backup_vol "$vol" || true
+done
+
+if vol_exists ohif-viewer_orthanc-data; then
   echo "  • ohif-viewer_orthanc-data (legado)"
   docker run --rm -v ohif-viewer_orthanc-data:/data:ro -v "${DEST}:/backup" alpine \
     tar czf "/backup/ohif-viewer_orthanc-data.tar.gz" -C /data .
 fi
 
-COMPOSE_FILE="${PROJECT_DIR}/docker-compose.yml"
-if [ -f "${COMPOSE_FILE}" ] && docker compose -f "${COMPOSE_FILE}" ps postgres 2>/dev/null | grep -qiE 'running|up'; then
-  echo "  • postgres (pg_dump)"
-  if docker compose -f "${COMPOSE_FILE}" exec -T postgres \
+COMPOSE_FILE="${COMPOSE_FILE:-${PROJECT_DIR}/docker-compose.yml}"
+if [ -f "${COMPOSE_FILE}" ] && docker compose -f "${COMPOSE_FILE}" ps database 2>/dev/null | grep -qiE 'running|up'; then
+  echo "  • database (pg_dump)"
+  if docker compose -f "${COMPOSE_FILE}" exec -T database \
     pg_dump -U "${POSTGRES_USER:-orthanc}" "${POSTGRES_DB:-orthanc}" \
     > "${DEST}/postgres.dump"; then
     :
   else
-    echo "  ○ pg_dump falhou — postgres pode estar indisponível"
+    echo "  ○ pg_dump falhou — database pode estar indisponível"
     rm -f "${DEST}/postgres.dump"
   fi
 fi
@@ -52,7 +67,12 @@ fi
 
 IMAGES_LINES=""
 if command -v docker >/dev/null 2>&1 && [ -f "${COMPOSE_FILE}" ]; then
-  IMAGES_LINES=$(cd "${PROJECT_DIR}" && docker compose images 2>/dev/null | tail -n +2 || true)
+  IMAGES_LINES=$(cd "${PROJECT_DIR}" && docker compose -f "${COMPOSE_FILE}" images 2>/dev/null | tail -n +2 || true)
+fi
+
+COMPOSE_PROJECT="$(basename "$(dirname "${COMPOSE_FILE}")")"
+if [ -f "${PROJECT_DIR}/../docker-compose.coolify.yml" ] && [ "${COMPOSE_FILE}" = "${PROJECT_DIR}/../docker-compose.coolify.yml" ]; then
+  COMPOSE_PROJECT="lex-pacs"
 fi
 
 python3 <<PY
@@ -68,9 +88,9 @@ for line in """${IMAGES_LINES}""".strip().splitlines():
 
 manifest = {
     "created_at": "${STAMP}",
-    "compose_project": "ohif-viewer",
+    "compose_project": "${COMPOSE_PROJECT}",
     "lex_pacs_version": "${LEX_VERSION}",
-    "volumes": ["orthanc-storage", "orthanc-config", "lex-reports", "lex-audit", "postgres-data"],
+    "volumes": ["server-data", "server-config", "lex-reports", "lex-audit", "database-data"],
     "images": images,
 }
 Path("${DEST}/manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")

@@ -12,7 +12,7 @@ from .config import settings
 
 DEFAULT_MWL_SQL = {
     "enabled": True,
-    "host": "postgres",
+    "host": "database",
     "port": 5432,
     "database": "orthanc",
     "username": "orthanc",
@@ -68,7 +68,7 @@ def get_mwl_sql_config() -> dict[str, Any]:
 
 def save_mwl_sql_config(payload: dict[str, Any]) -> dict[str, Any]:
     enabled = bool(payload.get("enabled", True))
-    host = str(payload.get("host", "")).strip() or "postgres"
+    host = str(payload.get("host", "")).strip() or "database"
     port = int(payload.get("port", 5432))
     database = str(payload.get("database", "")).strip() or "orthanc"
     username = str(payload.get("username", "")).strip() or "orthanc"
@@ -110,7 +110,7 @@ def mwl_sql_connection_params() -> dict[str, Any]:
             detail=f"Senha SQL não configurada (env {env_name}).",
         )
     return {
-        "host": cfg.get("host", "postgres"),
+        "host": cfg.get("host", "database"),
         "port": int(cfg.get("port", 5432)),
         "database": cfg.get("database", "orthanc"),
         "user": cfg.get("username", "orthanc"),

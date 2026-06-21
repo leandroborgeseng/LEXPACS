@@ -2,15 +2,15 @@ version: '3.8'
 
 # Versão do produto LEX PACS — arquivo LEX_PACS_VERSION e docs/UPGRADE.md
 services:
-  postgres:
+  database:
     image: postgres:16-alpine
-    container_name: lex-pacs-postgres
+    container_name: database
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-orthanc}
       POSTGRES_USER: ${POSTGRES_USER:-orthanc}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-orthanc}
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - database-data:/var/lib/postgresql/data
       - ./postgres/init-lex-mwl.sql:/docker-entrypoint-initdb.d/10-lex-mwl.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-orthanc} -d ${POSTGRES_DB:-orthanc}"]
@@ -20,9 +20,9 @@ services:
       start_period: 10s
     restart: unless-stopped
 
-  orthanc:
+  server:
     image: jodogne/orthanc-plugins:1.12.5
-    container_name: orthanc
+    container_name: server
     entrypoint: ["/bin/sh", "/docker-entrypoint.sh"]
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-orthanc}
@@ -32,11 +32,11 @@ services:
     volumes:
       - ./orthanc/orthanc.base.json:/etc/orthanc/orthanc.base.json:ro
       - ./orthanc/docker-entrypoint.sh:/docker-entrypoint.sh:ro
-      - orthanc-config:/orthanc-config
-      - orthanc-storage:/var/lib/orthanc/storage
-      - orthanc-worklists:/var/lib/orthanc/worklists
+      - server-config:/orthanc-config
+      - server-data:/var/lib/orthanc/storage
+      - server-worklists:/var/lib/orthanc/worklists
     depends_on:
-      postgres:
+      database:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8042/system"]
@@ -46,7 +46,7 @@ services:
       start_period: 30s
     restart: unless-stopped
 
-  ohif:
+  web-viewer:
     image: "lex-pacs/viewer:${LEX_PACS_VERSION:-0.7.0}"
     build:
       context: .
@@ -54,26 +54,26 @@ services:
       target: ohif
       args:
         LEX_PACS_VERSION: ${LEX_PACS_VERSION:-0.7.0}
-    container_name: ohif-viewer
+    container_name: web-viewer
     expose:
       - "80"
     depends_on:
-      orthanc:
+      server:
         condition: service_healthy
     restart: unless-stopped
 
-  patient-portal:
+  portal:
     image: "lex-pacs/portal:${LEX_PACS_VERSION:-0.7.0}"
     build:
       context: ../lex-pacs-portal
       dockerfile: Dockerfile
       args:
         LEX_PACS_VERSION: ${LEX_PACS_VERSION:-0.7.0}
-    container_name: lex-pacs-portal
+    container_name: portal
     expose:
       - "8080"
     environment:
-      ORTHANC_URL: http://orthanc:8042
+      ORTHANC_URL: http://server:8042
       OHIF_VIEWER_URL: ${OHIF_VIEWER_URL:-http://localhost:3000}
       JWT_SECRET: ${PORTAL_JWT_SECRET:-change-me-in-production}
       PORTAL_FALLBACK_CODE: ${PORTAL_FALLBACK_CODE:-}
@@ -86,7 +86,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-orthanc}
       LEX_PACS_VERSION: ${LEX_PACS_VERSION:-0.7.0}
       OIDC_ENABLED: ${OIDC_ENABLED:-true}
-      OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:-http://keycloak:8080/auth/realms/lex-pacs}
+      OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:-http://auth:8080/auth/realms/lex-pacs}
       OIDC_PUBLIC_ISSUER_URL: ${OIDC_PUBLIC_ISSUER_URL:-http://localhost:3000/auth/realms/lex-pacs}
       OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-lex-clinical}
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-lex-clinical-dev-secret}
@@ -99,22 +99,22 @@ services:
       BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
       BACKUP_INTERVAL_HOURS: ${BACKUP_INTERVAL_HOURS:-24}
     volumes:
-      - orthanc-config:/orthanc-config
+      - server-config:/orthanc-config
       - lex-reports:/lex-reports
       - lex-audit:/lex-audit
-      - orthanc-worklists:/var/lib/orthanc/worklists
+      - server-worklists:/var/lib/orthanc/worklists
       - ./nginx/.htpasswd:/etc/lex-pacs/htpasswd:ro
       - ./backups:/lex-backups:ro
     depends_on:
-      orthanc:
+      server:
         condition: service_healthy
-      keycloak:
+      auth:
         condition: service_started
     restart: unless-stopped
 
-  keycloak:
+  auth:
     image: quay.io/keycloak/keycloak:26.0
-    container_name: lex-pacs-keycloak
+    container_name: auth
     command: start-dev --import-realm --http-port=8080 --http-relative-path=/auth
     environment:
       KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
@@ -131,7 +131,7 @@ services:
   backup:
     profiles: ["backup"]
     image: docker:27-cli
-    container_name: lex-pacs-backup
+    container_name: backup
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./scripts:/scripts:ro
@@ -151,13 +151,13 @@ services:
     working_dir: /compose
     entrypoint: ["/bin/sh", "/scripts/backup-scheduler.sh"]
     depends_on:
-      postgres:
+      database:
         condition: service_healthy
     restart: unless-stopped
 
   gateway:
     image: nginx:1.27-alpine
-    container_name: lex-pacs-gateway
+    container_name: gateway
     ports:
       - "3000:80"
     volumes:
@@ -165,15 +165,15 @@ services:
       - ./nginx/gateway.conf:/etc/nginx/conf.d/default.conf:ro
       - ./nginx/.htpasswd:/etc/nginx/.htpasswd:ro
     depends_on:
-      - ohif
-      - patient-portal
-      - orthanc
+      - web-viewer
+      - portal
+      - server
     restart: unless-stopped
 
 volumes:
-  orthanc-storage:
-  orthanc-config:
-  orthanc-worklists:
+  server-data:
+  server-config:
+  server-worklists:
   lex-reports:
   lex-audit:
-  postgres-data:
+  database-data:

@@ -1,12 +1,12 @@
 # Deploy no Coolify — LEX PACS
 
-Guia para publicar o stack completo (gateway, viewer, portal, Orthanc, PostgreSQL, Keycloak) via **Docker Compose** no [Coolify](https://coolify.io).
+Guia para publicar o stack LEX PACS via **Docker Compose** no [Coolify](https://coolify.io).
 
 ---
 
 ## Visão geral
 
-**Um único domínio público.** O Keycloak roda na rede interna do Docker e é exposto pelo gateway em `/auth/` — não é necessário (nem recomendado) um segundo domínio no Coolify.
+**Um único domínio público.** O serviço de autenticação (`auth`) roda na rede interna e é exposto pelo gateway em `/auth/`.
 
 ```mermaid
 flowchart TB
@@ -14,38 +14,38 @@ flowchart TB
     DOM[pacs.seudominio.com]
   end
   subgraph stack [docker-compose.coolify.yml]
-    GW[gateway :80]
-    OHIF[ohif]
-    PORTAL[patient-portal]
-    ORTH[orthanc]
-    PG[(postgres)]
-    KC[keycloak interno]
+    GW[gateway]
+    VIEWER[web-viewer]
+    PORTAL[portal]
+    SRV[server]
+    DB[(database)]
+    AUTH[auth]
   end
   DOM --> GW
-  GW -->|"/auth/"| KC
-  GW --> OHIF
+  GW -->|"/auth/"| AUTH
+  GW --> VIEWER
   GW --> PORTAL
-  GW --> ORTH
-  PORTAL --> ORTH
-  PORTAL --> PG
-  ORTH --> PG
-  PORTAL --> KC
+  GW --> SRV
+  PORTAL --> SRV
+  PORTAL --> DB
+  SRV --> DB
+  PORTAL --> AUTH
 ```
 
-| Serviço | Público no Coolify? | Porta |
-|---------|---------------------|-------|
-| **gateway** | Sim — domínio principal (`https://pacs...`) | 80 |
-| keycloak | Não — proxy interno via gateway `/auth/` | 8080 (rede Docker) |
-| ohif, patient-portal, orthanc, postgres | Não (rede interna) | — |
-| orthanc DICOM | Opcional — TCP `4242` no host | 4242 |
+| Container | Público no Coolify? | Porta |
+|-----------|---------------------|-------|
+| **gateway** | Sim — domínio principal | 80 |
+| auth | Não — proxy `/auth/` via gateway | 8080 (rede Docker) |
+| web-viewer, portal, server, database | Não (rede interna) | — |
+| server DICOM | Opcional — TCP `4242` no host | 4242 |
 
 **URLs OIDC:**
 
 | Uso | Valor |
 |-----|-------|
 | Browser / redirects | `https://pacs.seudominio.com/auth/realms/lex-pacs` |
-| Portal → Keycloak (rede Docker) | `http://keycloak:8080/auth/realms/lex-pacs` |
-| Admin Keycloak | `https://pacs.seudominio.com/auth/admin` |
+| Portal → auth (rede Docker) | `http://auth:8080/auth/realms/lex-pacs` |
+| Admin SSO | `https://pacs.seudominio.com/auth/admin` |
 
 ---
 
@@ -72,7 +72,7 @@ cp .env.coolify.example .env.coolify
 1. **+ Add Resource** → **Docker Compose** → conectar repositório GitHub
 2. **Base Directory:** `/` (raiz do repo)
 3. **Docker Compose file:** `docker-compose.coolify.yml`
-4. **Build Pack:** Docker Compose (build automático das imagens `ohif` and `patient-portal`)
+4. **Build Pack:** Docker Compose (build `web-viewer` e `portal`)
 
 ### Domínio (apenas um)
 
@@ -80,7 +80,7 @@ cp .env.coolify.example .env.coolify
 |---------|-----------------|-------|
 | `gateway` | `pacs.hospital.com` | Ativado (Let's Encrypt) |
 
-**Não** atribua domínio ao serviço `keycloak`. Ele fica acessível só via `https://pacs.hospital.com/auth/`.
+**Não** atribua domínio ao serviço `auth`. Acesso SSO em `https://pacs.hospital.com/auth/`.
 
 ### Variáveis de ambiente (aba Environment)
 
@@ -92,7 +92,7 @@ Copie de `.env.coolify.example`. **Obrigatórias:**
 | `PORTAL_JWT_SECRET` | segredo ≥ 32 chars |
 | `POSTGRES_PASSWORD` | senha forte |
 | `KEYCLOAK_ADMIN_PASSWORD` | senha forte |
-| `OIDC_CLIENT_SECRET` | mesmo valor do client Keycloak |
+| `OIDC_CLIENT_SECRET` | mesmo valor do client OIDC |
 | `COOKIE_SECURE` | `true` |
 
 **Opcionais** (derivadas automaticamente se omitidas):
@@ -100,7 +100,7 @@ Copie de `.env.coolify.example`. **Obrigatórias:**
 | Variável | Padrão |
 |----------|--------|
 | `OIDC_PUBLIC_ISSUER_URL` | `${OHIF_VIEWER_URL}/auth/realms/lex-pacs` |
-| `OIDC_ISSUER_URL` | `http://keycloak:8080/auth/realms/lex-pacs` |
+| `OIDC_ISSUER_URL` | `http://auth:8080/auth/realms/lex-pacs` |
 | `KEYCLOAK_HTTP_RELATIVE_PATH` | `/auth` |
 
 **Dica Coolify:** defina cada variável **no compose** (`${NOME}`) e preencha o valor na UI. Se usar remapeamento (`OHIF_VIEWER_URL=${SERVICE_FQDN_GATEWAY}`), desative **Inject** para essa variável na UI.
@@ -110,7 +110,7 @@ Copie de `.env.coolify.example`. **Obrigatórias:**
 ## 3. Deploy
 
 1. **Deploy** no Coolify
-2. Aguarde healthchecks (Keycloak ~1–2 min na 1ª vez)
+2. Aguarde healthchecks (auth ~1–2 min na 1ª vez)
 3. Acesse `https://pacs.hospital.com/clinica/login`
 4. Login OIDC ou bootstrap local (se habilitado)
 
@@ -138,7 +138,7 @@ OIDC_ENABLED=true
 CLINICAL_LOCAL_AUTH_ENABLED=false
 ```
 
-Usuários de demo importados no realm (altere senhas no Keycloak Admin):
+Usuários de demo importados no realm (altere senhas no admin SSO):
 
 | Usuário | Grupo | Senha inicial |
 |---------|-------|---------------|
@@ -146,7 +146,7 @@ Usuários de demo importados no realm (altere senhas no Keycloak Admin):
 | `tecnico` | tecnico | `lextec2024` |
 | `admin` | admin | `lexadmin2024` |
 
-Admin Keycloak: `https://pacs.hospital.com/auth/admin` (usuário `KEYCLOAK_ADMIN`).
+Admin SSO: `https://pacs.hospital.com/auth/admin` (usuário `KEYCLOAK_ADMIN`).
 
 ### Fallback htpasswd (emergência / dev)
 
@@ -165,7 +165,7 @@ O portal cria `/etc/lex-pacs/htpasswd` no volume `clinical-htpasswd` na primeira
 Porta **4242** exposta via `DICOM_PORT` (padrão `4242`). No firewall:
 
 - Liberar **4242/TCP** apenas para IPs das modalidades
-- **Não** expor Orthanc HTTP (8042) — já omitido no compose Coolify
+- **Não** expor API HTTP do server (8042) — omitido no compose Coolify
 
 ---
 
@@ -175,12 +175,12 @@ Coolify mantém estes volumes entre redeploys:
 
 | Volume | Dados |
 |--------|-------|
-| `postgres-data` | Índice Orthanc + MWL SQL |
-| `orthanc-storage` | Imagens DICOM |
+| `database-data` | Índice + MWL SQL |
+| `server-data` | Imagens DICOM |
 | `lex-reports` | Laudos |
 | `lex-audit` | Auditoria |
 | `clinical-htpasswd` | Credenciais locais (se usadas) |
-| `keycloak-import` | Realm renderizado |
+| `auth-realm-import` | Realm OIDC renderizado |
 
 Backup: ver [BACKUP.md](./BACKUP.md). Job automático com `docker.sock` **não** está no compose Coolify — use backup manual ou cron no host.
 
@@ -190,7 +190,7 @@ Backup: ver [BACKUP.md](./BACKUP.md). Job automático com `docker.sock` **não**
 
 1. Push no GitHub (`main`)
 2. Coolify **Redeploy** (ou webhook automático)
-3. Imagens `ohif` e `patient-portal` rebuildadas com `LEX_PACS_VERSION`
+3. Imagens `web-viewer` e `portal` rebuildadas com `LEX_PACS_VERSION`
 4. Smoke local antes: `./ohif-viewer/scripts/smoke-test.sh`
 
 Rollback: redeploy commit anterior no Coolify (volumes intactos).
@@ -202,7 +202,7 @@ Rollback: redeploy commit anterior no Coolify (volumes intactos).
 | Sintoma | Causa provável | Ação |
 |---------|----------------|------|
 | OIDC redirect errado | `OHIF_VIEWER_URL` incorreta | Conferir URL exata com HTTPS, sem barra final |
-| Keycloak 502 em `/auth/` | Realm ainda importando | Aguardar healthcheck; ver logs `keycloak` |
+| Auth 502 em `/auth/` | Realm ainda importando | Aguardar healthcheck; ver logs `auth` |
 | Login 401 após OIDC | `OIDC_CLIENT_SECRET` divergente | Igualar secret no Coolify e realm |
 | Cookie não persiste | `COOKIE_SECURE=true` sem HTTPS | Ativar TLS no Coolify |
 | Modalidade não envia | Firewall 4242 | Abrir porta para IP da modalidade |
@@ -213,7 +213,7 @@ Logs:
 ```bash
 docker logs lex-pacs-gateway-1 --tail 100
 docker logs lex-pacs-patient-portal-1 --tail 100
-docker logs lex-pacs-keycloak-1 --tail 100
+docker logs auth --tail 100
 ```
 
 ---
@@ -228,9 +228,20 @@ docker compose -f docker-compose.coolify.yml \
   --env-file .env.coolify up -d --build
 ```
 
-Keycloak local: `http://localhost:3000/auth/` (via gateway, não porta separada).
+Keycloak local: `http://localhost:3000/auth/` (via gateway).
 
-Stack de dev alternativo (`ohif-viewer/docker-compose.yml`) usa o mesmo padrão `/auth/`.
+### Nginx no host (Ubuntu) — porta 80
+
+Se o servidor já tem **nginx na porta 80** (página padrão / 404), o gateway Docker costuma estar só em `:3000`. Use o proxy do host:
+
+```bash
+sudo cp ohif-viewer/nginx/host-reverse-proxy.conf /etc/nginx/sites-available/lex-pacs
+sudo rm -f /etc/nginx/sites-enabled/default
+sudo ln -sf /etc/nginx/sites-available/lex-pacs /etc/nginx/sites-enabled/lex-pacs
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+Depois acesse `http://localhost/clinica/login` (porta 80). No **Coolify**, não use este arquivo — o Traefik já encaminha ao `gateway`.
 
 ---
 
@@ -238,11 +249,11 @@ Stack de dev alternativo (`ohif-viewer/docker-compose.yml`) usa o mesmo padrão 
 
 | Item | Status |
 |------|--------|
-| Compose + um domínio + Keycloak interno | Feito |
+| Compose + um domínio + auth interno | Feito |
 | Push GitHub + tag release | Pendente (auth git) |
 | Deploy real no Coolify + smoke remoto | Pendente |
 | Backup automático no host (sem `docker.sock`) | Pendente — ver [BACKUP.md](./BACKUP.md) |
-| Keycloak `start` + Postgres dedicado (vs `start-dev`) | Recomendado pós-MVP |
+| Auth `start` + Postgres dedicado (vs `start-dev`) | Recomendado pós-MVP |
 | Trocar senhas demo do realm | Obrigatório antes de produção |
 
 ---

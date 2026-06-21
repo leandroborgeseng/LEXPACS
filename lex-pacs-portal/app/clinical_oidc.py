@@ -64,7 +64,7 @@ def oidc_public_config() -> dict[str, Any]:
         "redirect_uri": redirect_uri,
         "login_url_template": login_url,
         "local_auth_enabled": settings.clinical_local_auth_enabled,
-        "login_mode": "keycloak" if settings.oidc_enabled else "local",
+        "login_mode": "sso" if settings.oidc_enabled else "local",
     }
 
 

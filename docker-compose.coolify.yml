@@ -4,7 +4,7 @@
 #   - Tipo: Docker Compose (GitHub)
 #   - Compose file: docker-compose.coolify.yml
 #   - Um único domínio público → serviço `gateway` porta 80
-#   - Keycloak fica na rede interna; OIDC em /auth/ via proxy do gateway
+#   - Auth OIDC na rede interna; exposto em /auth/ via gateway
 #   - Variáveis: ver .env.coolify.example e docs/COOLIFY.md
 #
 # Desenvolvimento local:
@@ -14,8 +14,9 @@
 name: lex-pacs
 
 services:
-  keycloak-realm-init:
+  auth-realm-init:
     image: alpine:3.20
+    container_name: auth-realm-init
     environment:
       OHIF_VIEWER_URL: ${OHIF_VIEWER_URL:-http://localhost:3000}
       OIDC_PUBLIC_ISSUER_URL: ${OIDC_PUBLIC_ISSUER_URL:-}
@@ -25,7 +26,7 @@ services:
       KEYCLOAK_SSL_REQUIRED: ${KEYCLOAK_SSL_REQUIRED:-none}
     volumes:
       - ./ohif-viewer/keycloak/lex-pacs-realm.template.json:/template/lex-pacs-realm.template.json:ro
-      - keycloak-import:/output
+      - auth-realm-import:/output
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
@@ -43,17 +44,18 @@ services:
         esac
         envsubst '$${LEX_PUBLIC_URL} $${KEYCLOAK_PUBLIC_URL} $${KEYCLOAK_SSL_REQUIRED} $${OIDC_CLIENT_SECRET}' \
           < /template/lex-pacs-realm.template.json > /output/lex-pacs-realm.json
-        echo "Keycloak realm gerado para $$LEX_PUBLIC_URL"
+        echo "Realm OIDC gerado para $$LEX_PUBLIC_URL"
     restart: "no"
 
-  postgres:
+  database:
     image: postgres:16-alpine
+    container_name: database
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-orthanc}
       POSTGRES_USER: ${POSTGRES_USER:-orthanc}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD}
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - database-data:/var/lib/postgresql/data
       - ./ohif-viewer/postgres/init-lex-mwl.sql:/docker-entrypoint-initdb.d/10-lex-mwl.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-orthanc} -d ${POSTGRES_DB:-orthanc}"]
@@ -63,8 +65,9 @@ services:
       start_period: 10s
     restart: unless-stopped
 
-  keycloak:
+  auth:
     image: quay.io/keycloak/keycloak:26.0
+    container_name: auth
     command: start-dev --import-realm --http-port=8080 --http-relative-path=${KEYCLOAK_HTTP_RELATIVE_PATH:-/auth}
     environment:
       KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
@@ -76,22 +79,30 @@ services:
       KC_HOSTNAME: ${KEYCLOAK_PUBLIC_HOSTNAME:-}
       KC_HOSTNAME_STRICT: ${KEYCLOAK_HOSTNAME_STRICT:-false}
     volumes:
-      - keycloak-import:/opt/keycloak/data/import
+      - auth-realm-import:/opt/keycloak/data/import
     expose:
       - "8080"
     depends_on:
-      keycloak-realm-init:
+      auth-realm-init:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8080${KEYCLOAK_HTTP_RELATIVE_PATH:-/auth}/realms/lex-pacs >/dev/null 2>&1 || exit 1"]
+      test:
+        - CMD-SHELL
+        - |
+          path="$${KC_HTTP_RELATIVE_PATH:-/auth}"
+          path="$${path%/}"
+          exec 3<>/dev/tcp/127.0.0.1/8080 && \
+          printf "GET $${path}/realms/lex-pacs HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n" >&3 && \
+          head -1 <&3 | grep -q '200'
       interval: 15s
       timeout: 10s
       retries: 20
       start_period: 90s
     restart: unless-stopped
 
-  orthanc:
+  server:
     image: jodogne/orthanc-plugins:1.12.5
+    container_name: server
     entrypoint: ["/bin/sh", "/docker-entrypoint.sh"]
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD}
@@ -100,11 +111,11 @@ services:
     volumes:
       - ./ohif-viewer/orthanc/orthanc.base.json:/etc/orthanc/orthanc.base.json:ro
       - ./ohif-viewer/orthanc/docker-entrypoint.sh:/docker-entrypoint.sh:ro
-      - orthanc-config:/orthanc-config
-      - orthanc-storage:/var/lib/orthanc/storage
-      - orthanc-worklists:/var/lib/orthanc/worklists
+      - server-config:/orthanc-config
+      - server-data:/var/lib/orthanc/storage
+      - server-worklists:/var/lib/orthanc/worklists
     depends_on:
-      postgres:
+      database:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8042/system"]
@@ -114,8 +125,9 @@ services:
       start_period: 30s
     restart: unless-stopped
 
-  ohif:
+  web-viewer:
     image: "lex-pacs/viewer:${LEX_PACS_VERSION:-0.7.0}"
+    container_name: web-viewer
     build:
       context: ./ohif-viewer
       dockerfile: Dockerfile
@@ -125,7 +137,7 @@ services:
     expose:
       - "80"
     depends_on:
-      orthanc:
+      server:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
@@ -135,8 +147,9 @@ services:
       start_period: 20s
     restart: unless-stopped
 
-  patient-portal:
+  portal:
     image: "lex-pacs/portal:${LEX_PACS_VERSION:-0.7.0}"
+    container_name: portal
     build:
       context: ./lex-pacs-portal
       dockerfile: Dockerfile
@@ -145,7 +158,7 @@ services:
     expose:
       - "8080"
     environment:
-      ORTHANC_URL: http://orthanc:8042
+      ORTHANC_URL: http://server:8042
       OHIF_VIEWER_URL: ${OHIF_VIEWER_URL:?defina OHIF_VIEWER_URL}
       JWT_SECRET: ${PORTAL_JWT_SECRET:?defina PORTAL_JWT_SECRET}
       PORTAL_FALLBACK_CODE: ${PORTAL_FALLBACK_CODE:-}
@@ -158,7 +171,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD}
       LEX_PACS_VERSION: ${LEX_PACS_VERSION:-0.7.0}
       OIDC_ENABLED: ${OIDC_ENABLED:-true}
-      OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:-http://keycloak:8080/auth/realms/lex-pacs}
+      OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:-http://auth:8080/auth/realms/lex-pacs}
       OIDC_PUBLIC_ISSUER_URL: ${OIDC_PUBLIC_ISSUER_URL:-${OHIF_VIEWER_URL}/auth/realms/lex-pacs}
       OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-lex-clinical}
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:?defina OIDC_CLIENT_SECRET}
@@ -173,16 +186,16 @@ services:
       LOGIN_RATE_LIMIT_ATTEMPTS: ${LOGIN_RATE_LIMIT_ATTEMPTS:-20}
       LOGIN_RATE_LIMIT_WINDOW_SECONDS: ${LOGIN_RATE_LIMIT_WINDOW_SECONDS:-60}
     volumes:
-      - orthanc-config:/orthanc-config
+      - server-config:/orthanc-config
       - lex-reports:/lex-reports
       - lex-audit:/lex-audit
-      - orthanc-worklists:/var/lib/orthanc/worklists
+      - server-worklists:/var/lib/orthanc/worklists
       - clinical-htpasswd:/etc/lex-pacs
       - lex-backups:/lex-backups:ro
     depends_on:
-      orthanc:
+      server:
         condition: service_healthy
-      keycloak:
+      auth:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
@@ -194,19 +207,20 @@ services:
 
   gateway:
     image: nginx:1.27-alpine
+    container_name: gateway
     expose:
       - "80"
     volumes:
       - ./ohif-viewer/nginx/00-lex-security.conf:/etc/nginx/conf.d/00-lex-security.conf:ro
       - ./ohif-viewer/nginx/gateway.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
-      ohif:
+      web-viewer:
         condition: service_healthy
-      patient-portal:
+      portal:
         condition: service_healthy
-      orthanc:
+      server:
         condition: service_healthy
-      keycloak:
+      auth:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1/clinica/login"]
@@ -217,12 +231,12 @@ services:
     restart: unless-stopped
 
 volumes:
-  postgres-data:
-  orthanc-storage:
-  orthanc-config:
-  orthanc-worklists:
+  database-data:
+  server-data:
+  server-config:
+  server-worklists:
   lex-reports:
   lex-audit:
   clinical-htpasswd:
-  keycloak-import:
+  auth-realm-import:
   lex-backups:

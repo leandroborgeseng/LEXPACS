@@ -2,10 +2,10 @@
 # Uso: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
 services:
-  orthanc:
+  server:
     ports:
       - "4242:4242"
 
-  patient-portal:
+  portal:
     environment:
       COOKIE_SECURE: ${COOKIE_SECURE:-true}

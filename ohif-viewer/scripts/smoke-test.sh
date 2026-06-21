@@ -186,11 +186,12 @@ echo
 
 # ── Infraestrutura (sempre) ──
 echo "▶ Infraestrutura"
-for svc in gateway patient-portal ohif orthanc postgres keycloak; do
-  if docker compose -f "${PROJECT_DIR}/docker-compose.yml" ps --status running 2>/dev/null | grep -q "$svc"; then
-    pass "Container ${svc} em execução"
+COMPOSE_FILE="${SMOKE_COMPOSE_FILE:-${PROJECT_DIR}/docker-compose.yml}"
+for c in gateway portal web-viewer server database auth; do
+  if docker ps --format '{{.Names}}' | grep -qx "$c"; then
+    pass "Container ${c} em execução"
   else
-    fail "Container ${svc} não está rodando"
+    fail "Container ${c} não está rodando"
   fi
 done
 
@@ -322,22 +323,26 @@ fi
 # ── E3 ──
 if should_run E3; then
   echo "▶ E3 — PostgreSQL + volumes separados"
-  if docker volume inspect ohif-viewer_orthanc-storage >/dev/null 2>&1; then
-    pass "Volume orthanc-storage presente"
+  if docker volume inspect ohif-viewer_server-data >/dev/null 2>&1 || \
+     docker volume inspect lex-pacs_server-data >/dev/null 2>&1 || \
+     docker volume inspect ohif-viewer_orthanc-storage >/dev/null 2>&1; then
+    pass "Volume server-data presente"
   else
-    fail "Volume orthanc-storage não encontrado"
+    fail "Volume server-data não encontrado"
   fi
-  if docker volume inspect ohif-viewer_postgres-data >/dev/null 2>&1; then
-    pass "Volume postgres-data presente"
+  if docker volume inspect ohif-viewer_database-data >/dev/null 2>&1 || \
+     docker volume inspect lex-pacs_database-data >/dev/null 2>&1 || \
+     docker volume inspect ohif-viewer_postgres-data >/dev/null 2>&1; then
+    pass "Volume database-data presente"
   else
-    fail "Volume postgres-data não encontrado"
+    fail "Volume database-data não encontrado"
   fi
-  if docker compose -f "${PROJECT_DIR}/docker-compose.yml" ps postgres 2>/dev/null | grep -qE 'healthy|running'; then
+  if docker compose -f "${COMPOSE_FILE}" ps database 2>/dev/null | grep -qE 'healthy|running'; then
     pass "PostgreSQL em execução"
   else
     fail "PostgreSQL não está rodando"
   fi
-  if docker compose -f "${PROJECT_DIR}/docker-compose.yml" exec -T postgres \
+  if docker compose -f "${COMPOSE_FILE}" exec -T database \
     pg_isready -U "${POSTGRES_USER:-orthanc}" -d "${POSTGRES_DB:-orthanc}" >/dev/null 2>&1; then
     pass "PostgreSQL aceita conexões"
   else
@@ -422,7 +427,7 @@ if should_run E7; then
     fi
   fi
   wait_orthanc || true
-  if docker compose -f "${PROJECT_DIR}/docker-compose.yml" exec -T patient-portal \
+  if docker compose -f "${COMPOSE_FILE}" exec -T portal \
     grep -q RX_SMOKE /orthanc-config/orthanc.json 2>/dev/null; then
     pass "E7: equipamento sincronizado no servidor DICOM"
   else
@@ -462,16 +467,20 @@ if should_run E5; then
     fail "Volume lex-reports não encontrado"
   fi
 
-  if docker volume inspect ohif-viewer_orthanc-storage >/dev/null 2>&1; then
-    pass "Volume orthanc-storage presente"
+  if docker volume inspect ohif-viewer_server-data >/dev/null 2>&1 || \
+     docker volume inspect lex-pacs_server-data >/dev/null 2>&1 || \
+     docker volume inspect ohif-viewer_orthanc-storage >/dev/null 2>&1; then
+    pass "Volume server-data presente"
   else
-    fail "Volume orthanc-storage não encontrado"
+    fail "Volume server-data não encontrado"
   fi
 
-  if docker volume inspect ohif-viewer_orthanc-config >/dev/null 2>&1; then
-    pass "Volume orthanc-config presente"
+  if docker volume inspect ohif-viewer_server-config >/dev/null 2>&1 || \
+     docker volume inspect lex-pacs_server-config >/dev/null 2>&1 || \
+     docker volume inspect ohif-viewer_orthanc-config >/dev/null 2>&1; then
+    pass "Volume server-config presente"
   else
-    fail "Volume orthanc-config não encontrado"
+    fail "Volume server-config não encontrado"
   fi
 
   rm -rf "${SMOKE_BACKUP_DIR}"
@@ -745,7 +754,7 @@ if should_run E13; then
   rx_count=$(echo "$mwl_rx" | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('entries',[])))" 2>/dev/null || echo 0)
   [ "${rx_count:-0}" -ge 1 ] && pass "Filtro station_aet RX_SALA1 → ${rx_count}" || fail "Filtro station_aet MWL falhou"
 
-  if docker exec orthanc ls /var/lib/orthanc/worklists 2>/dev/null | grep -q 'lex-'; then
+  if docker exec server ls /var/lib/orthanc/worklists 2>/dev/null | grep -q 'lex-'; then
     pass "Arquivos .wl gerados no Orthanc"
   else
     fail "Pasta worklists sem arquivos lex-*.wl"
@@ -759,8 +768,8 @@ if should_run E14; then
   kc_health=$(curl -s -o /dev/null -w "%{http_code}" "${KEYCLOAK_URL}/realms/lex-pacs" 2>/dev/null || echo "000")
   [ "$kc_health" = "200" ] && pass "Keycloak pronto" || fail "Keycloak indisponível (${kc_health})"
 
-  if [ -x "${SCRIPT_DIR}/keycloak-init.sh" ]; then
-    "${SCRIPT_DIR}/keycloak-init.sh" >/dev/null 2>&1 || true
+  if [ -x "${SCRIPT_DIR}/auth-init.sh" ]; then
+    "${SCRIPT_DIR}/auth-init.sh" >/dev/null 2>&1 || true
   fi
 
   oidc_cfg=$(curl -s "${GATEWAY_URL}/paciente-api/auth/clinical/config")
@@ -850,7 +859,7 @@ fi
 echo "▶ Onda B — Config SQL MWL na UI (API)"
 mwl_saved=$(curl_auth -X PUT "${GATEWAY_URL}/clinica-api/admin/pacs/mwl-sql" \
   -H "Content-Type: application/json" \
-  -d '{"enabled":true,"host":"postgres","port":5432,"database":"orthanc","username":"orthanc","password_env":"POSTGRES_PASSWORD","table":"lex_mwl_schedule","sync_interval_minutes":7}')
+  -d '{"enabled":true,"host":"database","port":5432,"database":"orthanc","username":"orthanc","password_env":"POSTGRES_PASSWORD","table":"lex_mwl_schedule","sync_interval_minutes":7}')
 mwl_interval=$(echo "$mwl_saved" | python3 -c "import sys,json; print(json.load(sys.stdin).get('sync_interval_minutes',0))" 2>/dev/null || echo 0)
 if [ "${mwl_interval:-0}" = "7" ]; then
   pass "PUT /admin/pacs/mwl-sql persiste intervalo"
@@ -859,7 +868,7 @@ else
 fi
 curl_auth -X PUT "${GATEWAY_URL}/clinica-api/admin/pacs/mwl-sql" \
   -H "Content-Type: application/json" \
-  -d '{"enabled":true,"host":"postgres","port":5432,"database":"orthanc","username":"orthanc","password_env":"POSTGRES_PASSWORD","table":"lex_mwl_schedule","sync_interval_minutes":5}' >/dev/null
+  -d '{"enabled":true,"host":"database","port":5432,"database":"orthanc","username":"orthanc","password_env":"POSTGRES_PASSWORD","table":"lex_mwl_schedule","sync_interval_minutes":5}' >/dev/null
 
 echo "▶ Onda C — Backup automático"
 "${SCRIPT_DIR}/backup-volumes.sh" "${PROJECT_DIR}/backups" >/dev/null 2>&1 || true
@@ -940,7 +949,7 @@ fi
 
 oidc_login_code=$(curl -s -o /dev/null -w "%{http_code}" "${GATEWAY_URL}/clinica-api/auth/clinical/oidc/login?next=%2Fviewer%2F")
 if [ "$oidc_login_code" = "307" ] || [ "$oidc_login_code" = "302" ]; then
-  pass "GET /auth/clinical/oidc/login redireciona Keycloak"
+  pass "GET /auth/clinical/oidc/login redireciona SSO"
 else
   fail "OIDC login não redireciona (${oidc_login_code})"
 fi

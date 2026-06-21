@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    orthanc_url: str = "http://orthanc:8042"
+    orthanc_url: str = "http://server:8042"
     ohif_viewer_url: str = "http://localhost:3000"
     jwt_secret: str = "change-me-in-production"
     jwt_expire_hours: int = 8
@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     login_rate_limit_attempts: int = 20
     login_rate_limit_window_seconds: int = 60
     oidc_enabled: bool = False
-    oidc_issuer_url: str = "http://keycloak:8080/auth/realms/lex-pacs"
+    oidc_issuer_url: str = "http://auth:8080/auth/realms/lex-pacs"
     oidc_public_issuer_url: str = "http://localhost:3000/auth/realms/lex-pacs"
     oidc_client_id: str = "lex-clinical"
     oidc_client_secret: str = "lex-clinical-dev-secret"

@@ -13,6 +13,12 @@ if [ ! -f "${CONFIG_FILE}" ]; then
   cp "${BASE_FILE}" "${CONFIG_FILE}"
 fi
 
+# Alinha host PostgreSQL ao template (ex.: rename database no compose)
+BASE_HOST=$(grep -A20 '"PostgreSQL"' "${BASE_FILE}" | grep '"Host"' | head -1 | sed 's/.*: "\([^"]*\)".*/\1/')
+if [ -n "${BASE_HOST}" ]; then
+  sed -i "/\"PostgreSQL\"/,/}/ s/\"Host\": \"[^\"]*\"/\"Host\": \"${BASE_HOST}\"/" "${CONFIG_FILE}"
+fi
+
 # Injeta senha PostgreSQL sem expor no repositório
 sed -i "s|__LEX_POSTGRES_PASSWORD__|${POSTGRES_PASSWORD}|g" "${CONFIG_FILE}"
 

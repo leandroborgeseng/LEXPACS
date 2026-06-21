@@ -161,7 +161,7 @@ async def authenticate_clinical(username: str, password: str) -> ClinicalUser:
     if not settings.clinical_local_auth_enabled:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Use login institucional (Keycloak). Autenticação local desabilitada.",
+            detail="Use login institucional (SSO). Autenticação local desabilitada.",
         )
 
     if _verify_htpasswd(username, password):

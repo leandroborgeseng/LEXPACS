@@ -129,7 +129,7 @@ async def collect_pacs_stats() -> dict[str, Any]:
     worklist_bytes = _dir_size_bytes(Path(settings.orthanc_worklist_path))
 
     disk_items = [
-        _disk_item("Imagens DICOM (Orthanc)", orthanc_bytes),
+        _disk_item("Imagens DICOM", orthanc_bytes),
         _disk_item("Laudos (lex-reports)", reports_bytes),
         _disk_item("Auditoria (lex-audit)", audit_bytes),
         _disk_item("Worklist MWL", worklist_bytes),
