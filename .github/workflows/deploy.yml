@@ -1,0 +1,36 @@
+# Deploy automático no Coolify via webhook (push na main).
+# Secrets: COOLIFY_WEBHOOK_URL (obrigatório), COOLIFY_TOKEN (opcional, se o webhook exigir Bearer).
+name: Deploy Coolify
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Coolify redeploy
+        env:
+          WEBHOOK_URL: ${{ secrets.COOLIFY_WEBHOOK_URL }}
+          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${WEBHOOK_URL}" ]; then
+            echo "::error::Configure o secret COOLIFY_WEBHOOK_URL no GitHub (Settings → Secrets → Actions)."
+            exit 1
+          fi
+          AUTH=()
+          if [ -n "${COOLIFY_TOKEN}" ]; then
+            AUTH=(-H "Authorization: Bearer ${COOLIFY_TOKEN}")
+          fi
+          code=$(curl -sS -o /tmp/coolify-deploy.out -w "%{http_code}" -X POST "${AUTH[@]}" "${WEBHOOK_URL}")
+          cat /tmp/coolify-deploy.out || true
+          case "${code}" in
+            200|201|202|204) echo "Deploy acionado (HTTP ${code})." ;;
+            *)
+              echo "::error::Webhook Coolify respondeu HTTP ${code}"
+              exit 1
+              ;;
+          esac

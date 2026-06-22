@@ -200,11 +200,13 @@ Backup: ver [BACKUP.md](./BACKUP.md). Job automático com `docker.sock` **não**
 ## 7. Atualizações (CI/CD)
 
 1. Push no GitHub (`main`)
-2. Coolify **Redeploy** (ou webhook automático)
-3. Imagens `web-viewer` e `portal` rebuildadas com `LEX_PACS_VERSION`
+2. GitHub Actions chama o webhook do Coolify (ver [DEPLOY-GITHUB-COOLIFY.md](./DEPLOY-GITHUB-COOLIFY.md))
+3. Coolify rebuilda o stack; imagens `web-viewer` e `portal` usam `LEX_PACS_VERSION`
 4. Smoke local antes: `./ohif-viewer/scripts/smoke-test.sh`
 
-Rollback: redeploy commit anterior no Coolify (volumes intactos).
+Secrets no GitHub: `COOLIFY_WEBHOOK_URL` (obrigatório), `COOLIFY_TOKEN` (opcional).
+
+Rollback: redeploy de commit anterior no Coolify (volumes intactos) ou `git revert` + push na `main`.
 
 ---
 

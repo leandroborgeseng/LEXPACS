@@ -12,6 +12,7 @@ PACS clínico white-label — visualizador DICOM, worklist, laudos, portal do pa
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Roadmap de produto |
 | [docs/I18N.md](docs/I18N.md) | Traduções (pt-BR, en-US, es) e tema claro/escuro |
 | [docs/COOLIFY.md](docs/COOLIFY.md) | **Deploy Docker no Coolify** |
+| [docs/DEPLOY-GITHUB-COOLIFY.md](docs/DEPLOY-GITHUB-COOLIFY.md) | **CI/CD GitHub Actions → Coolify** |
 | [docs/BACKUP.md](docs/BACKUP.md) | Backup, retenção e restore |
 | [docs/UPGRADE.md](docs/UPGRADE.md) | Upgrade e rollback |
 | [ohif-viewer/.env.example](ohif-viewer/.env.example) | Variáveis de ambiente |
