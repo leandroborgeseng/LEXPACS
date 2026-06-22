@@ -44,6 +44,19 @@ from .storage_service import (
 )
 from .storage_store import get_storage_status, save_storage_config
 from .storage_worker import kick_storage_worker
+from .ad_settings import (
+    ad_status_payload,
+    get_ad_config,
+    record_ad_sync_error,
+    record_ad_sync_success,
+    save_ad_config,
+)
+from .keycloak_admin import (
+    KeycloakAdminError,
+    apply_ad_config_to_keycloak,
+    sync_ad_users_and_groups,
+    test_ad_connection,
+)
 
 router = APIRouter(prefix="/api/admin/pacs", tags=["admin"])
 
@@ -389,6 +402,58 @@ class StorageActionResponse(BaseModel):
 class BackupTriggerResponse(BaseModel):
     requested: bool = True
     message: str = "Backup manual solicitado."
+
+
+class AdGroupMappingItem(BaseModel):
+    ad_group_cn: str = Field(min_length=1, max_length=128)
+    lex_group: str = Field(min_length=1, max_length=32)
+
+
+class AdConfigResponse(BaseModel):
+    enabled: bool = False
+    connection_url: str = ""
+    use_ssl: bool = False
+    bind_dn: str = ""
+    bind_password_env: str = "AD_BIND_PASSWORD"
+    users_dn: str = ""
+    groups_dn: str = ""
+    username_ldap_attribute: str = "sAMAccountName"
+    import_users: bool = True
+    group_mappings: list[AdGroupMappingItem] = Field(default_factory=list)
+    full_sync_period_hours: int = 24
+    changed_sync_period_hours: int = 1
+    bind_password_configured: bool = False
+    keycloak_realm: str = "lex-pacs"
+    keycloak_configured: bool = False
+
+
+class AdSyncMetaResponse(BaseModel):
+    last_at: str = ""
+    last_actor: str = ""
+    users_imported: int = 0
+    groups_mapped: int = 0
+    memberships_applied: int = 0
+    last_error: str = ""
+    provider_configured: bool = False
+    connection_ok: bool = False
+
+
+class AdStatusResponse(BaseModel):
+    config: AdConfigResponse
+    sync: AdSyncMetaResponse
+    lex_groups: list[str] = Field(default_factory=list)
+
+
+class AdTestResponse(BaseModel):
+    ok: bool = True
+    message: str = ""
+
+
+class AdSyncResponse(BaseModel):
+    users_imported: int = 0
+    groups_mapped: int = 0
+    memberships_applied: int = 0
+    message: str = ""
 
 
 @router.get("/settings", response_model=PacsSettingsResponse)
@@ -808,6 +873,83 @@ async def test_hl7_orm(
             auth_method=user.auth_method,
         )
     return Hl7TestResponse(parsed=parsed, applied=body.apply, result=result)
+
+
+@router.get("/ad/status", response_model=AdStatusResponse)
+async def read_ad_status(
+    _: ClinicalUser = Depends(require_clinical_user),
+) -> AdStatusResponse:
+    payload = ad_status_payload()
+    return AdStatusResponse(
+        config=AdConfigResponse(**payload["config"]),
+        sync=AdSyncMetaResponse(**payload["sync"]),
+        lex_groups=list(payload.get("lex_groups") or []),
+    )
+
+
+@router.put("/ad/config", response_model=AdConfigResponse)
+async def write_ad_config(
+    body: AdConfigResponse,
+    user: ClinicalUser = Depends(require_admin),
+) -> AdConfigResponse:
+    saved = save_ad_config(body.model_dump())
+    if saved.get("enabled"):
+        try:
+            await apply_ad_config_to_keycloak(saved)
+            record_ad_sync_success(
+                actor=user.username,
+                users_imported=0,
+                groups_mapped=len(saved.get("group_mappings") or []),
+                memberships_applied=0,
+            )
+        except KeycloakAdminError as exc:
+            record_ad_sync_error(actor=user.username, error=str(exc))
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    log_event("ad_config", user.username, auth_method=user.auth_method)
+    return AdConfigResponse(**saved)
+
+
+@router.post("/ad/test", response_model=AdTestResponse)
+async def test_ad_ldap(
+    user: ClinicalUser = Depends(require_admin),
+) -> AdTestResponse:
+    try:
+        result = await test_ad_connection()
+    except KeycloakAdminError as exc:
+        record_ad_sync_error(actor=user.username, error=str(exc))
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    log_event("ad_test", user.username, auth_method=user.auth_method)
+    return AdTestResponse(**result)
+
+
+@router.post("/ad/sync", response_model=AdSyncResponse)
+async def sync_ad_ldap(
+    user: ClinicalUser = Depends(require_admin),
+) -> AdSyncResponse:
+    try:
+        result = await sync_ad_users_and_groups(user.username)
+    except KeycloakAdminError as exc:
+        record_ad_sync_error(actor=user.username, error=str(exc))
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    record_ad_sync_success(
+        actor=user.username,
+        users_imported=int(result.get("users_imported") or 0),
+        groups_mapped=int(result.get("groups_mapped") or 0),
+        memberships_applied=int(result.get("memberships_applied") or 0),
+    )
+    log_event(
+        "ad_sync",
+        user.username,
+        users=int(result.get("users_imported") or 0),
+        groups=int(result.get("groups_mapped") or 0),
+        auth_method=user.auth_method,
+    )
+    return AdSyncResponse(
+        users_imported=int(result.get("users_imported") or 0),
+        groups_mapped=int(result.get("groups_mapped") or 0),
+        memberships_applied=int(result.get("memberships_applied") or 0),
+        message="Usuários e grupos sincronizados com o Keycloak.",
+    )
 
 
 @router.get("/stats", response_model=PacsStatsResponse)

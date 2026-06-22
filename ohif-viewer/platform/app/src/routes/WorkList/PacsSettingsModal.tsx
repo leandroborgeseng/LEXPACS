@@ -144,6 +144,46 @@ type Hl7Status = {
   };
 };
 
+type AdGroupMapping = {
+  ad_group_cn: string;
+  lex_group: string;
+};
+
+type AdConfig = {
+  enabled: boolean;
+  connection_url: string;
+  use_ssl: boolean;
+  bind_dn: string;
+  bind_password_env: string;
+  users_dn: string;
+  groups_dn: string;
+  username_ldap_attribute: string;
+  import_users: boolean;
+  group_mappings: AdGroupMapping[];
+  full_sync_period_hours: number;
+  changed_sync_period_hours: number;
+  bind_password_configured: boolean;
+  keycloak_realm: string;
+  keycloak_configured: boolean;
+};
+
+type AdSyncMeta = {
+  last_at: string;
+  last_actor: string;
+  users_imported: number;
+  groups_mapped: number;
+  memberships_applied: number;
+  last_error: string;
+  provider_configured: boolean;
+  connection_ok: boolean;
+};
+
+type AdStatus = {
+  config: AdConfig;
+  sync: AdSyncMeta;
+  lex_groups: string[];
+};
+
 type PortalOps = {
   backup_interval_hours: number;
   backup_retention_daily: number;
@@ -169,6 +209,28 @@ const emptyHl7Config = (): Hl7Config => ({
   default_station_aet: '',
   sending_application: 'LEXPACS',
   sending_facility: 'LEX',
+});
+
+const emptyAdConfig = (): AdConfig => ({
+  enabled: false,
+  connection_url: 'ldap://dc01.example.local:389',
+  use_ssl: false,
+  bind_dn: '',
+  bind_password_env: 'AD_BIND_PASSWORD',
+  users_dn: '',
+  groups_dn: '',
+  username_ldap_attribute: 'sAMAccountName',
+  import_users: true,
+  group_mappings: [
+    { ad_group_cn: 'LEX-Radiologistas', lex_group: 'radiologista' },
+    { ad_group_cn: 'LEX-Tecnicos', lex_group: 'tecnico' },
+    { ad_group_cn: 'LEX-Admins', lex_group: 'admin' },
+  ],
+  full_sync_period_hours: 24,
+  changed_sync_period_hours: 1,
+  bind_password_configured: false,
+  keycloak_realm: 'lex-pacs',
+  keycloak_configured: false,
 });
 
 const emptyPortalOps = (): PortalOps => ({
@@ -384,6 +446,8 @@ export function PacsSettingsModal({ hide, mode = 'modal' }: PacsSettingsModalPro
   const [hl7Config, setHl7Config] = useState<Hl7Config>(emptyHl7Config);
   const [hl7TestMessage, setHl7TestMessage] = useState('');
   const [hl7TestApply, setHl7TestApply] = useState(true);
+  const [adStatus, setAdStatus] = useState<AdStatus | null>(null);
+  const [adConfig, setAdConfig] = useState<AdConfig>(emptyAdConfig);
   const [portalOps, setPortalOps] = useState<PortalOps>(emptyPortalOps);
   const [migrationLoading, setMigrationLoading] = useState(false);
   const [migrationStatus, setMigrationStatus] = useState<MigrationStatus | null>(null);
@@ -420,16 +484,18 @@ export function PacsSettingsModal({ hide, mode = 'modal' }: PacsSettingsModalPro
     setIntegrationLoading(true);
     setError('');
     try {
-      const [meRes, statusRes, entriesRes, hl7Res] = await Promise.all([
+      const [meRes, statusRes, entriesRes, hl7Res, adRes] = await Promise.all([
         fetch(AUTH_ME, { credentials: 'include' }),
         fetch(`${API_BASE}/mwl/status`, { credentials: 'include' }),
         fetch(`${API_BASE}/mwl/entries`, { credentials: 'include' }),
         fetch(`${API_BASE}/hl7/status`, { credentials: 'include' }),
+        fetch(`${API_BASE}/ad/status`, { credentials: 'include' }),
       ]);
       const me = await meRes.json().catch(() => ({}));
       const status = await statusRes.json().catch(() => null);
       const entriesData = await entriesRes.json().catch(() => ({}));
       const hl7Data = await hl7Res.json().catch(() => null);
+      const adData = await adRes.json().catch(() => null);
 
       const permissions = me.permissions as { can_admin?: boolean } | undefined;
       setIsAdmin(Boolean(permissions?.can_admin));
@@ -444,6 +510,11 @@ export function PacsSettingsModal({ hide, mode = 'modal' }: PacsSettingsModalPro
         const hl7 = hl7Data as Hl7Status;
         setHl7Status(hl7);
         setHl7Config({ ...emptyHl7Config(), ...hl7.config });
+      }
+      if (adRes.ok && adData) {
+        const ad = adData as AdStatus;
+        setAdStatus(ad);
+        setAdConfig({ ...emptyAdConfig(), ...ad.config });
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : t('pacsSettings.errors.loadIntegration'));
@@ -784,6 +855,90 @@ export function PacsSettingsModal({ hide, mode = 'modal' }: PacsSettingsModalPro
       await loadIntegrationData();
     } catch (err) {
       setError(err instanceof Error ? err.message : t('pacsSettings.errors.mwlSync'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSaveAd = async () => {
+    if (!isAdmin) {
+      return;
+    }
+    setSaving(true);
+    setError('');
+    setMessage('');
+    try {
+      const response = await fetch(`${API_BASE}/ad/config`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(adConfig),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.detail || t('pacsSettings.errors.saveAd'));
+      }
+      setAdConfig({ ...emptyAdConfig(), ...data });
+      setMessage(t('pacsSettings.messages.adSaved'));
+      await loadIntegrationData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('pacsSettings.errors.saveAd'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleAdTest = async () => {
+    if (!isAdmin) {
+      return;
+    }
+    setSaving(true);
+    setError('');
+    setMessage('');
+    try {
+      const response = await fetch(`${API_BASE}/ad/test`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.detail || t('pacsSettings.errors.adTest'));
+      }
+      setMessage(data.message || t('pacsSettings.messages.adTestOk'));
+      await loadIntegrationData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('pacsSettings.errors.adTest'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleAdSync = async () => {
+    if (!isAdmin) {
+      return;
+    }
+    setSaving(true);
+    setError('');
+    setMessage('');
+    try {
+      const response = await fetch(`${API_BASE}/ad/sync`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.detail || t('pacsSettings.errors.adSync'));
+      }
+      setMessage(
+        t('pacsSettings.messages.adSynced', {
+          users: data.users_imported,
+          groups: data.groups_mapped,
+          memberships: data.memberships_applied,
+        })
+      );
+      await loadIntegrationData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('pacsSettings.errors.adSync'));
     } finally {
       setSaving(false);
     }
@@ -1805,6 +1960,235 @@ export function PacsSettingsModal({ hide, mode = 'modal' }: PacsSettingsModalPro
                 <p className="text-sm">{t('pacsSettings.loadingIntegration')}</p>
               ) : mwlStatus ? (
                 <>
+                  <div className="border-border rounded border p-3 text-sm">
+                    <p className="font-medium">{t('pacsSettings.adTitle')}</p>
+                    <p className="text-muted-foreground mt-1 text-xs">{t('pacsSettings.adHint')}</p>
+                    {adStatus ? (
+                      <>
+                        <p className="text-muted-foreground mt-2 text-xs">
+                          {adConfig.enabled ? t('pacsSettings.adEnabled') : t('pacsSettings.adDisabled')}
+                          {adConfig.keycloak_configured
+                            ? ` · ${t('pacsSettings.adKeycloakOk', { realm: adConfig.keycloak_realm })}`
+                            : ` · ${t('pacsSettings.adKeycloakMissing')}`}
+                        </p>
+                        {adStatus.sync.last_at ? (
+                          <p className="text-muted-foreground text-xs">
+                            {t('pacsSettings.adLastSync', {
+                              at: formatTs(adStatus.sync.last_at, i18n.language),
+                              actor: adStatus.sync.last_actor || '—',
+                              users: adStatus.sync.users_imported,
+                              groups: adStatus.sync.groups_mapped,
+                            })}
+                          </p>
+                        ) : null}
+                        {adStatus.sync.last_error ? (
+                          <p className="text-destructive mt-1 text-xs">
+                            {t('pacsSettings.adError', { error: adStatus.sync.last_error })}
+                          </p>
+                        ) : null}
+                      </>
+                    ) : null}
+                  </div>
+
+                  <div className="border-border rounded border p-3">
+                    <p className="mb-2 text-sm font-medium">{t('pacsSettings.adConfigTitle')}</p>
+                    {!isAdmin ? (
+                      <p className="text-muted-foreground text-xs">{t('pacsSettings.opsAdminOnly')}</p>
+                    ) : (
+                      <div className="flex flex-col gap-2">
+                        <label className="flex items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={adConfig.enabled}
+                            onChange={e => setAdConfig(prev => ({ ...prev, enabled: e.target.checked }))}
+                          />
+                          {t('pacsSettings.adEnabledToggle')}
+                        </label>
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                          <label className="flex flex-col gap-1 text-xs sm:col-span-2">
+                            {t('pacsSettings.adConnectionUrl')}
+                            <Input
+                              value={adConfig.connection_url}
+                              onChange={e =>
+                                setAdConfig(prev => ({ ...prev, connection_url: e.target.value }))
+                              }
+                            />
+                          </label>
+                          <label className="flex flex-col gap-1 text-xs sm:col-span-2">
+                            {t('pacsSettings.adBindDn')}
+                            <Input
+                              value={adConfig.bind_dn}
+                              onChange={e => setAdConfig(prev => ({ ...prev, bind_dn: e.target.value }))}
+                            />
+                          </label>
+                          <label className="flex flex-col gap-1 text-xs">
+                            {t('pacsSettings.adPasswordEnv')}
+                            <Input
+                              value={adConfig.bind_password_env}
+                              onChange={e =>
+                                setAdConfig(prev => ({ ...prev, bind_password_env: e.target.value }))
+                              }
+                            />
+                          </label>
+                          <label className="flex items-center gap-2 text-sm self-end pb-2">
+                            <input
+                              type="checkbox"
+                              checked={adConfig.use_ssl}
+                              onChange={e => setAdConfig(prev => ({ ...prev, use_ssl: e.target.checked }))}
+                            />
+                            {t('pacsSettings.adUseSsl')}
+                          </label>
+                          <label className="flex flex-col gap-1 text-xs sm:col-span-2">
+                            {t('pacsSettings.adUsersDn')}
+                            <Input
+                              value={adConfig.users_dn}
+                              onChange={e => setAdConfig(prev => ({ ...prev, users_dn: e.target.value }))}
+                            />
+                          </label>
+                          <label className="flex flex-col gap-1 text-xs sm:col-span-2">
+                            {t('pacsSettings.adGroupsDn')}
+                            <Input
+                              value={adConfig.groups_dn}
+                              onChange={e => setAdConfig(prev => ({ ...prev, groups_dn: e.target.value }))}
+                            />
+                          </label>
+                          <label className="flex flex-col gap-1 text-xs">
+                            {t('pacsSettings.adUsernameAttr')}
+                            <Input
+                              value={adConfig.username_ldap_attribute}
+                              onChange={e =>
+                                setAdConfig(prev => ({
+                                  ...prev,
+                                  username_ldap_attribute: e.target.value,
+                                }))
+                              }
+                            />
+                          </label>
+                          <label className="flex flex-col gap-1 text-xs">
+                            {t('pacsSettings.adFullSyncHours')}
+                            <Input
+                              type="number"
+                              value={adConfig.full_sync_period_hours}
+                              onChange={e =>
+                                setAdConfig(prev => ({
+                                  ...prev,
+                                  full_sync_period_hours: Number(e.target.value) || 24,
+                                }))
+                              }
+                            />
+                          </label>
+                        </div>
+                        <label className="flex items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={adConfig.import_users}
+                            onChange={e =>
+                              setAdConfig(prev => ({ ...prev, import_users: e.target.checked }))
+                            }
+                          />
+                          {t('pacsSettings.adImportUsers')}
+                        </label>
+                        {!adConfig.bind_password_configured ? (
+                          <p className="text-amber-600 text-xs">{t('pacsSettings.adPasswordMissing')}</p>
+                        ) : null}
+                        <p className="text-muted-foreground text-xs font-medium">
+                          {t('pacsSettings.adGroupMappings')}
+                        </p>
+                        {adConfig.group_mappings.map((mapping, index) => (
+                          <div
+                            key={`ad-map-${index}`}
+                            className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_auto]"
+                          >
+                            <Input
+                              placeholder={t('pacsSettings.adGroupCn')}
+                              value={mapping.ad_group_cn}
+                              onChange={e => {
+                                const next = [...adConfig.group_mappings];
+                                next[index] = { ...next[index], ad_group_cn: e.target.value };
+                                setAdConfig(prev => ({ ...prev, group_mappings: next }));
+                              }}
+                            />
+                            <select
+                              className="border-input bg-background h-9 rounded-md border px-3 text-sm"
+                              value={mapping.lex_group}
+                              onChange={e => {
+                                const next = [...adConfig.group_mappings];
+                                next[index] = { ...next[index], lex_group: e.target.value };
+                                setAdConfig(prev => ({ ...prev, group_mappings: next }));
+                              }}
+                            >
+                              {(adStatus?.lex_groups || ['radiologista', 'tecnico', 'admin']).map(group => (
+                                <option
+                                  key={group}
+                                  value={group}
+                                >
+                                  {group}
+                                </option>
+                              ))}
+                            </select>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                const next = adConfig.group_mappings.filter((_, i) => i !== index);
+                                setAdConfig(prev => ({
+                                  ...prev,
+                                  group_mappings: next.length
+                                    ? next
+                                    : [{ ad_group_cn: '', lex_group: 'radiologista' }],
+                                }));
+                              }}
+                            >
+                              {t('pacsSettings.adRemoveMapping')}
+                            </Button>
+                          </div>
+                        ))}
+                        <div className="flex justify-start">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() =>
+                              setAdConfig(prev => ({
+                                ...prev,
+                                group_mappings: [
+                                  ...prev.group_mappings,
+                                  { ad_group_cn: '', lex_group: 'tecnico' },
+                                ],
+                              }))
+                            }
+                          >
+                            {t('pacsSettings.adAddMapping')}
+                          </Button>
+                        </div>
+                        <div className="flex flex-wrap justify-end gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={handleAdTest}
+                            disabled={saving || !adConfig.enabled}
+                          >
+                            {t('pacsSettings.adTest')}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={handleAdSync}
+                            disabled={saving || !adConfig.enabled}
+                          >
+                            {t('pacsSettings.adSyncNow')}
+                          </Button>
+                          <Button
+                            size="sm"
+                            onClick={handleSaveAd}
+                            disabled={saving}
+                          >
+                            {t('pacsSettings.saveAd')}
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
                   <div className="border-border rounded border p-3 text-sm">
                     <p className="font-medium">{t('pacsSettings.hl7Title')}</p>
                     {hl7Status ? (

@@ -36,6 +36,14 @@ class Settings(BaseSettings):
     hl7_orm_enabled: bool | None = None
     hl7_orm_port: int = 2575
     hl7_orm_auto_sync: bool | None = None
+    keycloak_admin_base_url: str = "http://auth:8080/auth"
+    keycloak_admin: str = ""
+    keycloak_admin_password: str = ""
+    keycloak_realm: str = "lex-pacs"
+
+    @property
+    def keycloak_admin_user(self) -> str:
+        return self.keycloak_admin
 
 
     @property
