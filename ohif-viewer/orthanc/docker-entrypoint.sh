@@ -22,6 +22,14 @@ fi
 # Injeta senha PostgreSQL sem expor no repositório
 sed -i "s|__LEX_POSTGRES_PASSWORD__|${POSTGRES_PASSWORD}|g" "${CONFIG_FILE}"
 
+sanitize_config() {
+  if grep -q '"IngestTranscoding"[[:space:]]*:[[:space:]]*""' "${CONFIG_FILE}" 2>/dev/null; then
+    sed -i '/"IngestTranscoding"[[:space:]]*:[[:space:]]*""/d' "${CONFIG_FILE}"
+  fi
+}
+
+sanitize_config
+
 watch_config() {
   LAST_MTIME=$(stat -c %Y "${CONFIG_FILE}" 2>/dev/null || echo 0)
   while true; do
@@ -30,6 +38,7 @@ watch_config() {
     if [ "${NEW_MTIME}" != "${LAST_MTIME}" ]; then
       echo "[lex-pacs] Configuração alterada — reiniciando servidor DICOM..."
       sed -i "s|__LEX_POSTGRES_PASSWORD__|${POSTGRES_PASSWORD}|g" "${CONFIG_FILE}"
+      sanitize_config
       if [ -f "${PID_FILE}" ]; then
         kill "$(cat "${PID_FILE}")" 2>/dev/null || true
       fi

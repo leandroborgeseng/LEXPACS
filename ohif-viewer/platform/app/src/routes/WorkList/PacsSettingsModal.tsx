@@ -62,15 +62,32 @@ type MwlStatus = {
 
 type MwlSqlForm = {
   enabled: boolean;
+  driver: string;
+  mode: 'table' | 'custom';
   host: string;
   port: number;
   database: string;
   username: string;
   password_env: string;
   table: string;
+  custom_sql: string;
+  field_mapping: Record<string, string>;
+  modality_filter: string[];
+  modality_routes: { modality: string; station_aet: string }[];
   sync_interval_minutes: number;
   password_configured: boolean;
+  available_drivers?: { id: string; label: string; default_port: number }[];
 };
+
+const MWL_MAP_FIELDS = [
+  'accession_number',
+  'patient_id',
+  'patient_name',
+  'modality',
+  'station_aet',
+  'procedure_description',
+  'scheduled_date',
+] as const;
 
 type AuditEvent = {
   timestamp: string;
@@ -105,33 +122,207 @@ type BackupStatus = {
   error?: string;
 };
 
+type Hl7Config = {
+  enabled: boolean;
+  listen_host: string;
+  listen_port: number;
+  auto_sync: boolean;
+  map_modality_to_station: boolean;
+  default_station_aet: string;
+  sending_application: string;
+  sending_facility: string;
+};
+
+type Hl7Status = {
+  config: Hl7Config;
+  stats: {
+    messages_total: number;
+    last_at: string;
+    last_accession: string;
+    last_control: string;
+    last_error: string;
+  };
+};
+
+type PortalOps = {
+  backup_interval_hours: number;
+  backup_retention_daily: number;
+  backup_retention_weekly: number;
+  backup_retention_days: number;
+  login_rate_limit_attempts: number;
+  login_rate_limit_window_seconds: number;
+};
+
+const INGEST_OPTIONS = [
+  { value: '', labelKey: 'pacsSettings.ingestNone' },
+  { value: '1.2.840.10008.1.2.4.80', labelKey: 'pacsSettings.ingestJpegLs' },
+  { value: '1.2.840.10008.1.2.4.70', labelKey: 'pacsSettings.ingestJpegLossless' },
+  { value: '1.2.840.10008.1.2', labelKey: 'pacsSettings.ingestExplicit' },
+] as const;
+
+const emptyHl7Config = (): Hl7Config => ({
+  enabled: true,
+  listen_host: '0.0.0.0',
+  listen_port: 2575,
+  auto_sync: true,
+  map_modality_to_station: true,
+  default_station_aet: '',
+  sending_application: 'LEXPACS',
+  sending_facility: 'LEX',
+});
+
+const emptyPortalOps = (): PortalOps => ({
+  backup_interval_hours: 24,
+  backup_retention_daily: 7,
+  backup_retention_weekly: 4,
+  backup_retention_days: 14,
+  login_rate_limit_attempts: 20,
+  login_rate_limit_window_seconds: 60,
+});
+
+type MigrationForm = {
+  source: { label: string; aet: string; host: string; port: number };
+  filters: {
+    study_date_from: string;
+    study_date_to: string;
+    patient_id: string;
+    modality: string;
+  };
+  batch_size: number;
+  pause_seconds: number;
+  skip_existing: boolean;
+};
+
+type MigrationStatus = {
+  config: MigrationForm;
+  status: string;
+  cursor: number;
+  queue_total: number;
+  pending: number;
+  progress_percent: number;
+  stats: {
+    completed: number;
+    failed: number;
+    skipped: number;
+    instances_imported: number;
+  };
+  last_error: string;
+};
+
+const emptyMigrationForm = (): MigrationForm => ({
+  source: { label: '', aet: '', host: '', port: 104 },
+  filters: { study_date_from: '', study_date_to: '', patient_id: '', modality: '' },
+  batch_size: 1,
+  pause_seconds: 2,
+  skip_existing: true,
+});
+
+type StorageRule = {
+  id: string;
+  enabled: boolean;
+  min_age_years: number;
+  transfer_syntax: string;
+  modalities: string[];
+};
+
+type StorageForm = {
+  enabled: boolean;
+  run_interval_hours: number;
+  batch_size: number;
+  pause_seconds: number;
+  rules: StorageRule[];
+};
+
+type StorageStatus = StorageForm & {
+  status: string;
+  cursor: number;
+  queue_total: number;
+  pending: number;
+  progress_percent: number;
+  stats: {
+    compressed: number;
+    skipped: number;
+    failed: number;
+    instances: number;
+  };
+  last_run_at: string;
+  last_error: string;
+  transfer_syntax_options: { uid: string; label: string }[];
+};
+
+const emptyStorageForm = (): StorageForm => ({
+  enabled: false,
+  run_interval_hours: 24,
+  batch_size: 5,
+  pause_seconds: 2,
+  rules: [],
+});
+
+function storageStatusLabel(status: string, t: (key: string) => string): string {
+  const map: Record<string, string> = {
+    idle: 'pacsSettings.storageStatusIdle',
+    running: 'pacsSettings.storageStatusRunning',
+    paused: 'pacsSettings.storageStatusPaused',
+    completed: 'pacsSettings.storageStatusCompleted',
+  };
+  return t(map[status] || map.idle);
+}
+
+function migrationStatusLabel(status: string, t: (key: string) => string): string {
+  const map: Record<string, string> = {
+    idle: 'pacsSettings.migrationStatusIdle',
+    discovering: 'pacsSettings.migrationStatusDiscovering',
+    running: 'pacsSettings.migrationStatusRunning',
+    paused: 'pacsSettings.migrationStatusPaused',
+    completed: 'pacsSettings.migrationStatusCompleted',
+    error: 'pacsSettings.migrationStatusError',
+  };
+  return t(map[status] || map.idle);
+}
+
 type PacsSettingsModalProps = {
   hide?: () => void;
+  mode?: 'modal' | 'page';
 };
 
 const emptyMwlSql = (): MwlSqlForm => ({
   enabled: true,
-  host: 'postgres',
+  driver: 'postgresql',
+  mode: 'table',
+  host: 'database',
   port: 5432,
   database: 'orthanc',
   username: 'orthanc',
   password_env: 'POSTGRES_PASSWORD',
   table: 'lex_mwl_schedule',
+  custom_sql: '',
+  field_mapping: Object.fromEntries(MWL_MAP_FIELDS.map(f => [f, f])),
+  modality_filter: [],
+  modality_routes: [],
   sync_interval_minutes: 5,
   password_configured: false,
 });
 
-function mwlSqlFromStatus(sql: MwlStatus['sql']): MwlSqlForm {
+function mwlSqlFromStatus(sql: MwlStatus['sql'] & Partial<MwlSqlForm>): MwlSqlForm {
+  const base = emptyMwlSql();
   return {
+    ...base,
     enabled: sql.enabled,
+    driver: sql.driver || base.driver,
+    mode: (sql.mode as MwlSqlForm['mode']) || base.mode,
     host: sql.host,
     port: sql.port,
     database: sql.database,
     username: sql.username,
     password_env: sql.password_env || 'POSTGRES_PASSWORD',
     table: sql.table,
+    custom_sql: sql.custom_sql || base.custom_sql,
+    field_mapping: { ...base.field_mapping, ...(sql.field_mapping || {}) },
+    modality_filter: Array.isArray(sql.modality_filter) ? sql.modality_filter : [],
+    modality_routes: Array.isArray(sql.modality_routes) ? sql.modality_routes : [],
     sync_interval_minutes: sql.sync_interval_minutes,
     password_configured: sql.password_configured,
+    available_drivers: sql.available_drivers,
   };
 }
 
@@ -154,10 +345,12 @@ function formatTs(value: string, locale: string): string {
   return parsed.toLocaleString(locale);
 }
 
-export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
+export function PacsSettingsModal({ hide, mode = 'modal' }: PacsSettingsModalProps) {
   const { t, i18n } = useTranslation('LexPacs');
+  const isPage = mode === 'page';
   const [tab, setTab] = useState('server');
   const [expanded, setExpanded] = useState(false);
+  const isExpanded = isPage || expanded;
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [statsLoading, setStatsLoading] = useState(false);
@@ -167,19 +360,39 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
   const [dicomAet, setDicomAet] = useState('');
   const [dicomPort, setDicomPort] = useState('');
   const [institutionName, setInstitutionName] = useState('');
-  const [checkCalledAet, setCheckCalledAet] = useState(false);
+  const [checkCalledAet, setCheckCalledAet] = useState(true);
+  const [checkModalityHost, setCheckModalityHost] = useState(true);
+  const [restrictInbound, setRestrictInbound] = useState(true);
+  const [inboundWarning, setInboundWarning] = useState(false);
+  const [ingestTranscoding, setIngestTranscoding] = useState('');
+  const [worklistsEnabled, setWorklistsEnabled] = useState(true);
+  const [worklistsFilterIssuerAet, setWorklistsFilterIssuerAet] = useState(false);
 
   const [equipment, setEquipment] = useState<EquipmentItem[]>([]);
   const [views, setViews] = useState<WorklistViewItem[]>([]);
 
   const [isAdmin, setIsAdmin] = useState(false);
-  const [adminLoading, setAdminLoading] = useState(false);
+  const [integrationLoading, setIntegrationLoading] = useState(false);
+  const [opsLoading, setOpsLoading] = useState(false);
   const [mwlStatus, setMwlStatus] = useState<MwlStatus | null>(null);
   const [mwlEntries, setMwlEntries] = useState<MwlEntry[]>([]);
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
   const [mwlSql, setMwlSql] = useState<MwlSqlForm>(emptyMwlSql);
   const [pacsStats, setPacsStats] = useState<PacsStats | null>(null);
   const [backupStatus, setBackupStatus] = useState<BackupStatus | null>(null);
+  const [hl7Status, setHl7Status] = useState<Hl7Status | null>(null);
+  const [hl7Config, setHl7Config] = useState<Hl7Config>(emptyHl7Config);
+  const [hl7TestMessage, setHl7TestMessage] = useState('');
+  const [hl7TestApply, setHl7TestApply] = useState(true);
+  const [portalOps, setPortalOps] = useState<PortalOps>(emptyPortalOps);
+  const [migrationLoading, setMigrationLoading] = useState(false);
+  const [migrationStatus, setMigrationStatus] = useState<MigrationStatus | null>(null);
+  const [migrationForm, setMigrationForm] = useState<MigrationForm>(emptyMigrationForm);
+  const [storageLoading, setStorageLoading] = useState(false);
+  const [storageStatus, setStorageStatus] = useState<StorageStatus | null>(null);
+  const [storageForm, setStorageForm] = useState<StorageForm>(emptyStorageForm);
+  const [worklistLoading, setWorklistLoading] = useState(false);
+  const [mwlPreview, setMwlPreview] = useState<MwlEntry[]>([]);
 
   const loadStats = useCallback(async () => {
     setStatsLoading(true);
@@ -203,22 +416,23 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
     }
   }, []);
 
-  const loadAdminData = useCallback(async () => {
-    setAdminLoading(true);
+  const loadIntegrationData = useCallback(async () => {
+    setIntegrationLoading(true);
     setError('');
     try {
-      const [meRes, statusRes, entriesRes] = await Promise.all([
+      const [meRes, statusRes, entriesRes, hl7Res] = await Promise.all([
         fetch(AUTH_ME, { credentials: 'include' }),
         fetch(`${API_BASE}/mwl/status`, { credentials: 'include' }),
         fetch(`${API_BASE}/mwl/entries`, { credentials: 'include' }),
+        fetch(`${API_BASE}/hl7/status`, { credentials: 'include' }),
       ]);
       const me = await meRes.json().catch(() => ({}));
       const status = await statusRes.json().catch(() => null);
       const entriesData = await entriesRes.json().catch(() => ({}));
+      const hl7Data = await hl7Res.json().catch(() => null);
 
       const permissions = me.permissions as { can_admin?: boolean } | undefined;
-      const admin = Boolean(permissions?.can_admin);
-      setIsAdmin(admin);
+      setIsAdmin(Boolean(permissions?.can_admin));
 
       if (!statusRes.ok) {
         throw new Error(status?.detail || t('pacsSettings.errors.loadMwl'));
@@ -226,7 +440,36 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
       setMwlStatus(status);
       setMwlSql(mwlSqlFromStatus(status.sql));
       setMwlEntries(Array.isArray(entriesData.entries) ? entriesData.entries.slice(0, 20) : []);
-      await loadStats();
+      if (hl7Res.ok && hl7Data) {
+        const hl7 = hl7Data as Hl7Status;
+        setHl7Status(hl7);
+        setHl7Config({ ...emptyHl7Config(), ...hl7.config });
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('pacsSettings.errors.loadIntegration'));
+    } finally {
+      setIntegrationLoading(false);
+    }
+  }, [t]);
+
+  const loadOpsData = useCallback(async () => {
+    setOpsLoading(true);
+    setError('');
+    try {
+      const [meRes, opsRes] = await Promise.all([
+        fetch(AUTH_ME, { credentials: 'include' }),
+        fetch(`${API_BASE}/portal-ops`, { credentials: 'include' }),
+      ]);
+      const me = await meRes.json().catch(() => ({}));
+      const opsData = await opsRes.json().catch(() => null);
+
+      const permissions = me.permissions as { can_admin?: boolean } | undefined;
+      const admin = Boolean(permissions?.can_admin);
+      setIsAdmin(admin);
+
+      if (opsRes.ok && opsData) {
+        setPortalOps({ ...emptyPortalOps(), ...opsData });
+      }
 
       if (admin) {
         const auditRes = await fetch(`${API_BASE}/audit?limit=30`, { credentials: 'include' });
@@ -240,9 +483,103 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
     } catch (err) {
       setError(err instanceof Error ? err.message : t('pacsSettings.errors.loadAdmin'));
     } finally {
-      setAdminLoading(false);
+      setOpsLoading(false);
     }
-  }, [loadStats]);
+  }, [t]);
+
+  const loadStorageData = useCallback(async () => {
+    setStorageLoading(true);
+    setError('');
+    try {
+      const [meRes, backupRes, opsRes, storageRes] = await Promise.all([
+        fetch(AUTH_ME, { credentials: 'include' }),
+        fetch(`${API_BASE}/backup/status`, { credentials: 'include' }),
+        fetch(`${API_BASE}/portal-ops`, { credentials: 'include' }),
+        fetch(`${API_BASE}/storage/status`, { credentials: 'include' }),
+      ]);
+      const me = await meRes.json().catch(() => ({}));
+      const backupData = await backupRes.json().catch(() => null);
+      const opsData = await opsRes.json().catch(() => null);
+      const storageData = await storageRes.json().catch(() => null);
+
+      const permissions = me.permissions as { can_admin?: boolean } | undefined;
+      setIsAdmin(Boolean(permissions?.can_admin));
+
+      if (backupRes.ok && backupData) {
+        setBackupStatus(backupData as BackupStatus);
+      }
+      if (opsRes.ok && opsData) {
+        setPortalOps({ ...emptyPortalOps(), ...opsData });
+      }
+      if (!storageRes.ok) {
+        throw new Error(storageData?.detail || t('pacsSettings.errors.loadStorage'));
+      }
+      const status = storageData as StorageStatus;
+      setStorageStatus(status);
+      setStorageForm({
+        enabled: status.enabled,
+        run_interval_hours: status.run_interval_hours,
+        batch_size: status.batch_size,
+        pause_seconds: status.pause_seconds,
+        rules: Array.isArray(status.rules) ? status.rules : [],
+      });
+      await loadStats();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('pacsSettings.errors.loadStorage'));
+    } finally {
+      setStorageLoading(false);
+    }
+  }, [loadStats, t]);
+
+  const loadMigrationData = useCallback(async () => {
+    setMigrationLoading(true);
+    setError('');
+    try {
+      const [meRes, statusRes] = await Promise.all([
+        fetch(AUTH_ME, { credentials: 'include' }),
+        fetch(`${API_BASE}/migration/status`, { credentials: 'include' }),
+      ]);
+      const me = await meRes.json().catch(() => ({}));
+      const statusData = await statusRes.json().catch(() => null);
+      setIsAdmin(Boolean((me.permissions as { can_admin?: boolean })?.can_admin));
+      if (!statusRes.ok) {
+        throw new Error(statusData?.detail || t('pacsSettings.errors.loadMigration'));
+      }
+      const data = statusData as MigrationStatus;
+      setMigrationStatus(data);
+      setMigrationForm({ ...emptyMigrationForm(), ...data.config });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('pacsSettings.errors.loadMigration'));
+    } finally {
+      setMigrationLoading(false);
+    }
+  }, [t]);
+
+  const loadWorklistData = useCallback(async () => {
+    setWorklistLoading(true);
+    setError('');
+    try {
+      const [meRes, sqlRes, statusRes] = await Promise.all([
+        fetch(AUTH_ME, { credentials: 'include' }),
+        fetch(`${API_BASE}/mwl-sql`, { credentials: 'include' }),
+        fetch(`${API_BASE}/mwl/status`, { credentials: 'include' }),
+      ]);
+      const me = await meRes.json().catch(() => ({}));
+      const sqlData = await sqlRes.json().catch(() => null);
+      const status = await statusRes.json().catch(() => null);
+      setIsAdmin(Boolean((me.permissions as { can_admin?: boolean })?.can_admin));
+      if (sqlRes.ok && sqlData) {
+        setMwlSql(mwlSqlFromStatus(sqlData));
+      }
+      if (statusRes.ok && status) {
+        setMwlStatus(status);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('pacsSettings.errors.loadMwl'));
+    } finally {
+      setWorklistLoading(false);
+    }
+  }, [t]);
 
   useEffect(() => {
     let cancelled = false;
@@ -264,6 +601,12 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
           setDicomPort(String(settings.dicom_port || ''));
           setInstitutionName(settings.name || '');
           setCheckCalledAet(Boolean(settings.dicom_check_called_aet));
+          setCheckModalityHost(Boolean(settings.dicom_check_modality_host));
+          setRestrictInbound(Boolean(settings.dicom_restrict_inbound));
+          setInboundWarning(Boolean(settings.dicom_inbound_open_warning));
+          setIngestTranscoding(settings.ingest_transcoding || '');
+          setWorklistsEnabled(settings.worklists_enabled !== false);
+          setWorklistsFilterIssuerAet(Boolean(settings.worklists_filter_issuer_aet));
           setEquipment(Array.isArray(equipmentData.items) ? equipmentData.items : []);
           setViews(Array.isArray(viewsData.views) ? viewsData.views : []);
         }
@@ -284,13 +627,45 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
   }, [loadStats]);
 
   useEffect(() => {
-    if (tab === 'admin') {
-      void loadAdminData();
+    if (tab === 'integration') {
+      void loadIntegrationData();
     }
-  }, [tab, loadAdminData]);
+    if (tab === 'ops') {
+      void loadOpsData();
+    }
+    if (tab === 'storage') {
+      void loadStorageData();
+    }
+    if (tab === 'migration') {
+      void loadMigrationData();
+    }
+    if (tab === 'worklist') {
+      void loadWorklistData();
+    }
+  }, [tab, loadIntegrationData, loadOpsData, loadStorageData, loadMigrationData, loadWorklistData]);
 
   useEffect(() => {
-    if (!expanded) {
+    if (tab !== 'storage' || storageStatus?.status !== 'running') {
+      return;
+    }
+    const timer = window.setInterval(() => {
+      void loadStorageData();
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [tab, storageStatus?.status, loadStorageData]);
+
+  useEffect(() => {
+    if (tab !== 'migration' || migrationStatus?.status !== 'running') {
+      return;
+    }
+    const timer = window.setInterval(() => {
+      void loadMigrationData();
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [tab, migrationStatus?.status, loadMigrationData]);
+
+  useEffect(() => {
+    if (!expanded || isPage) {
       return;
     }
     const onKey = (event: KeyboardEvent) => {
@@ -304,7 +679,7 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
       document.body.style.overflow = '';
       window.removeEventListener('keydown', onKey);
     };
-  }, [expanded]);
+  }, [expanded, isPage]);
 
   const handleSaveServer = async () => {
     setSaving(true);
@@ -319,6 +694,11 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
           dicom_aet: dicomAet.trim().toUpperCase(),
           name: institutionName.trim(),
           dicom_check_called_aet: checkCalledAet,
+          dicom_check_modality_host: checkModalityHost,
+          dicom_restrict_inbound: restrictInbound,
+          ingest_transcoding: ingestTranscoding,
+          worklists_enabled: worklistsEnabled,
+          worklists_filter_issuer_aet: worklistsFilterIssuerAet,
         }),
       });
       const data = await response.json().catch(() => ({}));
@@ -326,6 +706,7 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
         throw new Error(data.detail || t('pacsSettings.errors.save'));
       }
       setMessage(data.message || t('pacsSettings.messages.serverSaved'));
+      setInboundWarning(Boolean(data.dicom_inbound_open_warning));
     } catch (err) {
       setError(err instanceof Error ? err.message : t('pacsSettings.errors.save'));
     } finally {
@@ -400,12 +781,97 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
           status: data.plugin_enabled ? t('pacsSettings.mwlActive') : t('pacsSettings.mwlInactive'),
         })
       );
-      await loadAdminData();
+      await loadIntegrationData();
     } catch (err) {
       setError(err instanceof Error ? err.message : t('pacsSettings.errors.mwlSync'));
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleSaveHl7 = async () => {
+    if (!isAdmin) {
+      return;
+    }
+    setSaving(true);
+    setError('');
+    setMessage('');
+    try {
+      const response = await fetch(`${API_BASE}/hl7/config`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(hl7Config),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.detail || t('pacsSettings.errors.saveHl7'));
+      }
+      setHl7Config({ ...emptyHl7Config(), ...data });
+      setMessage(t('pacsSettings.messages.hl7Saved'));
+      await loadIntegrationData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('pacsSettings.errors.saveHl7'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleHl7Test = async () => {
+    if (!isAdmin || !hl7TestMessage.trim()) {
+      return;
+    }
+    setSaving(true);
+    setError('');
+    setMessage('');
+    try {
+      const response = await fetch(`${API_BASE}/hl7/test`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: hl7TestMessage, apply: hl7TestApply }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.detail || t('pacsSettings.errors.hl7Test'));
+      }
+      setMessage(t('pacsSettings.messages.hl7TestOk'));
+      await loadIntegrationData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('pacsSettings.errors.hl7Test'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const persistMwlSql = async () => {
+    const response = await fetch(`${API_BASE}/mwl-sql`, {
+      method: 'PUT',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        enabled: mwlSql.enabled,
+        driver: mwlSql.driver,
+        mode: mwlSql.mode,
+        host: mwlSql.host.trim(),
+        port: mwlSql.port,
+        database: mwlSql.database.trim(),
+        username: mwlSql.username.trim(),
+        password_env: mwlSql.password_env.trim() || 'POSTGRES_PASSWORD',
+        table: mwlSql.table.trim(),
+        custom_sql: mwlSql.custom_sql,
+        field_mapping: mwlSql.field_mapping,
+        modality_filter: mwlSql.modality_filter,
+        modality_routes: mwlSql.modality_routes,
+        sync_interval_minutes: mwlSql.sync_interval_minutes,
+      }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(data.detail || t('pacsSettings.errors.saveSql'));
+    }
+    setMwlSql(mwlSqlFromStatus(data));
+    return data;
   };
 
   const handleSaveMwlSql = async () => {
@@ -416,30 +882,280 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
     setError('');
     setMessage('');
     try {
-      const response = await fetch(`${API_BASE}/mwl-sql`, {
+      await persistMwlSql();
+      setMessage(t('pacsSettings.messages.sqlSaved'));
+      await loadWorklistData();
+      await loadIntegrationData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('pacsSettings.errors.saveSql'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleTestMwlConnection = async () => {
+    if (!isAdmin) {
+      return;
+    }
+    setSaving(true);
+    setError('');
+    setMessage('');
+    try {
+      await persistMwlSql();
+      const response = await fetch(`${API_BASE}/mwl-sql/test-connection`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.detail || t('pacsSettings.errors.mwlTestConnection'));
+      }
+      setMessage(t('pacsSettings.messages.mwlTestConnectionOk'));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('pacsSettings.errors.mwlTestConnection'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handlePreviewMwlSql = async () => {
+    if (!isAdmin) {
+      return;
+    }
+    setSaving(true);
+    setError('');
+    setMessage('');
+    try {
+      await persistMwlSql();
+      const response = await fetch(`${API_BASE}/mwl-sql/preview`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.detail || t('pacsSettings.errors.mwlPreview'));
+      }
+      setMwlPreview(Array.isArray(data.mapped_entries) ? data.mapped_entries : []);
+      setMessage(t('pacsSettings.messages.mwlPreviewOk', { count: data.mapped_entries?.length || 0 }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('pacsSettings.errors.mwlPreview'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSavePortalOps = async () => {
+    if (!isAdmin) {
+      return;
+    }
+    setSaving(true);
+    setError('');
+    setMessage('');
+    try {
+      const response = await fetch(`${API_BASE}/portal-ops`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(portalOps),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.detail || t('pacsSettings.errors.saveOps'));
+      }
+      setPortalOps({ ...emptyPortalOps(), ...data });
+      setMessage(t('pacsSettings.messages.opsSaved'));
+      await loadOpsData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('pacsSettings.errors.saveOps'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSaveStorage = async () => {
+    if (!isAdmin) {
+      return;
+    }
+    setSaving(true);
+    setError('');
+    setMessage('');
+    try {
+      const [storageRes, opsRes] = await Promise.all([
+        fetch(`${API_BASE}/storage/config`, {
+          method: 'PUT',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(storageForm),
+        }),
+        fetch(`${API_BASE}/portal-ops`, {
+          method: 'PUT',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(portalOps),
+        }),
+      ]);
+      const storageData = await storageRes.json().catch(() => ({}));
+      const opsData = await opsRes.json().catch(() => ({}));
+      if (!storageRes.ok) {
+        throw new Error(storageData.detail || t('pacsSettings.errors.saveStorage'));
+      }
+      if (!opsRes.ok) {
+        throw new Error(opsData.detail || t('pacsSettings.errors.saveOps'));
+      }
+      setPortalOps({ ...emptyPortalOps(), ...opsData });
+      setMessage(t('pacsSettings.messages.storageSaved'));
+      await loadStorageData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('pacsSettings.errors.saveStorage'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleBackupTrigger = async () => {
+    if (!isAdmin) {
+      return;
+    }
+    setSaving(true);
+    setError('');
+    setMessage('');
+    try {
+      const response = await fetch(`${API_BASE}/backup/trigger`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.detail || t('pacsSettings.errors.backupTrigger'));
+      }
+      setMessage(t('pacsSettings.messages.backupTriggered'));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('pacsSettings.errors.backupTrigger'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleStorageAction = async (
+    endpoint: string,
+    okMessage: string,
+    errorKey: string
+  ) => {
+    if (!isAdmin) {
+      return;
+    }
+    setSaving(true);
+    setError('');
+    setMessage('');
+    try {
+      const response = await fetch(`${API_BASE}/storage/${endpoint}`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.detail || t(errorKey));
+      }
+      setMessage(okMessage);
+      await loadStorageData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t(errorKey));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const addStorageRule = () => {
+    setStorageForm(prev => ({
+      ...prev,
+      rules: [
+        ...prev.rules,
+        {
+          id: `rule-${Date.now()}`,
+          enabled: true,
+          min_age_years: 2,
+          transfer_syntax: '1.2.840.10008.1.2.4.80',
+          modalities: [],
+        },
+      ],
+    }));
+  };
+
+  const updateStorageRule = (index: number, patch: Partial<StorageRule>) => {
+    setStorageForm(prev => ({
+      ...prev,
+      rules: prev.rules.map((rule, i) => (i === index ? { ...rule, ...patch } : rule)),
+    }));
+  };
+
+  const removeStorageRule = (index: number) => {
+    setStorageForm(prev => ({
+      ...prev,
+      rules: prev.rules.filter((_, i) => i !== index),
+    }));
+  };
+
+  const handleSaveMigration = async () => {
+    if (!isAdmin) {
+      return;
+    }
+    setSaving(true);
+    setError('');
+    setMessage('');
+    try {
+      const response = await fetch(`${API_BASE}/migration/config`, {
         method: 'PUT',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          enabled: mwlSql.enabled,
-          host: mwlSql.host.trim(),
-          port: mwlSql.port,
-          database: mwlSql.database.trim(),
-          username: mwlSql.username.trim(),
-          password_env: mwlSql.password_env.trim() || 'POSTGRES_PASSWORD',
-          table: mwlSql.table.trim(),
-          sync_interval_minutes: mwlSql.sync_interval_minutes,
+          ...migrationForm,
+          source: {
+            ...migrationForm.source,
+            aet: migrationForm.source.aet.trim().toUpperCase(),
+          },
         }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(data.detail || t('pacsSettings.errors.saveSql'));
+        throw new Error(data.detail || t('pacsSettings.errors.saveMigration'));
       }
-      setMwlSql(mwlSqlFromStatus(data));
-      setMessage(t('pacsSettings.messages.sqlSaved'));
-      await loadAdminData();
+      setMessage(t('pacsSettings.messages.migrationSaved'));
+      await loadMigrationData();
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('pacsSettings.errors.saveSql'));
+      setError(err instanceof Error ? err.message : t('pacsSettings.errors.saveMigration'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleMigrationAction = async (
+    endpoint: string,
+    okMessage: string,
+    errorKey: string
+  ) => {
+    if (!isAdmin) {
+      return;
+    }
+    setSaving(true);
+    setError('');
+    setMessage('');
+    try {
+      const response = await fetch(`${API_BASE}/migration/${endpoint}`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.detail || t(errorKey));
+      }
+      if (endpoint === 'discover') {
+        setMessage(t('pacsSettings.messages.migrationDiscovered', { count: data.discovered || 0 }));
+      } else {
+        setMessage(okMessage);
+      }
+      await loadMigrationData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t(errorKey));
     } finally {
       setSaving(false);
     }
@@ -454,7 +1170,19 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
   };
 
   const refreshData = () => {
-    void (tab === 'admin' ? loadAdminData() : loadStats());
+    if (tab === 'integration') {
+      void loadIntegrationData();
+    } else if (tab === 'ops') {
+      void loadOpsData();
+    } else if (tab === 'storage') {
+      void loadStorageData();
+    } else if (tab === 'worklist') {
+      void loadWorklistData();
+    } else if (tab === 'migration') {
+      void loadMigrationData();
+    } else {
+      void loadStats();
+    }
   };
 
   const panelBody = (
@@ -464,11 +1192,13 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
           variant="outline"
           size="sm"
           onClick={refreshData}
-          disabled={saving || statsLoading || adminLoading}
+          disabled={saving || statsLoading || integrationLoading || opsLoading || storageLoading || migrationLoading}
         >
-          {statsLoading || adminLoading ? t('pacsSettings.refreshing') : t('pacsSettings.refresh')}
+          {statsLoading || integrationLoading || opsLoading || storageLoading || migrationLoading
+            ? t('pacsSettings.refreshing')
+            : t('pacsSettings.refresh')}
         </Button>
-        {!expanded ? (
+        {!isPage && !expanded ? (
           <Button
             variant="outline"
             size="sm"
@@ -479,22 +1209,25 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
         ) : null}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain pr-1">
-        {loading ? (
-          <p className="text-sm">{t('pacsSettings.loading')}</p>
-        ) : (
-          <Tabs
-            value={tab}
-            onValueChange={setTab}
-            className="flex w-full max-w-full flex-col"
-          >
-            <TabsList className="grid w-full shrink-0 grid-cols-2 sm:grid-cols-4">
-              <TabsTrigger value="server">{t('pacsSettings.tabs.server')}</TabsTrigger>
+      {loading ? (
+        <p className="text-sm">{t('pacsSettings.loading')}</p>
+      ) : (
+        <Tabs
+          value={tab}
+          onValueChange={setTab}
+          className="flex min-h-0 w-full max-w-full flex-1 flex-col"
+        >
+          <TabsList className="relative z-10 mb-2 inline-flex h-auto w-full flex-wrap justify-start gap-1 p-1">
+            <TabsTrigger value="server">{t('pacsSettings.tabs.server')}</TabsTrigger>
               <TabsTrigger value="equipment">{t('pacsSettings.tabs.equipment')}</TabsTrigger>
               <TabsTrigger value="worklist">{t('pacsSettings.tabs.worklist')}</TabsTrigger>
-              <TabsTrigger value="admin">{t('pacsSettings.tabs.admin')}</TabsTrigger>
-            </TabsList>
+              <TabsTrigger value="integration">{t('pacsSettings.tabs.integration')}</TabsTrigger>
+              <TabsTrigger value="migration">{t('pacsSettings.tabs.migration')}</TabsTrigger>
+              <TabsTrigger value="storage">{t('pacsSettings.tabs.storage')}</TabsTrigger>
+            <TabsTrigger value="ops">{t('pacsSettings.tabs.ops')}</TabsTrigger>
+          </TabsList>
 
+          <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain pr-1">
             <TabsContent
               value="server"
               className="mt-3 flex w-full max-w-full flex-col gap-4 data-[state=inactive]:hidden"
@@ -505,7 +1238,7 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
                 <div className="border-border rounded-lg border p-3">
                   <PacsStatsPanel
                     stats={pacsStats}
-                    compact={!expanded}
+                    compact={!isExpanded}
                   />
                 </div>
               ) : null}
@@ -540,6 +1273,58 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
                     </label>
                   </div>
                   <p className="text-muted-foreground text-xs">{t('pacsSettings.dicomPortNote')}</p>
+                  <label className="flex flex-col gap-1 text-sm">
+                    {t('pacsSettings.ingestTranscoding')}
+                    <select
+                      className="border-input bg-background rounded-md border px-3 py-2 text-sm"
+                      value={ingestTranscoding}
+                      onChange={e => setIngestTranscoding(e.target.value)}
+                    >
+                      {INGEST_OPTIONS.map(opt => (
+                        <option
+                          key={opt.value || 'none'}
+                          value={opt.value}
+                        >
+                          {t(opt.labelKey)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <p className="text-muted-foreground text-xs font-medium">
+                    {t('pacsSettings.mwlStatus')}
+                  </p>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={worklistsEnabled}
+                      onChange={e => setWorklistsEnabled(e.target.checked)}
+                    />
+                    {t('pacsSettings.worklistsEnabled')}
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={worklistsFilterIssuerAet}
+                      onChange={e => setWorklistsFilterIssuerAet(e.target.checked)}
+                    />
+                    {t('pacsSettings.worklistsFilterIssuer')}
+                  </label>
+                  {inboundWarning ? (
+                    <p className="rounded border border-amber-600/40 bg-amber-950/30 px-3 py-2 text-xs text-amber-200">
+                      {t('pacsSettings.inboundWarning')}
+                    </p>
+                  ) : null}
+                  <p className="text-muted-foreground text-xs font-medium">
+                    {t('pacsSettings.dicomSecurityTitle')}
+                  </p>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={restrictInbound}
+                      onChange={e => setRestrictInbound(e.target.checked)}
+                    />
+                    {t('pacsSettings.restrictInbound')}
+                  </label>
                   <label className="flex items-center gap-2 text-sm">
                     <input
                       type="checkbox"
@@ -548,6 +1333,15 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
                     />
                     {t('pacsSettings.checkCalledAet')}
                   </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={checkModalityHost}
+                      onChange={e => setCheckModalityHost(e.target.checked)}
+                    />
+                    {t('pacsSettings.checkModalityHost')}
+                  </label>
+                  <p className="text-muted-foreground text-xs">{t('pacsSettings.dicomSecurityHint')}</p>
                   <div className="flex justify-end">
                     <Button
                       onClick={handleSaveServer}
@@ -564,6 +1358,7 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
               value="equipment"
               className="mt-3 flex w-full max-w-full flex-col gap-3 data-[state=inactive]:hidden"
             >
+              <p className="text-muted-foreground text-xs">{t('pacsSettings.equipmentSecurityHint')}</p>
               {equipment.map((item, index) => (
                 <div
                   key={item.id || index}
@@ -629,7 +1424,326 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
               value="worklist"
               className="mt-3 flex w-full max-w-full flex-col gap-3 data-[state=inactive]:hidden"
             >
-              <p className="text-muted-foreground text-xs">{t('pacsSettings.worklistHint')}</p>
+              {worklistLoading ? (
+                <p className="text-sm">{t('pacsSettings.loadingWorklist')}</p>
+              ) : (
+                <>
+                  <div className="border-border rounded border p-3">
+                    <p className="mb-2 text-sm font-medium">{t('pacsSettings.mwlDataSource')}</p>
+                    <p className="text-muted-foreground mb-3 text-xs">{t('pacsSettings.mwlDataSourceHint')}</p>
+                    {!isAdmin ? (
+                      <p className="text-muted-foreground text-xs">{t('pacsSettings.opsAdminOnly')}</p>
+                    ) : (
+                      <div className="flex flex-col gap-3">
+                        <label className="flex items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={mwlSql.enabled}
+                            onChange={e => setMwlSql(prev => ({ ...prev, enabled: e.target.checked }))}
+                          />
+                          {t('pacsSettings.sqlEnabled')}
+                        </label>
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                          <label className="flex flex-col gap-1 text-xs">
+                            {t('pacsSettings.mwlDriver')}
+                            <select
+                              className="border-input bg-background rounded-md border px-3 py-2 text-sm"
+                              value={mwlSql.driver}
+                              onChange={e => {
+                                const driver = e.target.value;
+                                const meta = (mwlSql.available_drivers || []).find(d => d.id === driver);
+                                setMwlSql(prev => ({
+                                  ...prev,
+                                  driver,
+                                  port: meta?.default_port || prev.port,
+                                }));
+                              }}
+                            >
+                              {(mwlSql.available_drivers || [{ id: 'postgresql', label: 'PostgreSQL', default_port: 5432 }]).map(
+                                d => (
+                                  <option key={d.id} value={d.id}>
+                                    {d.label}
+                                  </option>
+                                )
+                              )}
+                            </select>
+                          </label>
+                          <label className="flex flex-col gap-1 text-xs">
+                            {t('pacsSettings.mwlMode')}
+                            <select
+                              className="border-input bg-background rounded-md border px-3 py-2 text-sm"
+                              value={mwlSql.mode}
+                              onChange={e =>
+                                setMwlSql(prev => ({
+                                  ...prev,
+                                  mode: e.target.value as MwlSqlForm['mode'],
+                                }))
+                              }
+                            >
+                              <option value="table">{t('pacsSettings.mwlModeTable')}</option>
+                              <option value="custom">{t('pacsSettings.mwlModeCustom')}</option>
+                            </select>
+                          </label>
+                          <label className="flex flex-col gap-1 text-xs">
+                            {t('pacsSettings.host')}
+                            <Input
+                              value={mwlSql.host}
+                              onChange={e => setMwlSql(prev => ({ ...prev, host: e.target.value }))}
+                            />
+                          </label>
+                          <label className="flex flex-col gap-1 text-xs">
+                            {t('pacsSettings.port')}
+                            <Input
+                              type="number"
+                              value={mwlSql.port}
+                              onChange={e =>
+                                setMwlSql(prev => ({
+                                  ...prev,
+                                  port: Number(e.target.value) || 5432,
+                                }))
+                              }
+                            />
+                          </label>
+                          <label className="flex flex-col gap-1 text-xs">
+                            {t('pacsSettings.sqlDatabase')}
+                            <Input
+                              value={mwlSql.database}
+                              onChange={e => setMwlSql(prev => ({ ...prev, database: e.target.value }))}
+                            />
+                          </label>
+                          <label className="flex flex-col gap-1 text-xs">
+                            {t('pacsSettings.sqlUser')}
+                            <Input
+                              value={mwlSql.username}
+                              onChange={e => setMwlSql(prev => ({ ...prev, username: e.target.value }))}
+                            />
+                          </label>
+                          {mwlSql.mode === 'table' ? (
+                            <label className="flex flex-col gap-1 text-xs sm:col-span-2">
+                              {t('pacsSettings.sqlTable')}
+                              <Input
+                                value={mwlSql.table}
+                                onChange={e => setMwlSql(prev => ({ ...prev, table: e.target.value }))}
+                              />
+                            </label>
+                          ) : (
+                            <label className="col-span-1 flex flex-col gap-1 text-xs sm:col-span-2">
+                              {t('pacsSettings.mwlCustomSql')}
+                              <textarea
+                                className="border-input bg-background min-h-[120px] rounded-md border px-3 py-2 font-mono text-xs"
+                                value={mwlSql.custom_sql}
+                                onChange={e =>
+                                  setMwlSql(prev => ({ ...prev, custom_sql: e.target.value }))
+                                }
+                              />
+                            </label>
+                          )}
+                          <label className="flex flex-col gap-1 text-xs">
+                            {t('pacsSettings.sqlPasswordEnv')}
+                            <Input
+                              value={mwlSql.password_env}
+                              onChange={e =>
+                                setMwlSql(prev => ({ ...prev, password_env: e.target.value }))
+                              }
+                            />
+                          </label>
+                          <label className="flex flex-col gap-1 text-xs">
+                            {t('pacsSettings.sqlInterval')}
+                            <Input
+                              type="number"
+                              min={1}
+                              max={1440}
+                              value={mwlSql.sync_interval_minutes}
+                              onChange={e =>
+                                setMwlSql(prev => ({
+                                  ...prev,
+                                  sync_interval_minutes: Math.max(1, Number(e.target.value) || 5),
+                                }))
+                              }
+                            />
+                          </label>
+                        </div>
+                        <p className="text-muted-foreground text-xs">
+                          {t('pacsSettings.sqlPasswordStatus', { env: mwlSql.password_env })}{' '}
+                          {mwlSql.password_configured
+                            ? t('pacsSettings.sqlPasswordSet')
+                            : t('pacsSettings.sqlPasswordMissing')}
+                        </p>
+
+                        {mwlSql.mode === 'custom' ? (
+                          <div className="border-border rounded border p-2">
+                            <p className="mb-2 text-xs font-medium">{t('pacsSettings.mwlFieldMapping')}</p>
+                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                              {MWL_MAP_FIELDS.map(field => (
+                                <label
+                                  key={field}
+                                  className="flex flex-col gap-1 text-xs"
+                                >
+                                  {t(`pacsSettings.mwlField.${field}`)}
+                                  <Input
+                                    value={mwlSql.field_mapping[field] || ''}
+                                    onChange={e =>
+                                      setMwlSql(prev => ({
+                                        ...prev,
+                                        field_mapping: {
+                                          ...prev.field_mapping,
+                                          [field]: e.target.value,
+                                        },
+                                      }))
+                                    }
+                                  />
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
+
+                        <label className="flex flex-col gap-1 text-xs">
+                          {t('pacsSettings.mwlModalityFilter')}
+                          <Input
+                            value={mwlSql.modality_filter.join(',')}
+                            onChange={e =>
+                              setMwlSql(prev => ({
+                                ...prev,
+                                modality_filter: e.target.value
+                                  .split(',')
+                                  .map(v => v.trim().toUpperCase())
+                                  .filter(Boolean),
+                              }))
+                            }
+                            placeholder="CT,MR,DX"
+                          />
+                        </label>
+
+                        <div className="border-border rounded border p-2">
+                          <p className="mb-2 text-xs font-medium">{t('pacsSettings.mwlModalityRoutes')}</p>
+                          {mwlSql.modality_routes.map((route, index) => (
+                            <div
+                              key={index}
+                              className="mb-2 grid grid-cols-1 gap-2 sm:grid-cols-3"
+                            >
+                              <Input
+                                placeholder={t('pacsSettings.modality')}
+                                value={route.modality}
+                                onChange={e =>
+                                  setMwlSql(prev => ({
+                                    ...prev,
+                                    modality_routes: prev.modality_routes.map((item, i) =>
+                                      i === index
+                                        ? { ...item, modality: e.target.value.toUpperCase() }
+                                        : item
+                                    ),
+                                  }))
+                                }
+                              />
+                              <Input
+                                placeholder={t('pacsSettings.stationAet')}
+                                value={route.station_aet}
+                                onChange={e =>
+                                  setMwlSql(prev => ({
+                                    ...prev,
+                                    modality_routes: prev.modality_routes.map((item, i) =>
+                                      i === index
+                                        ? { ...item, station_aet: e.target.value.toUpperCase() }
+                                        : item
+                                    ),
+                                  }))
+                                }
+                              />
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() =>
+                                  setMwlSql(prev => ({
+                                    ...prev,
+                                    modality_routes: prev.modality_routes.filter((_, i) => i !== index),
+                                  }))
+                                }
+                              >
+                                {t('pacsSettings.remove')}
+                              </Button>
+                            </div>
+                          ))}
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() =>
+                              setMwlSql(prev => ({
+                                ...prev,
+                                modality_routes: [...prev.modality_routes, { modality: '', station_aet: '' }],
+                              }))
+                            }
+                          >
+                            {t('pacsSettings.mwlAddRoute')}
+                          </Button>
+                        </div>
+
+                        <div className="flex flex-wrap justify-end gap-2">
+                          <Button
+                            size="sm"
+                            onClick={handleSaveMwlSql}
+                            disabled={saving}
+                          >
+                            {t('pacsSettings.saveSql')}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={handleTestMwlConnection}
+                            disabled={saving}
+                          >
+                            {t('pacsSettings.mwlTestConnection')}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={handlePreviewMwlSql}
+                            disabled={saving}
+                          >
+                            {t('pacsSettings.mwlPreview')}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={handleMwlSync}
+                            disabled={saving || !mwlSql.enabled}
+                          >
+                            {t('pacsSettings.mwlSyncNow')}
+                          </Button>
+                        </div>
+
+                        {mwlPreview.length > 0 ? (
+                          <div className="overflow-x-auto">
+                            <table className="w-full min-w-[320px] text-left text-xs">
+                              <thead>
+                                <tr className="text-muted-foreground border-b">
+                                  <th className="py-1 pr-2">{t('pacsSettings.mwlAccession')}</th>
+                                  <th className="py-1 pr-2">{t('pacsSettings.mwlPatient')}</th>
+                                  <th className="py-1 pr-2">{t('pacsSettings.mwlModShort')}</th>
+                                  <th className="py-1">{t('pacsSettings.mwlStation')}</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {mwlPreview.map(entry => (
+                                  <tr
+                                    key={entry.accession_number}
+                                    className="border-border/60 border-b"
+                                  >
+                                    <td className="py-1 pr-2">{entry.accession_number}</td>
+                                    <td className="py-1 pr-2">{entry.patient_name}</td>
+                                    <td className="py-1 pr-2">{entry.modality}</td>
+                                    <td className="py-1">{entry.station_aet}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        ) : null}
+                      </div>
+                    )}
+                  </div>
+
+                  <p className="text-muted-foreground text-xs">{t('pacsSettings.worklistHint')}</p>
               {views.map((view, index) => (
                 <div
                   key={view.id}
@@ -679,50 +1793,179 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
                   {t('pacsSettings.saveViews')}
                 </Button>
               </div>
+                </>
+              )}
             </TabsContent>
 
             <TabsContent
-              value="admin"
+              value="integration"
               className="mt-3 flex w-full max-w-full flex-col gap-3 data-[state=inactive]:hidden"
             >
-              {adminLoading ? (
-                <p className="text-sm">{t('pacsSettings.loadingAdmin')}</p>
+              {integrationLoading ? (
+                <p className="text-sm">{t('pacsSettings.loadingIntegration')}</p>
               ) : mwlStatus ? (
                 <>
-                  {pacsStats ? (
-                    <div className="border-border rounded-lg border p-3">
-                      <PacsStatsPanel stats={pacsStats} />
-                    </div>
-                  ) : null}
-
                   <div className="border-border rounded border p-3 text-sm">
-                    <p className="font-medium">{t('pacsSettings.backup')}</p>
-                    {backupStatus ? (
+                    <p className="font-medium">{t('pacsSettings.hl7Title')}</p>
+                    {hl7Status ? (
                       <>
                         <p className="text-muted-foreground mt-1 text-xs">
-                          {t('pacsSettings.lastBackup')}{' '}
-                          {backupStatus.last_at
-                            ? formatTs(backupStatus.last_at, i18n.language)
-                            : t('pacsSettings.noBackup')}
-                          {backupStatus.last_path ? ` (${backupStatus.last_path})` : ''}
+                          {hl7Status.config.enabled
+                            ? t('pacsSettings.hl7Enabled', { port: hl7Status.config.listen_port })
+                            : t('pacsSettings.hl7Disabled')}
                         </p>
                         <p className="text-muted-foreground text-xs">
-                          {t('pacsSettings.backupSchedule', {
-                            hours: backupStatus.interval_hours,
-                            daily: backupStatus.retention_daily ?? backupStatus.retention_days,
-                            weekly: backupStatus.retention_weekly ?? 4,
-                          })}
-                          {backupStatus.configured && backupStatus.success
-                            ? t('pacsSettings.backupOk')
-                            : backupStatus.configured
-                              ? t('pacsSettings.backupFailed')
-                              : t('pacsSettings.backupEnable')}
+                          {t('pacsSettings.hl7Messages', { count: hl7Status.stats.messages_total })}
                         </p>
+                        {hl7Status.stats.last_at ? (
+                          <p className="text-muted-foreground text-xs">
+                            {t('pacsSettings.hl7Last', {
+                              at: formatTs(hl7Status.stats.last_at, i18n.language),
+                              accession: hl7Status.stats.last_accession || '—',
+                              control: hl7Status.stats.last_control || '—',
+                            })}
+                          </p>
+                        ) : null}
+                        {hl7Status.stats.last_error ? (
+                          <p className="text-destructive mt-1 text-xs">
+                            {t('pacsSettings.hl7Error', { error: hl7Status.stats.last_error })}
+                          </p>
+                        ) : null}
                       </>
+                    ) : null}
+                  </div>
+
+                  <div className="border-border rounded border p-3">
+                    <p className="mb-2 text-sm font-medium">{t('pacsSettings.hl7ConfigTitle')}</p>
+                    {!isAdmin ? (
+                      <p className="text-muted-foreground text-xs">{t('pacsSettings.opsAdminOnly')}</p>
                     ) : (
-                      <p className="text-muted-foreground mt-1 text-xs">
-                        {t('pacsSettings.loadingBackupStatus')}
-                      </p>
+                      <div className="flex flex-col gap-2">
+                        <label className="flex items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={hl7Config.enabled}
+                            onChange={e => setHl7Config(prev => ({ ...prev, enabled: e.target.checked }))}
+                          />
+                          {t('pacsSettings.hl7EnabledToggle')}
+                        </label>
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                          <label className="flex flex-col gap-1 text-xs">
+                            {t('pacsSettings.hl7ListenHost')}
+                            <Input
+                              value={hl7Config.listen_host}
+                              onChange={e =>
+                                setHl7Config(prev => ({ ...prev, listen_host: e.target.value }))
+                              }
+                            />
+                          </label>
+                          <label className="flex flex-col gap-1 text-xs">
+                            {t('pacsSettings.hl7ListenPort')}
+                            <Input
+                              type="number"
+                              value={hl7Config.listen_port}
+                              onChange={e =>
+                                setHl7Config(prev => ({
+                                  ...prev,
+                                  listen_port: Number(e.target.value) || 2575,
+                                }))
+                              }
+                            />
+                          </label>
+                          <label className="flex flex-col gap-1 text-xs">
+                            {t('pacsSettings.hl7DefaultStation')}
+                            <Input
+                              value={hl7Config.default_station_aet}
+                              onChange={e =>
+                                setHl7Config(prev => ({
+                                  ...prev,
+                                  default_station_aet: e.target.value.toUpperCase(),
+                                }))
+                              }
+                              maxLength={16}
+                            />
+                          </label>
+                          <label className="flex flex-col gap-1 text-xs">
+                            {t('pacsSettings.hl7SendingApp')}
+                            <Input
+                              value={hl7Config.sending_application}
+                              onChange={e =>
+                                setHl7Config(prev => ({
+                                  ...prev,
+                                  sending_application: e.target.value,
+                                }))
+                              }
+                            />
+                          </label>
+                          <label className="flex flex-col gap-1 text-xs sm:col-span-2">
+                            {t('pacsSettings.hl7SendingFacility')}
+                            <Input
+                              value={hl7Config.sending_facility}
+                              onChange={e =>
+                                setHl7Config(prev => ({ ...prev, sending_facility: e.target.value }))
+                              }
+                            />
+                          </label>
+                        </div>
+                        <label className="flex items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={hl7Config.auto_sync}
+                            onChange={e =>
+                              setHl7Config(prev => ({ ...prev, auto_sync: e.target.checked }))
+                            }
+                          />
+                          {t('pacsSettings.hl7AutoSync')}
+                        </label>
+                        <label className="flex items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={hl7Config.map_modality_to_station}
+                            onChange={e =>
+                              setHl7Config(prev => ({
+                                ...prev,
+                                map_modality_to_station: e.target.checked,
+                              }))
+                            }
+                          />
+                          {t('pacsSettings.hl7MapModality')}
+                        </label>
+                        <div className="flex justify-end">
+                          <Button
+                            size="sm"
+                            onClick={handleSaveHl7}
+                            disabled={saving}
+                          >
+                            {t('pacsSettings.saveHl7')}
+                          </Button>
+                        </div>
+                        <label className="mt-2 flex flex-col gap-1 text-xs">
+                          {t('pacsSettings.hl7TestMessage')}
+                          <textarea
+                            className="border-input bg-background min-h-[80px] rounded-md border px-3 py-2 text-sm"
+                            value={hl7TestMessage}
+                            onChange={e => setHl7TestMessage(e.target.value)}
+                          />
+                        </label>
+                        <label className="flex items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={hl7TestApply}
+                            onChange={e => setHl7TestApply(e.target.checked)}
+                          />
+                          {t('pacsSettings.hl7TestApply')}
+                        </label>
+                        <div className="flex justify-end">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={handleHl7Test}
+                            disabled={saving || !hl7TestMessage.trim()}
+                          >
+                            {t('pacsSettings.hl7TestRun')}
+                          </Button>
+                        </div>
+                      </div>
                     )}
                   </div>
 
@@ -757,7 +2000,7 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => void loadAdminData()}
+                        onClick={() => void loadIntegrationData()}
                         disabled={saving}
                       >
                         {t('pacsSettings.mwlRefresh')}
@@ -916,6 +2159,729 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
                       </div>
                     )}
                   </div>
+                </>
+              ) : (
+                <Button
+                  variant="outline"
+                  onClick={() => void loadIntegrationData()}
+                >
+                  {t('pacsSettings.loadAdmin')}
+                </Button>
+              )}
+            </TabsContent>
+
+            <TabsContent
+              value="migration"
+              className="mt-3 flex w-full max-w-full flex-col gap-3 data-[state=inactive]:hidden"
+            >
+              {migrationLoading && !migrationStatus ? (
+                <p className="text-sm">{t('pacsSettings.loadingMigration')}</p>
+              ) : (
+                <>
+                  <p className="text-muted-foreground text-xs">{t('pacsSettings.migrationHint')}</p>
+
+                  {migrationStatus ? (
+                    <div className="border-border rounded border p-3 text-sm">
+                      <p className="font-medium">{t('pacsSettings.migrationStatus')}</p>
+                      <p className="text-muted-foreground mt-1 text-xs">
+                        {migrationStatusLabel(migrationStatus.status, t)}
+                      </p>
+                      <p className="text-muted-foreground text-xs">
+                        {t('pacsSettings.migrationProgress', {
+                          percent: migrationStatus.progress_percent,
+                          cursor: migrationStatus.cursor,
+                          total: migrationStatus.queue_total,
+                        })}
+                      </p>
+                      <p className="text-muted-foreground text-xs">
+                        {t('pacsSettings.migrationPending', { count: migrationStatus.pending })}
+                      </p>
+                      <p className="text-muted-foreground text-xs">
+                        {t('pacsSettings.migrationStats', {
+                          completed: migrationStatus.stats.completed,
+                          skipped: migrationStatus.stats.skipped,
+                          failed: migrationStatus.stats.failed,
+                          instances: migrationStatus.stats.instances_imported,
+                        })}
+                      </p>
+                      {migrationStatus.last_error ? (
+                        <p className="text-destructive mt-1 text-xs">
+                          {t('pacsSettings.migrationLastError', { error: migrationStatus.last_error })}
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  <div className="border-border rounded border p-3">
+                    <p className="mb-2 text-sm font-medium">{t('pacsSettings.migrationTitle')}</p>
+                    {!isAdmin ? (
+                      <p className="text-muted-foreground text-xs">{t('pacsSettings.opsAdminOnly')}</p>
+                    ) : (
+                      <div className="flex flex-col gap-3">
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                          <label className="flex flex-col gap-1 text-xs">
+                            {t('pacsSettings.migrationSourceLabel')}
+                            <Input
+                              value={migrationForm.source.label}
+                              onChange={e =>
+                                setMigrationForm(prev => ({
+                                  ...prev,
+                                  source: { ...prev.source, label: e.target.value },
+                                }))
+                              }
+                            />
+                          </label>
+                          <label className="flex flex-col gap-1 text-xs">
+                            {t('pacsSettings.migrationSourceAet')}
+                            <Input
+                              value={migrationForm.source.aet}
+                              onChange={e =>
+                                setMigrationForm(prev => ({
+                                  ...prev,
+                                  source: { ...prev.source, aet: e.target.value.toUpperCase() },
+                                }))
+                              }
+                              maxLength={16}
+                            />
+                          </label>
+                          <label className="flex flex-col gap-1 text-xs">
+                            {t('pacsSettings.migrationSourceHost')}
+                            <Input
+                              value={migrationForm.source.host}
+                              onChange={e =>
+                                setMigrationForm(prev => ({
+                                  ...prev,
+                                  source: { ...prev.source, host: e.target.value },
+                                }))
+                              }
+                            />
+                          </label>
+                          <label className="flex flex-col gap-1 text-xs">
+                            {t('pacsSettings.migrationSourcePort')}
+                            <Input
+                              type="number"
+                              value={migrationForm.source.port}
+                              onChange={e =>
+                                setMigrationForm(prev => ({
+                                  ...prev,
+                                  source: {
+                                    ...prev.source,
+                                    port: Number(e.target.value) || 104,
+                                  },
+                                }))
+                              }
+                            />
+                          </label>
+                          <label className="flex flex-col gap-1 text-xs">
+                            {t('pacsSettings.migrationFilterFrom')}
+                            <Input
+                              value={migrationForm.filters.study_date_from}
+                              onChange={e =>
+                                setMigrationForm(prev => ({
+                                  ...prev,
+                                  filters: { ...prev.filters, study_date_from: e.target.value },
+                                }))
+                              }
+                              placeholder="20200101"
+                            />
+                          </label>
+                          <label className="flex flex-col gap-1 text-xs">
+                            {t('pacsSettings.migrationFilterTo')}
+                            <Input
+                              value={migrationForm.filters.study_date_to}
+                              onChange={e =>
+                                setMigrationForm(prev => ({
+                                  ...prev,
+                                  filters: { ...prev.filters, study_date_to: e.target.value },
+                                }))
+                              }
+                              placeholder="20251231"
+                            />
+                          </label>
+                          <label className="flex flex-col gap-1 text-xs">
+                            {t('pacsSettings.migrationFilterPatient')}
+                            <Input
+                              value={migrationForm.filters.patient_id}
+                              onChange={e =>
+                                setMigrationForm(prev => ({
+                                  ...prev,
+                                  filters: { ...prev.filters, patient_id: e.target.value },
+                                }))
+                              }
+                            />
+                          </label>
+                          <label className="flex flex-col gap-1 text-xs">
+                            {t('pacsSettings.migrationFilterModality')}
+                            <Input
+                              value={migrationForm.filters.modality}
+                              onChange={e =>
+                                setMigrationForm(prev => ({
+                                  ...prev,
+                                  filters: {
+                                    ...prev.filters,
+                                    modality: e.target.value.toUpperCase(),
+                                  },
+                                }))
+                              }
+                            />
+                          </label>
+                          <label className="flex flex-col gap-1 text-xs">
+                            {t('pacsSettings.migrationBatchSize')}
+                            <Input
+                              type="number"
+                              min={1}
+                              max={10}
+                              value={migrationForm.batch_size}
+                              onChange={e =>
+                                setMigrationForm(prev => ({
+                                  ...prev,
+                                  batch_size: Math.max(1, Number(e.target.value) || 1),
+                                }))
+                              }
+                            />
+                          </label>
+                          <label className="flex flex-col gap-1 text-xs">
+                            {t('pacsSettings.migrationPauseSeconds')}
+                            <Input
+                              type="number"
+                              min={0}
+                              max={300}
+                              value={migrationForm.pause_seconds}
+                              onChange={e =>
+                                setMigrationForm(prev => ({
+                                  ...prev,
+                                  pause_seconds: Math.max(0, Number(e.target.value) || 0),
+                                }))
+                              }
+                            />
+                          </label>
+                        </div>
+                        <label className="flex items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={migrationForm.skip_existing}
+                            onChange={e =>
+                              setMigrationForm(prev => ({
+                                ...prev,
+                                skip_existing: e.target.checked,
+                              }))
+                            }
+                          />
+                          {t('pacsSettings.migrationSkipExisting')}
+                        </label>
+                        <div className="flex flex-wrap justify-end gap-2">
+                          <Button
+                            size="sm"
+                            onClick={handleSaveMigration}
+                            disabled={saving}
+                          >
+                            {t('pacsSettings.migrationSave')}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() =>
+                              void handleMigrationAction(
+                                'test-echo',
+                                t('pacsSettings.messages.migrationEchoOk'),
+                                'pacsSettings.errors.migrationEcho'
+                              )
+                            }
+                            disabled={saving}
+                          >
+                            {t('pacsSettings.migrationTestEcho')}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() =>
+                              void handleMigrationAction(
+                                'discover',
+                                '',
+                                'pacsSettings.errors.migrationDiscover'
+                              )
+                            }
+                            disabled={saving}
+                          >
+                            {t('pacsSettings.migrationDiscover')}
+                          </Button>
+                          <Button
+                            size="sm"
+                            onClick={() =>
+                              void handleMigrationAction(
+                                'start',
+                                t('pacsSettings.messages.migrationStarted'),
+                                'pacsSettings.errors.migrationStart'
+                              )
+                            }
+                            disabled={saving}
+                          >
+                            {t('pacsSettings.migrationStart')}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() =>
+                              void handleMigrationAction(
+                                'pause',
+                                t('pacsSettings.messages.migrationPaused'),
+                                'pacsSettings.errors.migrationPause'
+                              )
+                            }
+                            disabled={saving}
+                          >
+                            {t('pacsSettings.migrationPause')}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() =>
+                              void handleMigrationAction(
+                                'reset',
+                                t('pacsSettings.messages.migrationReset'),
+                                'pacsSettings.errors.migrationReset'
+                              )
+                            }
+                            disabled={saving}
+                          >
+                            {t('pacsSettings.migrationReset')}
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </TabsContent>
+
+            <TabsContent
+              value="storage"
+              className="mt-3 flex w-full max-w-full flex-col gap-3 data-[state=inactive]:hidden"
+            >
+              {storageLoading && !storageStatus ? (
+                <p className="text-sm">{t('pacsSettings.loadingStorage')}</p>
+              ) : (
+                <>
+                  <p className="text-muted-foreground text-xs">{t('pacsSettings.storageHint')}</p>
+
+                  {pacsStats ? (
+                    <div className="border-border rounded-lg border p-3">
+                      <PacsStatsPanel stats={pacsStats} />
+                    </div>
+                  ) : null}
+
+                  <div className="border-border rounded border p-3 text-sm">
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                      <p className="font-medium">{t('pacsSettings.backup')}</p>
+                      {isAdmin ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => void handleBackupTrigger()}
+                          disabled={saving}
+                        >
+                          {t('pacsSettings.backupRunNow')}
+                        </Button>
+                      ) : null}
+                    </div>
+                    {backupStatus ? (
+                      <>
+                        <p className="text-muted-foreground mt-1 text-xs">
+                          {t('pacsSettings.lastBackup')}{' '}
+                          {backupStatus.last_at
+                            ? formatTs(backupStatus.last_at, i18n.language)
+                            : t('pacsSettings.noBackup')}
+                          {backupStatus.last_path ? ` (${backupStatus.last_path})` : ''}
+                        </p>
+                        <p className="text-muted-foreground text-xs">
+                          {t('pacsSettings.backupSchedule', {
+                            hours: backupStatus.interval_hours,
+                            daily: backupStatus.retention_daily ?? backupStatus.retention_days,
+                            weekly: backupStatus.retention_weekly ?? 4,
+                          })}
+                          {backupStatus.configured && backupStatus.success
+                            ? t('pacsSettings.backupOk')
+                            : backupStatus.configured
+                              ? t('pacsSettings.backupFailed')
+                              : t('pacsSettings.backupPending')}
+                        </p>
+                      </>
+                    ) : (
+                      <p className="text-muted-foreground mt-1 text-xs">
+                        {t('pacsSettings.loadingBackupStatus')}
+                      </p>
+                    )}
+                  </div>
+
+                  {storageStatus ? (
+                    <div className="border-border rounded border p-3 text-sm">
+                      <p className="font-medium">{t('pacsSettings.storageStatus')}</p>
+                      <p className="text-muted-foreground mt-1 text-xs">
+                        {storageStatusLabel(storageStatus.status, t)}
+                      </p>
+                      <p className="text-muted-foreground text-xs">
+                        {t('pacsSettings.storageProgress', {
+                          percent: storageStatus.progress_percent,
+                          cursor: storageStatus.cursor,
+                          total: storageStatus.queue_total,
+                        })}
+                      </p>
+                      <p className="text-muted-foreground text-xs">
+                        {t('pacsSettings.storageStats', {
+                          compressed: storageStatus.stats.compressed,
+                          skipped: storageStatus.stats.skipped,
+                          failed: storageStatus.stats.failed,
+                          instances: storageStatus.stats.instances,
+                        })}
+                      </p>
+                      {storageStatus.last_error ? (
+                        <p className="text-destructive text-xs">
+                          {t('pacsSettings.storageLastError', { error: storageStatus.last_error })}
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  <div className="border-border rounded border p-3">
+                    <p className="mb-2 text-sm font-medium">{t('pacsSettings.storageTitle')}</p>
+                    {!isAdmin ? (
+                      <p className="text-muted-foreground text-xs">{t('pacsSettings.opsAdminOnly')}</p>
+                    ) : (
+                      <div className="flex flex-col gap-3">
+                        <label className="flex items-center gap-2 text-xs">
+                          <input
+                            type="checkbox"
+                            checked={storageForm.enabled}
+                            onChange={e =>
+                              setStorageForm(prev => ({ ...prev, enabled: e.target.checked }))
+                            }
+                          />
+                          {t('pacsSettings.storageAutoRun')}
+                        </label>
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                          <label className="flex flex-col gap-1 text-xs">
+                            {t('pacsSettings.storageIntervalHours')}
+                            <Input
+                              type="number"
+                              min={1}
+                              max={168}
+                              value={storageForm.run_interval_hours}
+                              onChange={e =>
+                                setStorageForm(prev => ({
+                                  ...prev,
+                                  run_interval_hours: Math.max(1, Number(e.target.value) || 24),
+                                }))
+                              }
+                            />
+                          </label>
+                          <label className="flex flex-col gap-1 text-xs">
+                            {t('pacsSettings.storageBatchSize')}
+                            <Input
+                              type="number"
+                              min={1}
+                              max={50}
+                              value={storageForm.batch_size}
+                              onChange={e =>
+                                setStorageForm(prev => ({
+                                  ...prev,
+                                  batch_size: Math.max(1, Number(e.target.value) || 5),
+                                }))
+                              }
+                            />
+                          </label>
+                          <label className="flex flex-col gap-1 text-xs">
+                            {t('pacsSettings.storagePauseSeconds')}
+                            <Input
+                              type="number"
+                              min={0}
+                              max={300}
+                              value={storageForm.pause_seconds}
+                              onChange={e =>
+                                setStorageForm(prev => ({
+                                  ...prev,
+                                  pause_seconds: Math.max(0, Number(e.target.value) || 2),
+                                }))
+                              }
+                            />
+                          </label>
+                        </div>
+
+                        <p className="text-muted-foreground text-xs font-medium">
+                          {t('pacsSettings.backupPolicy')}
+                        </p>
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                          <label className="flex flex-col gap-1 text-xs">
+                            {t('pacsSettings.backupIntervalHours')}
+                            <Input
+                              type="number"
+                              min={1}
+                              max={168}
+                              value={portalOps.backup_interval_hours}
+                              onChange={e =>
+                                setPortalOps(prev => ({
+                                  ...prev,
+                                  backup_interval_hours: Math.max(1, Number(e.target.value) || 24),
+                                }))
+                              }
+                            />
+                          </label>
+                          <label className="flex flex-col gap-1 text-xs">
+                            {t('pacsSettings.backupRetentionDaily')}
+                            <Input
+                              type="number"
+                              min={1}
+                              value={portalOps.backup_retention_daily}
+                              onChange={e =>
+                                setPortalOps(prev => ({
+                                  ...prev,
+                                  backup_retention_daily: Math.max(1, Number(e.target.value) || 7),
+                                }))
+                              }
+                            />
+                          </label>
+                          <label className="flex flex-col gap-1 text-xs">
+                            {t('pacsSettings.backupRetentionWeekly')}
+                            <Input
+                              type="number"
+                              min={1}
+                              value={portalOps.backup_retention_weekly}
+                              onChange={e =>
+                                setPortalOps(prev => ({
+                                  ...prev,
+                                  backup_retention_weekly: Math.max(1, Number(e.target.value) || 4),
+                                }))
+                              }
+                            />
+                          </label>
+                          <label className="flex flex-col gap-1 text-xs">
+                            {t('pacsSettings.backupRetentionDays')}
+                            <Input
+                              type="number"
+                              min={1}
+                              value={portalOps.backup_retention_days}
+                              onChange={e =>
+                                setPortalOps(prev => ({
+                                  ...prev,
+                                  backup_retention_days: Math.max(1, Number(e.target.value) || 14),
+                                }))
+                              }
+                            />
+                          </label>
+                        </div>
+
+                        <p className="text-muted-foreground text-xs font-medium">
+                          {t('pacsSettings.storageRules')}
+                        </p>
+                        {storageForm.rules.length === 0 ? (
+                          <p className="text-muted-foreground text-xs">{t('pacsSettings.storageNoRules')}</p>
+                        ) : (
+                          storageForm.rules.map((rule, index) => (
+                            <div
+                              key={rule.id || index}
+                              className="border-border/60 grid grid-cols-1 gap-2 rounded border p-2 sm:grid-cols-2"
+                            >
+                              <label className="flex items-center gap-2 text-xs sm:col-span-2">
+                                <input
+                                  type="checkbox"
+                                  checked={rule.enabled}
+                                  onChange={e =>
+                                    updateStorageRule(index, { enabled: e.target.checked })
+                                  }
+                                />
+                                {t('pacsSettings.storageRuleEnabled')}
+                              </label>
+                              <label className="flex flex-col gap-1 text-xs">
+                                {t('pacsSettings.storageMinAgeYears')}
+                                <Input
+                                  type="number"
+                                  min={1}
+                                  max={50}
+                                  value={rule.min_age_years}
+                                  onChange={e =>
+                                    updateStorageRule(index, {
+                                      min_age_years: Math.max(1, Number(e.target.value) || 1),
+                                    })
+                                  }
+                                />
+                              </label>
+                              <label className="flex flex-col gap-1 text-xs">
+                                {t('pacsSettings.storageTransferSyntax')}
+                                <select
+                                  className="border-input bg-background rounded-md border px-3 py-2 text-sm"
+                                  value={rule.transfer_syntax}
+                                  onChange={e =>
+                                    updateStorageRule(index, { transfer_syntax: e.target.value })
+                                  }
+                                >
+                                  {(storageStatus?.transfer_syntax_options || []).map(opt => (
+                                    <option
+                                      key={opt.uid}
+                                      value={opt.uid}
+                                    >
+                                      {opt.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                              <label className="flex flex-col gap-1 text-xs sm:col-span-2">
+                                {t('pacsSettings.storageModalities')}
+                                <Input
+                                  value={rule.modalities.join(',')}
+                                  placeholder={t('pacsSettings.placeholders.viewModalities')}
+                                  onChange={e =>
+                                    updateStorageRule(index, {
+                                      modalities: e.target.value
+                                        .split(',')
+                                        .map(v => v.trim().toUpperCase())
+                                        .filter(Boolean),
+                                    })
+                                  }
+                                />
+                              </label>
+                              <div className="flex justify-end sm:col-span-2">
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => removeStorageRule(index)}
+                                >
+                                  {t('pacsSettings.remove')}
+                                </Button>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                        <div className="flex flex-wrap justify-between gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={addStorageRule}
+                          >
+                            {t('pacsSettings.storageAddRule')}
+                          </Button>
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              size="sm"
+                              onClick={() => void handleSaveStorage()}
+                              disabled={saving}
+                            >
+                              {t('pacsSettings.storageSave')}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() =>
+                                void handleStorageAction(
+                                  'start',
+                                  t('pacsSettings.messages.storageStarted'),
+                                  'pacsSettings.errors.storageStart'
+                                )
+                              }
+                              disabled={saving}
+                            >
+                              {t('pacsSettings.storageRunNow')}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() =>
+                                void handleStorageAction(
+                                  'pause',
+                                  t('pacsSettings.messages.storagePaused'),
+                                  'pacsSettings.errors.storagePause'
+                                )
+                              }
+                              disabled={saving}
+                            >
+                              {t('pacsSettings.storagePause')}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() =>
+                                void handleStorageAction(
+                                  'reset',
+                                  t('pacsSettings.messages.storageReset'),
+                                  'pacsSettings.errors.storageReset'
+                                )
+                              }
+                              disabled={saving}
+                            >
+                              {t('pacsSettings.storageReset')}
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </TabsContent>
+
+            <TabsContent
+              value="ops"
+              className="mt-3 flex w-full max-w-full flex-col gap-3 data-[state=inactive]:hidden"
+            >
+              {opsLoading ? (
+                <p className="text-sm">{t('pacsSettings.loadingOps')}</p>
+              ) : (
+                <>
+                  <div className="border-border rounded border p-3">
+                    <p className="mb-2 text-sm font-medium">{t('pacsSettings.opsTitle')}</p>
+                    {!isAdmin ? (
+                      <p className="text-muted-foreground text-xs">{t('pacsSettings.opsAdminOnly')}</p>
+                    ) : (
+                      <div className="flex flex-col gap-3">
+                        <p className="text-muted-foreground text-xs font-medium">
+                          {t('pacsSettings.rateLimitTitle')}
+                        </p>
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                          <label className="flex flex-col gap-1 text-xs">
+                            {t('pacsSettings.rateLimitAttempts')}
+                            <Input
+                              type="number"
+                              min={1}
+                              value={portalOps.login_rate_limit_attempts}
+                              onChange={e =>
+                                setPortalOps(prev => ({
+                                  ...prev,
+                                  login_rate_limit_attempts: Math.max(
+                                    1,
+                                    Number(e.target.value) || 20
+                                  ),
+                                }))
+                              }
+                            />
+                          </label>
+                          <label className="flex flex-col gap-1 text-xs">
+                            {t('pacsSettings.rateLimitWindow')}
+                            <Input
+                              type="number"
+                              min={1}
+                              value={portalOps.login_rate_limit_window_seconds}
+                              onChange={e =>
+                                setPortalOps(prev => ({
+                                  ...prev,
+                                  login_rate_limit_window_seconds: Math.max(
+                                    1,
+                                    Number(e.target.value) || 60
+                                  ),
+                                }))
+                              }
+                            />
+                          </label>
+                        </div>
+                        <div className="flex justify-end">
+                          <Button
+                            size="sm"
+                            onClick={handleSavePortalOps}
+                            disabled={saving}
+                          >
+                            {t('pacsSettings.saveOps')}
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
 
                   {isAdmin ? (
                     <div className="border-border rounded border p-3">
@@ -954,24 +2920,17 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
                     <p className="text-muted-foreground text-xs">{t('pacsSettings.auditAdminOnly')}</p>
                   )}
                 </>
-              ) : (
-                <Button
-                  variant="outline"
-                  onClick={() => void loadAdminData()}
-                >
-                  {t('pacsSettings.loadAdmin')}
-                </Button>
               )}
             </TabsContent>
-          </Tabs>
-        )}
-      </div>
+          </div>
+        </Tabs>
+      )}
 
       {error ? <p className="text-destructive shrink-0 text-sm">{error}</p> : null}
       {message ? <p className="text-primary shrink-0 text-sm">{message}</p> : null}
 
       <div className="flex shrink-0 justify-end gap-2 border-t pt-2">
-        {expanded ? (
+        {isExpanded && !isPage ? (
           <Button
             variant="outline"
             onClick={() => setExpanded(false)}
@@ -982,6 +2941,10 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
         <Button
           variant="ghost"
           onClick={() => {
+            if (isPage) {
+              window.close();
+              return;
+            }
             setExpanded(false);
             hide?.();
           }}
@@ -992,6 +2955,14 @@ export function PacsSettingsModal({ hide }: PacsSettingsModalProps) {
       </div>
     </>
   );
+
+  if (isPage) {
+    return (
+      <div className="text-foreground flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
+        {panelBody}
+      </div>
+    );
+  }
 
   if (expanded) {
     return createPortal(

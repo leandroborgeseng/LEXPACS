@@ -1,26 +1,26 @@
 {
   "meta": {
     "title": "LEX PACS — Acceso Clínico",
-    "subtitle": "Área clínica — worklist y informes"
+    "subtitle": "Área clínica — worklist e informes"
   },
   "login": {
     "title": "Entrar",
-    "hintDefault": "Use sus credenciales institucionales.",
-    "hintKeycloak": "Autenticación institucional (SSO).",
-    "hintPasswordOnly": "Use el botón de login institucional o credenciales abajo.",
+    "hintDefault": "Use sus credenciales institucionales (Keycloak).",
+    "hintKeycloak": "Autenticación institucional vía Keycloak.",
+    "hintPasswordOnly": "Use el botón Keycloak o credenciales institucionales.",
     "username": "Usuario",
     "usernamePlaceholder": "Ej.: radiólogo o admin",
     "password": "Contraseña",
-    "submit": "Abrir worklist",
+    "submit": "Acceder a worklist",
     "submitting": "Entrando…",
-    "keycloak": "Entrar con cuenta institucional",
+    "keycloak": "Entrar con Keycloak",
     "orPassword": "O use usuario y contraseña abajo.",
     "devHint": "Dev: login local clinica / lexclinica2024 también funciona.",
-    "patientLink": "Paciente?",
+    "patientLink": "¿Paciente?",
     "patientPortal": "Portal del paciente"
   },
   "errors": {
-    "keycloakFailed": "Login institucional cancelado o fallido. Intente de nuevo.",
+    "keycloakFailed": "Login Keycloak cancelado o fallido. Intente de nuevo.",
     "invalidCredentials": "Usuario o contraseña incorrectos.",
     "connection": "No se pudo conectar al servidor."
   },

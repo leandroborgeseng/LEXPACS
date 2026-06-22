@@ -1,8 +1,8 @@
 const debugMode = !!(process.env.NODE_ENV !== 'production' && process.env.REACT_APP_I18N_DEBUG);
 
 const detectionOptions = {
-  // order and from where user language should be detected
-  order: ['querystring', 'cookie', 'localStorage', 'navigator', 'htmlTag', 'path', 'subdomain'],
+  // Preferência explícita do usuário; padrão do produto é pt-BR (ver lexLanguages.js).
+  order: ['querystring', 'localStorage', 'cookie', 'htmlTag'],
 
   // keys or params to lookup language from
   lookupQuerystring: 'lng',

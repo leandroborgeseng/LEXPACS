@@ -3,15 +3,32 @@
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-INTERVAL_HOURS="${BACKUP_INTERVAL_HOURS:-24}"
-INTERVAL_SEC=$((INTERVAL_HOURS * 3600))
 BACKUP_ROOT="${BACKUP_ROOT:-/backups}"
-RETENTION_DAILY="${BACKUP_RETENTION_DAILY:-7}"
-RETENTION_WEEKLY="${BACKUP_RETENTION_WEEKLY:-4}"
 
+load_portal_ops() {
+  ENV_FILE="${PORTAL_OPS_ENV:-/orthanc-config/portal-ops.env}"
+  if [ -f "${ENV_FILE}" ]; then
+    set -a
+    # shellcheck disable=SC1090
+    . "${ENV_FILE}"
+    set +a
+  fi
+  INTERVAL_HOURS="${BACKUP_INTERVAL_HOURS:-24}"
+  RETENTION_DAILY="${BACKUP_RETENTION_DAILY:-7}"
+  RETENTION_WEEKLY="${BACKUP_RETENTION_WEEKLY:-4}"
+  INTERVAL_SEC=$((INTERVAL_HOURS * 3600))
+}
+
+load_portal_ops
 echo "LEX PACS backup scheduler — intervalo ${INTERVAL_HOURS}h, retenção ${RETENTION_DAILY}d + ${RETENTION_WEEKLY}sem"
 
 while true; do
+  load_portal_ops
+  TRIGGER_FILE="$(dirname "${PORTAL_OPS_ENV:-/orthanc-config/portal-ops.env}")/backup-trigger"
+  if [ -f "${TRIGGER_FILE}" ]; then
+    rm -f "${TRIGGER_FILE}" 2>/dev/null || true
+    echo "[$(date -Iseconds)] Backup manual solicitado via portal"
+  fi
   echo "[$(date -Iseconds)] Iniciando backup…"
   if COMPOSE_DIR="${COMPOSE_PROJECT_DIR:-}" BACKUP_ROOT="${BACKUP_ROOT}" \
     "${SCRIPT_DIR}/backup-volumes.sh" "${BACKUP_ROOT}"; then

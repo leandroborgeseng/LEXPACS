@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     clinical_local_auth_enabled: bool = True
     clinical_bootstrap_user: str = ""
     clinical_bootstrap_password: str = ""
+    hl7_orm_enabled: bool | None = None
+    hl7_orm_port: int = 2575
+    hl7_orm_auto_sync: bool | None = None
 
 
     @property

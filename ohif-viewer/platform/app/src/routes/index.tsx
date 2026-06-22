@@ -11,6 +11,7 @@ import LegacyWorkList from './LegacyWorkList/LegacyWorkList';
 import DataSourceWrapper from './DataSourceWrapper';
 import Local from './Local';
 import Debug from './Debug';
+import ServerSettingsPage from './WorkList/ServerSettingsPage';
 import NotFound from './NotFound';
 import buildModeRoutes from './buildModeRoutes';
 import PrivateRoute from './PrivateRoute';
@@ -90,6 +91,11 @@ const bakedInRoutes = [
   {
     path: `/localbasic`,
     children: Local.bind(null, { modePath: 'viewer/dicomlocal' }),
+  },
+  {
+    path: `/server-settings`,
+    children: ServerSettingsPage,
+    private: true,
   },
 ];
 

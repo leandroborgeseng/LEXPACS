@@ -42,7 +42,7 @@ t('report.title');
 value.toLocaleString(i18n.language);
 ```
 
-Idioma: **User Preferences** no viewer, ou `?lng=pt-BR` na URL. Persistido em `localStorage` (`i18nextLng`).
+Idioma: **Preferências do usuário** no viewer (padrão **pt-BR**), ou `?lng=en-US` na URL. Persistido em `localStorage` (`i18nextLng`).
 
 ## Uso no portal (vanilla JS)
 
@@ -57,7 +57,7 @@ await LexI18n.init(['Portal']);
 LexI18n.t('login.title');
 ```
 
-Idioma: `?lng=es`, `localStorage.i18nextLng` (compartilhado com o viewer) ou idioma do navegador.
+Idioma: `?lng=en-US`, `localStorage.i18nextLng` (compartilhado com o viewer) ou padrão **pt-BR**.
 
 ## Adicionar novo texto
 

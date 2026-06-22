@@ -36,10 +36,15 @@ from .clinical_oidc import exchange_oidc_code, oidc_authorize_url, parse_oidc_st
 from .config import settings
 from .reports import router as reports_router
 from .bootstrap import bootstrap_runtime_files
+from .hl7_mllp import start_hl7_mllp_server
 from .mwl_scheduler import start_mwl_scheduler
 from .orthanc_client import OrthancClient
 from .report_storage import get_patient_report, is_visible_to_patient, load_report, pdf_path
+from .portal_settings import ensure_portal_ops_env
 from .rate_limit import enforce_login_rate_limit
+from .migration_worker import kick_migration_worker, start_migration_worker
+from .storage_worker import kick_storage_worker, start_storage_worker
+from .migration_store import get_migration_config
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
@@ -60,7 +65,13 @@ orthanc = OrthancClient()
 @app.on_event("startup")
 async def on_startup() -> None:
     bootstrap_runtime_files()
+    ensure_portal_ops_env()
     start_mwl_scheduler()
+    start_hl7_mllp_server()
+    start_migration_worker()
+    start_storage_worker()
+    if str(get_migration_config().get("status") or "") == "running":
+        kick_migration_worker()
 
 
 class LoginRequest(BaseModel):

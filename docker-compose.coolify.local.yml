@@ -1,5 +1,14 @@
-# Override local — expõe gateway :3000 (Keycloak em http://localhost:3000/auth/)
+# Override local — expõe gateway :3000, Orthanc HTTP :8042, HL7 MLLP :2575
 services:
   gateway:
     ports:
       - "3000:80"
+
+  server:
+    ports:
+      - "${DICOM_PORT:-4242}:4242"
+      - "8042:8042"
+
+  portal:
+    ports:
+      - "${HL7_ORM_PORT:-2575}:2575"

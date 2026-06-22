@@ -5,7 +5,7 @@ import { useTranslation, type TFunction } from 'react-i18next';
 import { useAppConfig } from '@state';
 import { useSystem } from '@ohif/core';
 import { StudyList, Icons, Button, useModal } from '@ohif/ui-next';
-import { PacsSettingsModal, PACS_MODAL_SHELL } from './PacsSettingsModal';
+import { routerBasename } from '../../utils/publicUrl';
 import { lexClinicalLogout } from './lexClinicalAuth';
 import { fetchClinicalProfile, type ClinicalProfile } from './lexClinicalUser';
 
@@ -33,18 +33,17 @@ export function defaultSettingsMenuItems({
   const items: SettingsMenuItem[] = [
     {
       id: 'pacsSettings',
-      label: t('LexPacs:workList.settings.dicom'),
+      label: t('workList.settings.dicom'),
       onClick: () => {
-        show({
-          content: PacsSettingsModal,
-          title: t('LexPacs:workList.settings.modalTitle'),
-          containerClassName: PACS_MODAL_SHELL,
-        });
+        const base = routerBasename.replace(/\/$/, '');
+        const path = `${base}/server-settings`.replace(/\/{2,}/g, '/');
+        const url = `${window.location.origin}${path}`;
+        window.open(url, 'lex-pacs-server-settings', 'noopener,noreferrer,width=1280,height=900');
       },
     },
     {
       id: 'about',
-      label: t('LexPacs:workList.settings.about'),
+      label: t('workList.settings.about'),
       onClick: () => {
         const AboutModal = customizationService.getCustomization('ohif.aboutModal');
         show({
@@ -56,7 +55,7 @@ export function defaultSettingsMenuItems({
     },
     {
       id: 'userPreferences',
-      label: t('LexPacs:workList.settings.userPreferences'),
+      label: t('workList.settings.userPreferences'),
       onClick: () => {
         const UserPreferencesModal = customizationService.getCustomization(
           'ohif.userPreferencesModal'
@@ -73,7 +72,7 @@ export function defaultSettingsMenuItems({
 
   items.push({
     id: 'logout',
-    label: t('LexPacs:workList.settings.logout'),
+    label: t('workList.settings.logout'),
     onClick: () => {
       void lexClinicalLogout();
     },
@@ -84,7 +83,7 @@ export function defaultSettingsMenuItems({
 
 export function StudyListSettingsPopover() {
   // SettingsPopover.Workflow now uses useStudyListWorkflows internally
-  const { t } = useTranslation();
+  const { t } = useTranslation('LexPacs');
   const [appConfig] = useAppConfig();
   const navigate = useNavigate();
   const { servicesManager } = useSystem();
@@ -119,9 +118,9 @@ export function StudyListSettingsPopover() {
       {profile ? (
         <span
           className="text-muted-foreground hidden max-w-[140px] truncate text-[11px] leading-tight sm:inline"
-          title={`${profile.username} — ${t(`LexPacs:roles.${profile.permissions.role}`, { defaultValue: profile.permissions.role_label })}`}
+          title={`${profile.username} — ${t(`roles.${profile.permissions.role}`, { defaultValue: profile.permissions.role_label })}`}
         >
-          {t(`LexPacs:roles.${profile.permissions.role}`, { defaultValue: profile.permissions.role_label })}
+          {t(`roles.${profile.permissions.role}`, { defaultValue: profile.permissions.role_label })}
         </span>
       ) : null}
       <StudyList.SettingsPopover.Trigger>

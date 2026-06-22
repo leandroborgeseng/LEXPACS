@@ -9,15 +9,27 @@ from typing import Any
 from fastapi import HTTPException, status
 
 from .config import settings
+from .mwl_drivers import (
+    DEFAULT_CUSTOM_SQL,
+    DEFAULT_FIELD_MAPPING,
+    default_port,
+    list_drivers,
+)
 
 DEFAULT_MWL_SQL = {
     "enabled": True,
+    "driver": "postgresql",
+    "mode": "table",
     "host": "database",
     "port": 5432,
     "database": "orthanc",
     "username": "orthanc",
     "password_env": "POSTGRES_PASSWORD",
     "table": "lex_mwl_schedule",
+    "custom_sql": DEFAULT_CUSTOM_SQL,
+    "field_mapping": deepcopy(DEFAULT_FIELD_MAPPING),
+    "modality_filter": [],
+    "modality_routes": [],
     "sync_interval_minutes": 5,
 }
 
@@ -39,6 +51,14 @@ def _read_raw() -> dict:
         ) from exc
     if "mwl_sql" not in data:
         data["mwl_sql"] = deepcopy(DEFAULT_MWL_SQL)
+    mwl = data.get("mwl_sql") or {}
+    if mwl.get("host") == "postgres":
+        mwl["host"] = "database"
+        data["mwl_sql"] = mwl
+        try:
+            _write_raw(data)
+        except HTTPException:
+            pass
     return data
 
 
@@ -54,50 +74,104 @@ def _write_raw(data: dict) -> None:
         ) from exc
 
 
+def _normalize_config(cfg: dict[str, Any]) -> dict[str, Any]:
+    out = deepcopy(DEFAULT_MWL_SQL)
+    out.update(cfg)
+    driver = str(out.get("driver") or "postgresql")
+    out["driver"] = driver
+    out["mode"] = str(out.get("mode") or "table")
+    out["port"] = int(out.get("port") or default_port(driver))
+    out["field_mapping"] = dict(DEFAULT_FIELD_MAPPING)
+    raw_map = cfg.get("field_mapping") or {}
+    for key, value in raw_map.items():
+        if key in DEFAULT_FIELD_MAPPING and str(value).strip():
+            out["field_mapping"][key] = str(value).strip()
+    routes = []
+    for item in out.get("modality_routes") or []:
+        mod = str(item.get("modality") or "").strip().upper()
+        station = str(item.get("station_aet") or "").strip().upper()
+        if mod:
+            routes.append({"modality": mod, "station_aet": station})
+    out["modality_routes"] = routes
+    out["modality_filter"] = [
+        str(m).strip().upper()
+        for m in (out.get("modality_filter") or [])
+        if str(m).strip()
+    ]
+    return out
+
+
 def get_mwl_sql_config() -> dict[str, Any]:
-    cfg = deepcopy(_read_raw()["mwl_sql"])
-    password = ""
-    env_name = str(cfg.get("password_env", "POSTGRES_PASSWORD"))
+    cfg = _normalize_config(_read_raw()["mwl_sql"])
     import os
 
-    password = os.environ.get(env_name, "")
-    cfg["password_configured"] = bool(password)
+    env_name = str(cfg.get("password_env", "POSTGRES_PASSWORD"))
+    cfg["password_configured"] = bool(os.environ.get(env_name, ""))
+    cfg["available_drivers"] = list_drivers()
     cfg.pop("password", None)
     return cfg
 
 
 def save_mwl_sql_config(payload: dict[str, Any]) -> dict[str, Any]:
     enabled = bool(payload.get("enabled", True))
+    driver = str(payload.get("driver") or "postgresql").strip().lower()
+    mode = str(payload.get("mode") or "table").strip().lower()
     host = str(payload.get("host", "")).strip() or "database"
-    port = int(payload.get("port", 5432))
-    database = str(payload.get("database", "")).strip() or "orthanc"
-    username = str(payload.get("username", "")).strip() or "orthanc"
+    port = int(payload.get("port") or default_port(driver))
+    database = str(payload.get("database", "")).strip()
+    username = str(payload.get("username", "")).strip()
     table = str(payload.get("table", "")).strip() or "lex_mwl_schedule"
     password_env = str(payload.get("password_env", "")).strip() or "POSTGRES_PASSWORD"
     sync_interval = int(payload.get("sync_interval_minutes", 5))
+    custom_sql = str(payload.get("custom_sql") or "").strip() or DEFAULT_CUSTOM_SQL
 
+    if driver not in {item["id"] for item in list_drivers()}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Driver SQL inválido.")
+    if mode not in {"table", "custom"}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Modo SQL inválido.")
     if port < 1 or port > 65535:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Porta SQL inválida.")
-    if not table.replace("_", "").isalnum():
+    if mode == "table" and not table.replace("_", "").isalnum():
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Nome de tabela inválido.")
 
     data = _read_raw()
-    data["mwl_sql"] = {
-        "enabled": enabled,
-        "host": host,
-        "port": port,
-        "database": database,
-        "username": username,
-        "password_env": password_env,
-        "table": table,
-        "sync_interval_minutes": max(1, sync_interval),
-    }
+    data["mwl_sql"] = _normalize_config(
+        {
+            "enabled": enabled,
+            "driver": driver,
+            "mode": mode,
+            "host": host,
+            "port": port,
+            "database": database,
+            "username": username,
+            "password_env": password_env,
+            "table": table,
+            "custom_sql": custom_sql,
+            "field_mapping": payload.get("field_mapping") or DEFAULT_FIELD_MAPPING,
+            "modality_filter": payload.get("modality_filter") or [],
+            "modality_routes": payload.get("modality_routes") or [],
+            "sync_interval_minutes": max(1, sync_interval),
+        }
+    )
     _write_raw(data)
     return get_mwl_sql_config()
 
 
+def postgres_connection_params() -> dict[str, Any]:
+    """Parâmetros somente para psycopg2 (modo tabela interna PostgreSQL)."""
+    raw = mwl_sql_connection_params()
+    return {
+        "host": raw["host"],
+        "port": int(raw["port"]),
+        "database": raw["database"],
+        "user": raw.get("user") or raw.get("username", "orthanc"),
+        "password": raw["password"],
+        "table": raw["table"],
+    }
+
+
 def mwl_sql_connection_params() -> dict[str, Any]:
-    cfg = _read_raw()["mwl_sql"]
+    cfg = _normalize_config(_read_raw()["mwl_sql"])
     if not cfg.get("enabled", True):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Sync SQL MWL desabilitado.")
     import os
@@ -110,12 +184,20 @@ def mwl_sql_connection_params() -> dict[str, Any]:
             detail=f"Senha SQL não configurada (env {env_name}).",
         )
     return {
+        "driver": cfg.get("driver", "postgresql"),
         "host": cfg.get("host", "database"),
         "port": int(cfg.get("port", 5432)),
         "database": cfg.get("database", "orthanc"),
+        "username": cfg.get("username", "orthanc"),
         "user": cfg.get("username", "orthanc"),
         "password": password,
+        "password_env": env_name,
         "table": cfg.get("table", "lex_mwl_schedule"),
+        "mode": cfg.get("mode", "table"),
+        "custom_sql": cfg.get("custom_sql", ""),
+        "field_mapping": cfg.get("field_mapping", DEFAULT_FIELD_MAPPING),
+        "modality_filter": cfg.get("modality_filter", []),
+        "modality_routes": cfg.get("modality_routes", []),
     }
 
 

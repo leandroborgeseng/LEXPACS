@@ -48,6 +48,24 @@ const routerFutureFlags: BrowserRouterProps['future'] = {
   v7_relativeSplatPath: true,
 };
 
+/** Deve rodar antes do Cornerstone init — evita crash VTK quando WebGL2 não existe. */
+function applyWebGlConfig<T extends AppTypes.Config>(appConfig: T): T {
+  const canvas = document.createElement('canvas');
+  const gl = canvas.getContext('webgl2');
+
+  if (gl) {
+    appConfig.max3DTextureSize = gl.getParameter(gl.MAX_3D_TEXTURE_SIZE);
+    return appConfig;
+  }
+
+  appConfig.max3DTextureSize = appConfig.max3DTextureSize ?? 2048;
+  if (appConfig.useCPURendering == null) {
+    appConfig.useCPURendering = true;
+  }
+
+  return appConfig;
+}
+
 function App({
   config = {
     /**
@@ -72,7 +90,13 @@ function App({
   const [init, setInit] = useState(null);
   useEffect(() => {
     const run = async () => {
-      appInit(config, defaultExtensions, defaultModes).then(setInit).catch(console.error);
+      const bootstrapConfig =
+        typeof config === 'function'
+          ? async (ctx: Parameters<typeof config>[0]) =>
+              applyWebGlConfig({ ...(await config(ctx)) })
+          : applyWebGlConfig({ ...config });
+
+      appInit(bootstrapConfig, defaultExtensions, defaultModes).then(setInit).catch(console.error);
     };
 
     run();
@@ -92,15 +116,6 @@ function App({
   // Set appConfig
   const appConfigState = init.appConfig;
   const { routerBasename, modes, dataSources, oidc, showStudyList } = appConfigState;
-
-  // get the maximum 3D texture size
-  const canvas = document.createElement('canvas');
-  const gl = canvas.getContext('webgl2');
-
-  if (gl) {
-    const max3DTextureSize = gl.getParameter(gl.MAX_3D_TEXTURE_SIZE);
-    appConfigState.max3DTextureSize = max3DTextureSize;
-  }
 
   const {
     uiDialogService,

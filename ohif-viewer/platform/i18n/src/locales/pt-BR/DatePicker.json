@@ -1,5 +1,13 @@
 {
   "Clear dates": "Limpar datas",
   "End Date": "Data Final",
-  "Start Date": "Data Inicial"
+  "Start Date": "Data Inicial",
+  "Close": "Fechar",
+  "Last 7 days": "Últimos 7 dias",
+  "Last 30 days": "Últimos 30 dias",
+  "Today": "Hoje",
+  "Previous Month": "Mês anterior",
+  "Next Month": "Próximo mês",
+  "Select Month": "Selecionar mês",
+  "Select Year": "Selecionar ano"
 }

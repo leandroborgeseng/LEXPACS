@@ -24,14 +24,7 @@
     } catch {
       /* ignore */
     }
-    const nav = (navigator.language || '').toLowerCase();
-    if (nav.startsWith('pt')) {
-      return 'pt-BR';
-    }
-    if (nav.startsWith('es')) {
-      return 'es';
-    }
-    return 'en-US';
+    return DEFAULT_LANG;
   }
 
   function getNested(obj, key) {

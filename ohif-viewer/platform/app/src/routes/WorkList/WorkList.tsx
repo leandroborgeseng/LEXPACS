@@ -59,10 +59,10 @@ export default function WorkList({
     return StudyList.createDefaultColumns();
   }, [customizationService, i18n.language]);
 
-  const logoComponent = appConfig?.whiteLabeling?.createLogoComponentFn?.(React) ?? (
+  const logoComponent = (
     <Icons.LexPacsLogo
       aria-label="LEX PACS logo"
-      className="h-[28px] w-auto"
+      className="h-[28px] w-auto shrink-0"
     />
   );
 

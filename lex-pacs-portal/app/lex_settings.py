@@ -71,6 +71,12 @@ def _read_raw() -> dict:
         ) from exc
     if "worklist_views" not in data:
         data["worklist_views"] = DEFAULT_WORKLIST_VIEWS
+    elif not data.get("worklist_views"):
+        data["worklist_views"] = DEFAULT_WORKLIST_VIEWS
+        try:
+            _write_raw(data)
+        except HTTPException:
+            pass
     if "equipment" not in data:
         data["equipment"] = []
     return data

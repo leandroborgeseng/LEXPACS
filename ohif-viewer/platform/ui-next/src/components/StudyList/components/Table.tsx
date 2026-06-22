@@ -113,7 +113,7 @@ function TableContent({
     <div className="flex h-full flex-col">
       {(showColumnVisibility || title) && (
         <DataTable.Toolbar>
-          <div className="absolute left-0">{toolbarLeftComponent}</div>
+          <div className="absolute left-0 z-10 flex items-center">{toolbarLeftComponent}</div>
           {title ? <DataTable.Title>{title}</DataTable.Title> : null}
           <div className="absolute right-0 flex items-center">
             {toolbarRightActionsComponent}

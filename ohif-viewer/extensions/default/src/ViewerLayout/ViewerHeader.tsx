@@ -38,6 +38,7 @@ function ViewerHeader({ appConfig }: withAppTypes<{ appConfig: AppTypes.Config }
   };
 
   const { t } = useTranslation();
+  const { t: tLex } = useTranslation('LexPacs');
   const { show } = useModal();
 
   const AboutModal = customizationService.getCustomization(
@@ -73,7 +74,7 @@ function ViewerHeader({ appConfig }: withAppTypes<{ appConfig: AppTypes.Config }
   ];
 
   menuOptions.push({
-    title: t('LexPacs:workList.settings.logout'),
+    title: tLex('workList.settings.logout'),
     icon: 'power-off',
     onClick: () => {
       void lexClinicalLogout();

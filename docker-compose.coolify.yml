@@ -3,13 +3,17 @@
 # No Coolify:
 #   - Tipo: Docker Compose (GitHub)
 #   - Compose file: docker-compose.coolify.yml
-#   - Um único domínio público → serviço `gateway` porta 80
+#   - Um único domínio público → serviço `gateway` (Traefik :80/:443 + Let's Encrypt)
 #   - Auth OIDC na rede interna; exposto em /auth/ via gateway
 #   - Variáveis: ver .env.coolify.example e docs/COOLIFY.md
 #
+# VPS standalone (80/443 + Let's Encrypt via Caddy):
+#   docker compose -f docker-compose.coolify.yml -f docker-compose.tls.yml --env-file .env.coolify up -d
+#   Ver docs/TLS-E-DOMINIO.md
+#
 # Desenvolvimento local:
 #   cp .env.coolify.example .env.coolify
-#   docker compose -f docker-compose.coolify.yml --env-file .env.coolify up -d --build
+#   docker compose -f docker-compose.coolify.yml -f docker-compose.coolify.local.yml --env-file .env.coolify up -d --build
 
 name: lex-pacs
 
@@ -76,7 +80,7 @@ services:
       KC_HTTP_ENABLED: "true"
       KC_HTTP_RELATIVE_PATH: ${KEYCLOAK_HTTP_RELATIVE_PATH:-/auth}
       KC_PROXY: ${KEYCLOAK_PROXY:-edge}
-      KC_HOSTNAME: ${KEYCLOAK_PUBLIC_HOSTNAME:-}
+      KC_HOSTNAME: ${KEYCLOAK_PUBLIC_HOSTNAME:-${LEX_PACS_DOMAIN:-}}
       KC_HOSTNAME_STRICT: ${KEYCLOAK_HOSTNAME_STRICT:-false}
     volumes:
       - auth-realm-import:/opt/keycloak/data/import
@@ -157,9 +161,13 @@ services:
         LEX_PACS_VERSION: ${LEX_PACS_VERSION:-0.7.0}
     expose:
       - "8080"
+      - "2575"
     environment:
       ORTHANC_URL: http://server:8042
       OHIF_VIEWER_URL: ${OHIF_VIEWER_URL:?defina OHIF_VIEWER_URL}
+      HL7_ORM_ENABLED: ${HL7_ORM_ENABLED:-true}
+      HL7_ORM_PORT: ${HL7_ORM_PORT:-2575}
+      HL7_ORM_AUTO_SYNC: ${HL7_ORM_AUTO_SYNC:-true}
       JWT_SECRET: ${PORTAL_JWT_SECRET:?defina PORTAL_JWT_SECRET}
       PORTAL_FALLBACK_CODE: ${PORTAL_FALLBACK_CODE:-}
       VIEWER_TOKEN_EXPIRE_MINUTES: ${VIEWER_TOKEN_EXPIRE_MINUTES:-30}
@@ -228,6 +236,36 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+    restart: unless-stopped
+
+  backup:
+    image: docker:27-cli
+    container_name: backup
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./ohif-viewer/scripts:/scripts:ro
+      - lex-backups:/backups
+      - ./LEX_PACS_VERSION:/compose/LEX_PACS_VERSION:ro
+      - ./docker-compose.coolify.yml:/compose/docker-compose.yml:ro
+      - server-config:/orthanc-config
+    environment:
+      BACKUP_ROOT: /backups
+      PORTAL_OPS_ENV: /orthanc-config/portal-ops.env
+      COMPOSE_PROJECT_DIR: /compose
+      COMPOSE_FILE: /compose/docker-compose.yml
+      POSTGRES_USER: ${POSTGRES_USER:-orthanc}
+      POSTGRES_DB: ${POSTGRES_DB:-orthanc}
+      BACKUP_INTERVAL_HOURS: ${BACKUP_INTERVAL_HOURS:-24}
+      BACKUP_RETENTION_DAILY: ${BACKUP_RETENTION_DAILY:-7}
+      BACKUP_RETENTION_WEEKLY: ${BACKUP_RETENTION_WEEKLY:-4}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+    working_dir: /compose
+    entrypoint: ["/bin/sh", "-c", "apk add --no-cache python3 >/dev/null 2>&1 && exec /scripts/backup-scheduler.sh"]
+    depends_on:
+      database:
+        condition: service_healthy
+      portal:
+        condition: service_started
     restart: unless-stopped
 
 volumes:

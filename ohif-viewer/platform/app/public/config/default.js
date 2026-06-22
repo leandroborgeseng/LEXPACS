@@ -5,7 +5,7 @@ window.config = {
   modes: [],
   customizationService: {},
   showWarningMessageForCrossOrigin: true,
-  showCPUFallbackMessage: false,
+  showCPUFallbackMessage: true,
   showLoadingIndicator: true,
   strictZSpacingForMultiplanarReformat: true,
   maxNumberOfWebWorkers: 3,
@@ -40,8 +40,10 @@ window.config = {
   defaultDataSourceName: 'dicomweb',
   whiteLabeling: {
     createLogoComponentFn: function (React) {
+      const base = (window.config && window.config.routerBasename) || '/viewer';
+      const root = base.endsWith('/') ? base : `${base}/`;
       return React.createElement('img', {
-        src: './lex-pacs-logo.svg',
+        src: `${root}lex-pacs-logo.svg`,
         alt: 'LEX PACS',
         className: 'h-[28px] w-auto',
       });

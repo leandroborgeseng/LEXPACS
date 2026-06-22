@@ -5,8 +5,6 @@ from collections import defaultdict
 
 from fastapi import HTTPException, Request, status
 
-from .config import settings
-
 _hits: dict[str, list[float]] = defaultdict(list)
 
 
@@ -21,8 +19,9 @@ def _client_key(request: Request) -> str:
 
 def enforce_login_rate_limit(request: Request) -> None:
     """S10 — limita tentativas de login por IP (complementa nginx)."""
-    limit = settings.login_rate_limit_attempts
-    window = settings.login_rate_limit_window_seconds
+    from .portal_settings import get_login_rate_limit
+
+    limit, window = get_login_rate_limit()
     key = _client_key(request)
     now = time.monotonic()
     recent = [t for t in _hits[key] if now - t < window]

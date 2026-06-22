@@ -84,10 +84,9 @@ async def collect_pacs_stats() -> dict[str, Any]:
     today = datetime.now(timezone.utc).date()
     study_date_age = _empty_age_counts()
     received_age = _empty_age_counts()
-    modality_series: dict[str, int] = defaultdict(int)
     modality_studies: dict[str, set[str]] = defaultdict(set)
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
+    async with httpx.AsyncClient(timeout=120.0) as client:
         base = settings.orthanc_url.rstrip("/")
         stats_resp = await client.get(f"{base}/statistics")
         stats_resp.raise_for_status()
@@ -100,28 +99,25 @@ async def collect_pacs_stats() -> dict[str, Any]:
         studies_resp.raise_for_status()
         studies = studies_resp.json()
 
-        series_resp = await client.post(
-            f"{base}/tools/find",
-            json={"Level": "Series", "Query": {}, "Expand": True},
-        )
-        series_resp.raise_for_status()
-        series_list = series_resp.json()
-
+    series_count_by_modality: dict[str, int] = defaultdict(int)
     for study in studies:
+        if not isinstance(study, dict):
+            continue
+        study_id = str(study.get("ID", "")).strip()
         tags = study.get("MainDicomTags", {}) if isinstance(study, dict) else {}
         study_date = _parse_dicom_date(tags.get("StudyDate", ""))
         received = _parse_orthanc_timestamp(study.get("LastUpdate", ""))
         study_date_age[_bucket_age(study_date, today)] += 1
         received_age[_bucket_age(received, today)] += 1
-
-    for series in series_list:
-        if not isinstance(series, dict):
-            continue
-        modality = str(series.get("MainDicomTags", {}).get("Modality", "")).strip().upper() or "OUTROS"
-        modality_series[modality] += 1
-        parent_study = str(series.get("ParentStudy", "")).strip()
-        if parent_study:
-            modality_studies[modality].add(parent_study)
+        modalities_raw = str(tags.get("ModalitiesInStudy", "")).strip()
+        if modalities_raw:
+            for modality in modalities_raw.split("\\"):
+                mod = modality.strip().upper() or "OUTROS"
+                if study_id:
+                    modality_studies[mod].add(study_id)
+                series_count_by_modality[mod] += 1
+        elif study_id:
+            modality_studies["OUTROS"].add(study_id)
 
     orthanc_bytes = int(orthanc_stats.get("TotalDiskSize") or 0)
     reports_bytes = _dir_size_bytes(Path(settings.reports_data_path))
@@ -141,9 +137,9 @@ async def collect_pacs_stats() -> dict[str, Any]:
             {
                 "modality": modality,
                 "studies": len(modality_studies.get(modality, set())),
-                "series": modality_series.get(modality, 0),
+                "series": series_count_by_modality.get(modality, 0),
             }
-            for modality in sorted(set(modality_series) | set(modality_studies))
+            for modality in sorted(modality_studies)
         ],
         key=lambda item: (-item["studies"], item["modality"]),
     )

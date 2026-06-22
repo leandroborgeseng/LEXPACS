@@ -13,6 +13,14 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+REPO_ROOT="$(dirname "$PROJECT_DIR")"
+SMOKE_COMPOSE_FILE="${SMOKE_COMPOSE_FILE}"
+SMOKE_COMPOSE_DIR="${SMOKE_COMPOSE_DIR:-$(dirname "$SMOKE_COMPOSE_FILE")}"
+
+run_backup_volumes() {
+  COMPOSE_FILE="${SMOKE_COMPOSE_FILE}" COMPOSE_DIR="${SMOKE_COMPOSE_DIR}" \
+    "${SCRIPT_DIR}/backup-volumes.sh" "$@"
+}
 
 if [ -f "${PROJECT_DIR}/.env" ]; then
   set -a
@@ -32,7 +40,7 @@ KEYCLOAK_URL="${KEYCLOAK_URL:-${GATEWAY_URL}/auth}"
 OIDC_CLIENT_SECRET="${OIDC_CLIENT_SECRET:-lex-clinical-dev-secret}"
 
 # Etapas com testes automatizados prontos
-IMPLEMENTED_STAGES=(E1 E2 E2b E2c E2d E3 E4 E5 E6 E7 E8 E9 E10 E11 E12 E13 E14 E15 S10 S11)
+IMPLEMENTED_STAGES=(E1 E2 E2b E2c E2d E3 E4 E5 E6 E7 E8 E9 E10 E11 E12 E13 E14 E15 E16 E18 S10 S11)
 PENDING_STAGES=()
 
 if [ "${1:-}" = "--list" ]; then
@@ -74,6 +82,49 @@ wait_orthanc() {
     sleep 2
   done
   return 1
+}
+
+ensure_smoke_patient_study() {
+  wait_orthanc || return 1
+  local found
+  found=$(curl -fsS -X POST "${ORTHANC_URL}/tools/find" \
+    -H "Content-Type: application/json" \
+    -d "{\"Level\":\"Study\",\"Query\":{\"PatientID\":\"${PATIENT_ID}\"}}" 2>/dev/null | \
+    python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo 0)
+  if [ "${found:-0}" -ge 1 ]; then
+    return 0
+  fi
+
+  local sample=""
+  for candidate in \
+    "${REPO_ROOT}/sample-dicom/offis-ct/CT_small.dcm" \
+    "${REPO_ROOT}/sample-dicom/dicom_viewer_0009/0009.DCM" \
+    "${PROJECT_DIR}/sample-dicom/offis-ct/CT_small.dcm"; do
+    if [ -f "$candidate" ]; then
+      sample="$candidate"
+      break
+    fi
+  done
+  [ -n "$sample" ] || return 0
+
+  local instance_json study_id birth_dicom
+  instance_json=$(curl -fsS -X POST "${ORTHANC_URL}/instances" --data-binary @"${sample}")
+  study_id=$(echo "$instance_json" | python3 -c "import sys,json; print(json.load(sys.stdin).get('ParentStudy',''))" 2>/dev/null || true)
+  [ -n "$study_id" ] || return 0
+
+  birth_dicom=$(printf '%s' "$PATIENT_BIRTH" | python3 -c "
+import sys, re
+s = sys.stdin.read().strip()
+m = re.match(r'(\d{2})/(\d{2})/(\d{4})', s)
+if m:
+    print(f'{m.group(3)}{m.group(2)}{m.group(1)}')
+else:
+    d = re.sub(r'\D', '', s)[:8]
+    print(d if len(d) == 8 else '19800101')
+")
+  curl -fsS -X POST "${ORTHANC_URL}/studies/${study_id}/modify" \
+    -H "Content-Type: application/json" \
+    -d "{\"Replace\":{\"PatientID\":\"${PATIENT_ID}\",\"PatientBirthDate\":\"${birth_dicom}\"}}" >/dev/null
 }
 
 pass() { echo "  ✓ $1"; PASS=$((PASS + 1)); }
@@ -186,7 +237,7 @@ echo
 
 # ── Infraestrutura (sempre) ──
 echo "▶ Infraestrutura"
-COMPOSE_FILE="${SMOKE_COMPOSE_FILE:-${PROJECT_DIR}/docker-compose.yml}"
+COMPOSE_FILE="${SMOKE_COMPOSE_FILE}"
 for c in gateway portal web-viewer server database auth; do
   if docker ps --format '{{.Names}}' | grep -qx "$c"; then
     pass "Container ${c} em execução"
@@ -194,6 +245,9 @@ for c in gateway portal web-viewer server database auth; do
     fail "Container ${c} não está rodando"
   fi
 done
+
+wait_orthanc && pass "Servidor DICOM (Orthanc) acessível" || fail "Orthanc indisponível"
+ensure_smoke_patient_study && pass "Exame de teste do paciente ${PATIENT_ID}" || skip "Sem DICOM de amostra para paciente ${PATIENT_ID}"
 
 health=""
 for _ in 1 2 3 4 5; do
@@ -306,7 +360,7 @@ if should_run E2c; then
   echo "▶ E2c — AE Title"
   settings=$(curl_auth "${GATEWAY_URL}/clinica-api/admin/pacs/settings")
   aet=$(echo "$settings" | python3 -c "import sys,json; print(json.load(sys.stdin).get('dicom_aet',''))" 2>/dev/null || true)
-  oaet=$(curl -s "${ORTHANC_URL}/system" | python3 -c "import sys,json; print(json.load(sys.stdin).get('DicomAet',''))" 2>/dev/null || true)
+  oaet=$(curl -fsS "${ORTHANC_URL}/system" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('DicomAet',''))" 2>/dev/null || true)
   [ -n "$aet" ] && pass "API retorna dicom_aet=${aet}" || fail "Config PACS indisponível"
   [ "$aet" = "$oaet" ] && pass "AE Title = servidor DICOM" || fail "AE Title divergente (api=${aet}, srv=${oaet})"
   echo
@@ -359,6 +413,7 @@ if should_run E3; then
   else
     fail "StorageDirectory não aponta para volume dedicado"
   fi
+  wait_orthanc || true
   studies=$(curl_auth "${GATEWAY_URL}/dicom-web/studies?limit=1")
   if echo "$studies" | python3 -c "import sys,json; json.load(sys.stdin); sys.exit(0)" 2>/dev/null; then
     pass "DICOMweb responde após migração E3"
@@ -436,6 +491,109 @@ if should_run E7; then
   echo
 fi
 
+# ── E16 ──
+if should_run E16; then
+  echo "▶ E16 — Segurança DICOM (porta 4242)"
+  pacs_cfg=$(curl_auth "${GATEWAY_URL}/clinica-api/admin/pacs/settings")
+  if echo "$pacs_cfg" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+sys.exit(0 if d.get('dicom_restrict_inbound') and d.get('dicom_check_modality_host') else 1)
+" 2>/dev/null; then
+    pass "API expõe restrição inbound + check host"
+  else
+    fail "Config DICOM E16 ausente na API"
+  fi
+
+  if docker compose -f "${COMPOSE_FILE}" exec -T portal \
+    python3 -c "
+import json, sys
+from pathlib import Path
+p = Path('/orthanc-config/orthanc.json')
+d = json.loads(p.read_text())
+sys.exit(0 if not d.get('DicomAlwaysAllowStore', True) and d.get('DicomCheckModalityHost') else 1)
+" 2>/dev/null; then
+    pass "orthanc.json: whitelist inbound + check host"
+  else
+    fail "orthanc.json sem política E16"
+  fi
+
+  put_sec=$(curl_auth -X PUT "${GATEWAY_URL}/clinica-api/admin/pacs/settings" \
+    -H "Content-Type: application/json" \
+    -d '{"dicom_aet":"LEXPACS","name":"LEX PACS Smoke","dicom_check_called_aet":true,"dicom_check_modality_host":true,"dicom_restrict_inbound":true}')
+  if echo "$put_sec" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get('dicom_restrict_inbound') else 1)" 2>/dev/null; then
+    pass "PUT settings persiste restrição inbound"
+  else
+    fail "PUT settings E16 falhou"
+  fi
+
+  if docker compose -f "${COMPOSE_FILE}" exec -T portal \
+    grep -q '"AllowStore": true' /orthanc-config/orthanc.json 2>/dev/null; then
+    pass "Equipamento cadastrado com AllowStore no Orthanc"
+  else
+    skip "Sem equipamento AllowStore (cadastre na aba Equipamentos para C-STORE)"
+  fi
+  echo
+fi
+
+# ── E18 ──
+if should_run E18; then
+  echo "▶ E18 — HL7 ORM → MWL"
+  hl7_status=$(curl_auth "${GATEWAY_URL}/clinica-api/admin/pacs/hl7/status")
+  if echo "$hl7_status" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get('config',{}).get('enabled') else 1)" 2>/dev/null; then
+    pass "HL7 ORM habilitado"
+  else
+    fail "HL7 ORM desabilitado"
+  fi
+
+  E18_ACCESSION="ACC_E18_$(date +%s)"
+  ORM_MSG=$'MSH|^~\\&|RIS|CLINICA|LEXPACS|LEX|'"$(date +%Y%m%d%H%M%S)"$'||ORM^O01|E18MSG|P|2.5\r\nPID|1||HL7E18^^^CLINIC||SMOKE^E18||19850101|M\r\nORC|NW|PL'"${E18_ACCESSION}"$'|'"${E18_ACCESSION}"$'|||||||'"$(date +%Y%m%d%H%M%S)"$'\r\nOBR|1|PL'"${E18_ACCESSION}"$'|'"${E18_ACCESSION}"$'|CTCHEST^TC TORAX|||||||||'"$(date +%Y%m%d%H%M%S)"$'||||||||CT|'"$(date +%Y%m%d%H%M%S)"$'||||F\r'
+
+  test_body=$(ORM_MSG="$ORM_MSG" python3 -c 'import json, os; print(json.dumps({"message": os.environ["ORM_MSG"], "apply": True}))')
+  test_resp=$(curl_auth -X POST "${GATEWAY_URL}/clinica-api/admin/pacs/hl7/test" \
+    -H "Content-Type: application/json" \
+    -d "$test_body")
+  if echo "$test_resp" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get('parsed',{}).get('accession_number') else 1)" 2>/dev/null; then
+    pass "Parser ORM via API admin"
+  else
+    fail "Parser ORM via API falhou"
+  fi
+
+  mwl_e18=$(curl_auth "${GATEWAY_URL}/clinica-api/admin/pacs/mwl/entries")
+  if echo "$mwl_e18" | python3 -c "import sys,json; acc='${E18_ACCESSION}'; entries=json.load(sys.stdin).get('entries',[]); sys.exit(0 if any(e.get('accession_number')==acc for e in entries) else 1)" 2>/dev/null; then
+    pass "Entrada MWL criada a partir do ORM"
+  else
+    fail "Entrada MWL não encontrada após ORM"
+  fi
+
+  HL7_HOST="${HL7_HOST:-127.0.0.1}"
+  HL7_PORT="${HL7_ORM_PORT:-2575}"
+  if python3 -c "
+import socket, json, sys
+acc = 'MLLP_${E18_ACCESSION}'
+stamp = __import__('datetime').datetime.now().strftime('%Y%m%d%H%M%S')
+msg = (
+    f'MSH|^~\\\\&|RIS|CLINICA|LEXPACS|LEX|{stamp}||ORM^O01|MLLP01|P|2.5\\r'
+    f'PID|1||MLLP01^^^CLINIC||MLLP^TEST||19800101|M\\r'
+    f'ORC|NW|PL{acc}|{acc}|||||||{stamp}\\r'
+    f'OBR|1|PL{acc}|{acc}|DXCHEST^RX TORAX|||||||||{stamp}||||||||DX|{stamp}||||F\\r'
+)
+frame = b'\\x0b' + msg.encode() + b'\\x1c\\x0d'
+try:
+    with socket.create_connection(('${HL7_HOST}', int('${HL7_PORT}')), 5) as s:
+        s.sendall(frame)
+        ack = s.recv(4096).decode('utf-8', errors='replace')
+    sys.exit(0 if 'MSA|AA' in ack else 1)
+except Exception:
+    sys.exit(2)
+" 2>/dev/null; then
+    pass "MLLP ACK AA na porta ${HL7_PORT}"
+  else
+    skip "MLLP não acessível em ${HL7_HOST}:${HL7_PORT} (exponha 2575 no portal)"
+  fi
+  echo
+fi
+
 # ── E8 ──
 if should_run E8; then
   echo "▶ E8 — Visões de worklist"
@@ -484,7 +642,7 @@ if should_run E5; then
   fi
 
   rm -rf "${SMOKE_BACKUP_DIR}"
-  if "${SCRIPT_DIR}/backup-volumes.sh" "${SMOKE_BACKUP_DIR}" >/dev/null 2>&1; then
+  if run_backup_volumes "${SMOKE_BACKUP_DIR}" >/dev/null 2>&1; then
     BACKUP_SNAPSHOT=$(find "${SMOKE_BACKUP_DIR}" -mindepth 1 -maxdepth 1 -type d | head -1)
     if [ -n "${BACKUP_SNAPSHOT}" ] && [ -f "${BACKUP_SNAPSHOT}/manifest.json" ]; then
       pass "Backup gera manifest.json"
@@ -566,7 +724,7 @@ if should_run E6; then
   fi
 
   rm -rf "${SMOKE_BACKUP_DIR}"
-  if "${SCRIPT_DIR}/backup-volumes.sh" "${SMOKE_BACKUP_DIR}" >/dev/null 2>&1; then
+  if run_backup_volumes "${SMOKE_BACKUP_DIR}" >/dev/null 2>&1; then
     BACKUP_SNAPSHOT=$(find "${SMOKE_BACKUP_DIR}" -mindepth 1 -maxdepth 1 -type d | head -1)
     if [ -n "${BACKUP_SNAPSHOT}" ] && python3 -c "
 import json, sys
@@ -871,7 +1029,7 @@ curl_auth -X PUT "${GATEWAY_URL}/clinica-api/admin/pacs/mwl-sql" \
   -d '{"enabled":true,"host":"database","port":5432,"database":"orthanc","username":"orthanc","password_env":"POSTGRES_PASSWORD","table":"lex_mwl_schedule","sync_interval_minutes":5}' >/dev/null
 
 echo "▶ Onda C — Backup automático"
-"${SCRIPT_DIR}/backup-volumes.sh" "${PROJECT_DIR}/backups" >/dev/null 2>&1 || true
+run_backup_volumes "${PROJECT_DIR}/backups" >/dev/null 2>&1 || true
 backup_api=$(curl_auth "${GATEWAY_URL}/clinica-api/admin/pacs/backup/status")
 if echo "$backup_api" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get('retention_daily') is not None else 1)" 2>/dev/null; then
   pass "GET /admin/pacs/backup/status (retenção 7+4)"

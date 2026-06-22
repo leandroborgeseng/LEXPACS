@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 
@@ -8,6 +10,9 @@ from .clinical_auth import require_admin, require_clinical_user
 from .audit import list_events, log_event
 from .mwl_scheduler import run_mwl_sync
 from .mwl_sql import get_mwl_sql_config, get_mwl_sync_meta, save_mwl_sql_config
+from .mwl_connector import execute_select, test_connection
+from .mwl_fetch import fetch_mwl_source_rows
+from .mwl_drivers import list_drivers, MWL_FIELDS
 from .mwl_sync import list_mwl_entries, orthanc_mwl_plugin_enabled
 from .lex_settings import (
     get_equipment,
@@ -16,8 +21,29 @@ from .lex_settings import (
     save_worklist_views,
 )
 from .backup_status import get_backup_status
+from .backup_trigger import clear_backup_trigger, request_backup
+from .hl7_orm import parse_orm_message, process_hl7_orm
+from .hl7_mllp import restart_hl7_mllp_server
+from .hl7_settings import get_hl7_config, get_hl7_stats, save_hl7_config
 from .pacs_config import get_pacs_settings, update_server_settings
 from .pacs_stats import collect_pacs_stats
+from .portal_settings import get_portal_ops, save_portal_ops
+from .migration_store import get_migration_status
+from .migration_service import (
+    pause_migration,
+    reset_migration,
+    run_migration_discovery,
+    save_migration_settings,
+    start_migration,
+    test_migration_echo,
+)
+from .storage_service import (
+    pause_storage_run,
+    reset_storage_run,
+    start_storage_run,
+)
+from .storage_store import get_storage_status, save_storage_config
+from .storage_worker import kick_storage_worker
 
 router = APIRouter(prefix="/api/admin/pacs", tags=["admin"])
 
@@ -43,16 +69,28 @@ class PacsSettingsResponse(BaseModel):
     dicom_aet: str
     dicom_port: int
     name: str = "LEX PACS"
-    dicom_check_called_aet: bool = False
+    dicom_check_called_aet: bool = True
+    dicom_check_modality_host: bool = True
+    dicom_restrict_inbound: bool = True
+    registered_modality_count: int = 0
+    dicom_inbound_open_warning: bool = False
     storage_directory: str = ""
     postgresql_index: bool = False
     ingest_transcoding: str = ""
+    ingest_transcoding_options: list[str] = Field(default_factory=list)
+    worklists_enabled: bool = True
+    worklists_filter_issuer_aet: bool = False
 
 
 class UpdateServerSettingsRequest(BaseModel):
     dicom_aet: str = Field(min_length=1, max_length=16)
     name: str = Field(min_length=1, max_length=64)
-    dicom_check_called_aet: bool = False
+    dicom_check_called_aet: bool = True
+    dicom_check_modality_host: bool = True
+    dicom_restrict_inbound: bool = True
+    ingest_transcoding: str = ""
+    worklists_enabled: bool = True
+    worklists_filter_issuer_aet: bool = False
 
 
 class UpdateAetRequest(BaseModel):
@@ -64,6 +102,10 @@ class UpdateSettingsResponse(BaseModel):
     dicom_port: int
     name: str
     dicom_check_called_aet: bool
+    dicom_check_modality_host: bool
+    dicom_restrict_inbound: bool
+    registered_modality_count: int = 0
+    dicom_inbound_open_warning: bool = False
     restarted: bool
     message: str
 
@@ -76,16 +118,28 @@ class WorklistViewsResponse(BaseModel):
     views: list[WorklistViewItem]
 
 
+class ModalityRouteItem(BaseModel):
+    modality: str = Field(min_length=1, max_length=16)
+    station_aet: str = Field(default="", max_length=16)
+
+
 class MwlSqlConfigResponse(BaseModel):
     enabled: bool = True
+    driver: str = "postgresql"
+    mode: str = "table"
     host: str
     port: int
     database: str
     username: str
     password_env: str = "POSTGRES_PASSWORD"
     table: str = "lex_mwl_schedule"
+    custom_sql: str = ""
+    field_mapping: dict[str, str] = Field(default_factory=dict)
+    modality_filter: list[str] = Field(default_factory=list)
+    modality_routes: list[ModalityRouteItem] = Field(default_factory=list)
     sync_interval_minutes: int = 5
     password_configured: bool = False
+    available_drivers: list[dict] = Field(default_factory=list)
 
 
 class MwlSyncResponse(BaseModel):
@@ -117,6 +171,12 @@ class MwlEntry(BaseModel):
 
 class MwlEntriesResponse(BaseModel):
     entries: list[MwlEntry]
+
+
+class MwlSqlPreviewResponse(BaseModel):
+    columns: list[str]
+    raw_rows: list[dict]
+    mapped_entries: list[MwlEntry]
 
 
 class AuditEvent(BaseModel):
@@ -174,9 +234,166 @@ class BackupStatusResponse(BaseModel):
     error: str = ""
 
 
+class Hl7ConfigResponse(BaseModel):
+    enabled: bool = True
+    listen_host: str = "0.0.0.0"
+    listen_port: int = 2575
+    auto_sync: bool = True
+    map_modality_to_station: bool = True
+    default_station_aet: str = ""
+    sending_application: str = "LEXPACS"
+    sending_facility: str = "LEX"
+
+
+class Hl7StatsResponse(BaseModel):
+    messages_total: int = 0
+    last_at: str = ""
+    last_accession: str = ""
+    last_control: str = ""
+    last_message_type: str = ""
+    last_error: str = ""
+
+
+class Hl7StatusResponse(BaseModel):
+    config: Hl7ConfigResponse
+    stats: Hl7StatsResponse
+
+
+class Hl7TestRequest(BaseModel):
+    message: str = Field(min_length=10)
+    apply: bool = True
+
+
+class Hl7TestResponse(BaseModel):
+    parsed: dict
+    applied: bool = False
+    result: dict | None = None
+
+
+class PortalOpsResponse(BaseModel):
+    backup_interval_hours: int = 24
+    backup_retention_daily: int = 7
+    backup_retention_weekly: int = 4
+    backup_retention_days: int = 14
+    login_rate_limit_attempts: int = 20
+    login_rate_limit_window_seconds: int = 60
+
+
+class MigrationSource(BaseModel):
+    label: str = ""
+    aet: str = Field(default="", max_length=16)
+    host: str = Field(default="", max_length=128)
+    port: int = Field(default=104, ge=1, le=65535)
+
+
+class MigrationFilters(BaseModel):
+    study_date_from: str = ""
+    study_date_to: str = ""
+    patient_id: str = ""
+    modality: str = ""
+
+
+class MigrationConfigRequest(BaseModel):
+    source: MigrationSource
+    filters: MigrationFilters = Field(default_factory=MigrationFilters)
+    batch_size: int = Field(default=1, ge=1, le=10)
+    pause_seconds: int = Field(default=2, ge=0, le=300)
+    skip_existing: bool = True
+
+
+class MigrationStats(BaseModel):
+    completed: int = 0
+    failed: int = 0
+    skipped: int = 0
+    instances_imported: int = 0
+
+
+class MigrationStatusResponse(BaseModel):
+    config: dict
+    status: str = "idle"
+    cursor: int = 0
+    queue_total: int = 0
+    pending: int = 0
+    progress_percent: float = 0.0
+    stats: MigrationStats
+    last_error: str = ""
+    started_at: str = ""
+    updated_at: str = ""
+    last_study_uid: str = ""
+    discovered_at: str = ""
+    modality_key: str = "LEX_MIG_SRC"
+
+
+class MigrationActionResponse(BaseModel):
+    status: str
+    message: str = ""
+    discovered: int = 0
+    queue_total: int = 0
+    pending: int = 0
+
+
+class StorageRuleItem(BaseModel):
+    id: str = ""
+    enabled: bool = True
+    min_age_years: int = Field(default=2, ge=1, le=50)
+    transfer_syntax: str = ""
+    modalities: list[str] = Field(default_factory=list)
+
+
+class TransferSyntaxOption(BaseModel):
+    uid: str
+    label: str
+
+
+class StorageConfigRequest(BaseModel):
+    enabled: bool = False
+    run_interval_hours: int = Field(default=24, ge=1, le=168)
+    batch_size: int = Field(default=5, ge=1, le=50)
+    pause_seconds: int = Field(default=2, ge=0, le=300)
+    rules: list[StorageRuleItem] = Field(default_factory=list)
+
+
+class StorageStats(BaseModel):
+    compressed: int = 0
+    skipped: int = 0
+    failed: int = 0
+    instances: int = 0
+
+
+class StorageStatusResponse(BaseModel):
+    enabled: bool = False
+    run_interval_hours: int = 24
+    batch_size: int = 5
+    pause_seconds: int = 2
+    rules: list[StorageRuleItem] = Field(default_factory=list)
+    status: str = "idle"
+    cursor: int = 0
+    queue_total: int = 0
+    pending: int = 0
+    progress_percent: float = 0.0
+    stats: StorageStats
+    last_run_at: str = ""
+    last_error: str = ""
+    started_at: str = ""
+    updated_at: str = ""
+    transfer_syntax_options: list[TransferSyntaxOption] = Field(default_factory=list)
+
+
+class StorageActionResponse(BaseModel):
+    status: str
+    message: str = ""
+    queue_total: int = 0
+    pending: int = 0
+
+
+class BackupTriggerResponse(BaseModel):
+    requested: bool = True
+    message: str = "Backup manual solicitado."
+
+
 @router.get("/settings", response_model=PacsSettingsResponse)
 async def read_settings() -> PacsSettingsResponse:
-    return PacsSettingsResponse(**get_pacs_settings())
+    return PacsSettingsResponse(**get_pacs_settings(equipment_count=len(get_equipment())))
 
 
 @router.put("/settings", response_model=UpdateSettingsResponse)
@@ -185,6 +402,11 @@ async def write_settings(body: UpdateServerSettingsRequest) -> UpdateSettingsRes
         dicom_aet=body.dicom_aet,
         name=body.name,
         dicom_check_called_aet=body.dicom_check_called_aet,
+        dicom_check_modality_host=body.dicom_check_modality_host,
+        dicom_restrict_inbound=body.dicom_restrict_inbound,
+        ingest_transcoding=body.ingest_transcoding,
+        worklists_enabled=body.worklists_enabled,
+        worklists_filter_issuer_aet=body.worklists_filter_issuer_aet,
     )
     return UpdateSettingsResponse(**data)
 
@@ -196,12 +418,18 @@ async def write_aet_only(body: UpdateAetRequest) -> UpdateSettingsResponse:
         dicom_aet=body.dicom_aet,
         name=current["name"],
         dicom_check_called_aet=current["dicom_check_called_aet"],
+        dicom_check_modality_host=current["dicom_check_modality_host"],
+        dicom_restrict_inbound=current["dicom_restrict_inbound"],
     )
     return UpdateSettingsResponse(
         dicom_aet=data["dicom_aet"],
         dicom_port=data["dicom_port"],
         name=data["name"],
         dicom_check_called_aet=data["dicom_check_called_aet"],
+        dicom_check_modality_host=data["dicom_check_modality_host"],
+        dicom_restrict_inbound=data["dicom_restrict_inbound"],
+        registered_modality_count=data.get("registered_modality_count", 0),
+        dicom_inbound_open_warning=data.get("dicom_inbound_open_warning", False),
         restarted=data["restarted"],
         message=data["message"],
     )
@@ -220,6 +448,8 @@ async def write_equipment(body: EquipmentListResponse) -> EquipmentListResponse:
         dicom_aet=current["dicom_aet"],
         name=current["name"],
         dicom_check_called_aet=current["dicom_check_called_aet"],
+        dicom_check_modality_host=current["dicom_check_modality_host"],
+        dicom_restrict_inbound=current["dicom_restrict_inbound"],
         equipment=items,
     )
     return EquipmentListResponse(items=items)
@@ -251,6 +481,47 @@ async def write_mwl_sql(
     saved = save_mwl_sql_config(body.model_dump())
     log_event("mwl_sql_config", user.username, auth_method=user.auth_method)
     return MwlSqlConfigResponse(**saved)
+
+
+@router.get("/mwl-sql/drivers")
+async def read_mwl_drivers(
+    _: ClinicalUser = Depends(require_clinical_user),
+) -> dict:
+    return {"drivers": list_drivers(), "mwl_fields": MWL_FIELDS}
+
+
+@router.post("/mwl-sql/test-connection")
+async def test_mwl_connection(
+    user: ClinicalUser = Depends(require_admin),
+) -> dict:
+    result = test_connection(get_mwl_sql_config())
+    log_event("mwl_sql_test", user.username, auth_method=user.auth_method)
+    return result
+
+
+@router.post("/mwl-sql/preview", response_model=MwlSqlPreviewResponse)
+async def preview_mwl_sql(
+    user: ClinicalUser = Depends(require_admin),
+) -> MwlSqlPreviewResponse:
+    cfg = get_mwl_sql_config()
+    raw_rows: list[dict] = []
+    columns: list[str] = []
+    if str(cfg.get("mode")) == "custom":
+        raw_rows = execute_select(cfg, str(cfg.get("custom_sql") or ""), limit=20)
+        if raw_rows:
+            columns = list(raw_rows[0].keys())
+    mapped = fetch_mwl_source_rows(preview_limit=20)
+    entries = [MwlEntry(**{
+        "accession_number": row.get("accession_number", ""),
+        "patient_id": row.get("patient_id", ""),
+        "patient_name": row.get("patient_name", ""),
+        "modality": row.get("modality", ""),
+        "station_aet": row.get("station_aet", ""),
+        "procedure_description": row.get("procedure_description", ""),
+        "scheduled_date": str(row.get("scheduled_date", "")),
+    }) for row in mapped]
+    log_event("mwl_sql_preview", user.username, rows=len(entries), auth_method=user.auth_method)
+    return MwlSqlPreviewResponse(columns=columns, raw_rows=raw_rows, mapped_entries=entries)
 
 
 @router.get("/mwl/status", response_model=MwlStatusResponse)
@@ -301,7 +572,242 @@ async def read_mwl_entries(
 async def read_backup_status(
     _: ClinicalUser = Depends(require_clinical_user),
 ) -> BackupStatusResponse:
+    clear_backup_trigger()
     return BackupStatusResponse(**get_backup_status())
+
+
+@router.post("/backup/trigger", response_model=BackupTriggerResponse)
+async def trigger_backup_now(
+    user: ClinicalUser = Depends(require_admin),
+) -> BackupTriggerResponse:
+    request_backup()
+    log_event("backup_trigger", user.username, auth_method=user.auth_method)
+    return BackupTriggerResponse()
+
+
+@router.get("/storage/status", response_model=StorageStatusResponse)
+async def read_storage_status(
+    _: ClinicalUser = Depends(require_clinical_user),
+) -> StorageStatusResponse:
+    data = get_storage_status()
+    return StorageStatusResponse(
+        **{
+            **data,
+            "rules": [StorageRuleItem(**rule) for rule in data.get("rules") or []],
+            "stats": StorageStats(**(data.get("stats") or {})),
+            "transfer_syntax_options": [
+                TransferSyntaxOption(**item) for item in data.get("transfer_syntax_options") or []
+            ],
+        }
+    )
+
+
+@router.put("/storage/config", response_model=StorageStatusResponse)
+async def write_storage_config(
+    body: StorageConfigRequest,
+    user: ClinicalUser = Depends(require_admin),
+) -> StorageStatusResponse:
+    saved = save_storage_config(body.model_dump())
+    log_event("storage_config", user.username, auth_method=user.auth_method)
+    data = get_storage_status()
+    return StorageStatusResponse(
+        **{
+            **data,
+            "rules": [StorageRuleItem(**rule) for rule in saved.get("rules") or []],
+            "stats": StorageStats(**(data.get("stats") or {})),
+            "transfer_syntax_options": [
+                TransferSyntaxOption(**item) for item in data.get("transfer_syntax_options") or []
+            ],
+        }
+    )
+
+
+@router.post("/storage/start", response_model=StorageActionResponse)
+async def storage_start(
+    user: ClinicalUser = Depends(require_admin),
+) -> StorageActionResponse:
+    result = start_storage_run()
+    kick_storage_worker()
+    log_event("storage_start", user.username, queue_total=result.get("queue_total", 0), auth_method=user.auth_method)
+    return StorageActionResponse(
+        status=str(result.get("status") or "running"),
+        message="Compressão em lote iniciada.",
+        queue_total=int(result.get("queue_total") or 0),
+        pending=int(result.get("queue_total") or 0),
+    )
+
+
+@router.post("/storage/pause", response_model=StorageActionResponse)
+async def storage_pause(
+    user: ClinicalUser = Depends(require_admin),
+) -> StorageActionResponse:
+    result = pause_storage_run()
+    log_event("storage_pause", user.username, auth_method=user.auth_method)
+    return StorageActionResponse(status=str(result.get("status") or "paused"), message="Compressão pausada.")
+
+
+@router.post("/storage/reset", response_model=StorageActionResponse)
+async def storage_reset(
+    user: ClinicalUser = Depends(require_admin),
+) -> StorageActionResponse:
+    result = reset_storage_run()
+    log_event("storage_reset", user.username, auth_method=user.auth_method)
+    return StorageActionResponse(status=str(result.get("status") or "idle"), message="Fila de compressão reiniciada.")
+
+
+@router.get("/hl7/status", response_model=Hl7StatusResponse)
+async def read_hl7_status(
+    _: ClinicalUser = Depends(require_clinical_user),
+) -> Hl7StatusResponse:
+    return Hl7StatusResponse(
+        config=Hl7ConfigResponse(**get_hl7_config()),
+        stats=Hl7StatsResponse(**get_hl7_stats()),
+    )
+
+
+@router.put("/hl7/config", response_model=Hl7ConfigResponse)
+async def write_hl7_config(
+    body: Hl7ConfigResponse,
+    user: ClinicalUser = Depends(require_admin),
+) -> Hl7ConfigResponse:
+    saved = save_hl7_config(body.model_dump())
+    restart_hl7_mllp_server()
+    log_event("hl7_config", user.username, auth_method=user.auth_method)
+    return Hl7ConfigResponse(**saved)
+
+
+@router.get("/portal-ops", response_model=PortalOpsResponse)
+async def read_portal_ops(
+    _: ClinicalUser = Depends(require_clinical_user),
+) -> PortalOpsResponse:
+    return PortalOpsResponse(**get_portal_ops())
+
+
+@router.put("/portal-ops", response_model=PortalOpsResponse)
+async def write_portal_ops(
+    body: PortalOpsResponse,
+    user: ClinicalUser = Depends(require_admin),
+) -> PortalOpsResponse:
+    saved = save_portal_ops(body.model_dump())
+    log_event("portal_ops", user.username, auth_method=user.auth_method)
+    return PortalOpsResponse(**saved)
+
+
+@router.get("/migration/status", response_model=MigrationStatusResponse)
+async def read_migration_status(
+    _: ClinicalUser = Depends(require_clinical_user),
+) -> MigrationStatusResponse:
+    return MigrationStatusResponse(**get_migration_status())
+
+
+@router.put("/migration/config", response_model=MigrationConfigRequest)
+async def write_migration_config(
+    body: MigrationConfigRequest,
+    user: ClinicalUser = Depends(require_admin),
+) -> MigrationConfigRequest:
+    saved = save_migration_settings(body.model_dump())
+    log_event("migration_config", user.username, auth_method=user.auth_method)
+    return MigrationConfigRequest(
+        source=MigrationSource(**saved.get("source", {})),
+        filters=MigrationFilters(**saved.get("filters", {})),
+        batch_size=int(saved.get("batch_size") or 1),
+        pause_seconds=int(saved.get("pause_seconds") or 2),
+        skip_existing=bool(saved.get("skip_existing", True)),
+    )
+
+
+@router.post("/migration/test-echo")
+async def migration_test_echo(
+    user: ClinicalUser = Depends(require_admin),
+) -> dict:
+    result = test_migration_echo()
+    log_event("migration_echo", user.username, auth_method=user.auth_method)
+    return result
+
+
+@router.post("/migration/discover", response_model=MigrationActionResponse)
+async def migration_discover(
+    user: ClinicalUser = Depends(require_admin),
+) -> MigrationActionResponse:
+    result = await asyncio.to_thread(run_migration_discovery)
+    log_event(
+        "migration_discover",
+        user.username,
+        discovered=result.get("discovered", 0),
+        auth_method=user.auth_method,
+    )
+    return MigrationActionResponse(
+        status="idle",
+        message="Descoberta concluída.",
+        discovered=int(result.get("discovered") or 0),
+        queue_total=int(result.get("queue_total") or 0),
+    )
+
+
+@router.post("/migration/start", response_model=MigrationActionResponse)
+async def migration_start(
+    user: ClinicalUser = Depends(require_admin),
+) -> MigrationActionResponse:
+    result = start_migration()
+    log_event("migration_start", user.username, auth_method=user.auth_method)
+    return MigrationActionResponse(
+        status=str(result.get("status") or "running"),
+        message=str(result.get("message") or "Migração iniciada."),
+        pending=int(result.get("pending") or 0),
+    )
+
+
+@router.post("/migration/pause", response_model=MigrationActionResponse)
+async def migration_pause(
+    user: ClinicalUser = Depends(require_admin),
+) -> MigrationActionResponse:
+    result = pause_migration()
+    log_event("migration_pause", user.username, auth_method=user.auth_method)
+    return MigrationActionResponse(
+        status=str(result.get("status") or "paused"),
+        message=str(result.get("message") or "Migração pausada."),
+    )
+
+
+@router.post("/migration/reset", response_model=MigrationActionResponse)
+async def migration_reset(
+    user: ClinicalUser = Depends(require_admin),
+) -> MigrationActionResponse:
+    result = reset_migration()
+    log_event("migration_reset", user.username, auth_method=user.auth_method)
+    return MigrationActionResponse(status=str(result.get("status") or "idle"), message="Migração resetada.")
+
+
+@router.post("/hl7/test", response_model=Hl7TestResponse)
+async def test_hl7_orm(
+    body: Hl7TestRequest,
+    user: ClinicalUser = Depends(require_admin),
+) -> Hl7TestResponse:
+    parsed_obj = parse_orm_message(body.message)
+    parsed = {
+        "message_id": parsed_obj.message_id,
+        "message_type": parsed_obj.message_type,
+        "order_control": parsed_obj.order_control,
+        "accession_number": parsed_obj.accession_number,
+        "patient_id": parsed_obj.patient_id,
+        "patient_name": parsed_obj.patient_name,
+        "modality": parsed_obj.modality,
+        "station_aet": parsed_obj.station_aet,
+        "procedure_description": parsed_obj.procedure_description,
+        "scheduled_date": parsed_obj.scheduled_date.isoformat(),
+        "is_cancel": parsed_obj.is_cancel,
+    }
+    result = None
+    if body.apply:
+        result = process_hl7_orm(body.message, actor=user.username)
+        log_event(
+            "hl7_orm",
+            user.username,
+            accession=parsed_obj.accession_number,
+            control=parsed_obj.order_control,
+            auth_method=user.auth_method,
+        )
+    return Hl7TestResponse(parsed=parsed, applied=body.apply, result=result)
 
 
 @router.get("/stats", response_model=PacsStatsResponse)

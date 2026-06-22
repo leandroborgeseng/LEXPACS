@@ -1,0 +1,24 @@
+# Edge TLS — LEX PACS (standalone, fora do Coolify)
+#
+# Variáveis (docker-compose.tls.yml):
+#   LEX_PACS_DOMAIN   — FQDN público (ex.: pacs.hospital.com)
+#   LETSENCRYPT_EMAIL — e-mail para avisos Let's Encrypt
+#
+# Caddy obtém e renova certificados automaticamente (HTTP-01 na :80).
+# Requer DNS apontando para este servidor e portas 80/443 abertas.
+
+{
+	email {$LETSENCRYPT_EMAIL}
+}
+
+{$LEX_PACS_DOMAIN} {
+	encode gzip zstd
+
+	reverse_proxy gateway:80 {
+		header_up Host {host}
+		header_up X-Real-IP {remote_host}
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+		header_up X-Forwarded-Host {host}
+	}
+}

@@ -14,6 +14,7 @@
 | [../ohif-viewer/.env.example](../ohif-viewer/.env.example) | Variáveis de ambiente |
 | [I18N.md](./I18N.md) | **Traduções (pt-BR, en-US, es)** |
 | [COOLIFY.md](./COOLIFY.md) | **Deploy Docker no Coolify** |
+| [ROADMAP-PACS-MERCADO.md](./ROADMAP-PACS-MERCADO.md) | **Paridade PACS + integração RIS (não RIS)** |
 | [BACKUP.md](./BACKUP.md) | **Backup, retenção 7+4 e restore** |
 
 ---
@@ -49,6 +50,8 @@
 | **E13** | MWL DICOM + sync SQL | `./scripts/smoke-test.sh E13` |
 | **E14** | SSO OIDC (Keycloak) + Basic em transição | Token Bearer na API clínica |
 | **E15** | Auditoria estruturada | `GET /clinica-api/admin/pacs/audit` |
+| **E16** | Segurança DICOM 4242 (whitelist AE/IP) | `./scripts/smoke-test.sh E16` · [ROADMAP-PACS-MERCADO.md](./ROADMAP-PACS-MERCADO.md) |
+| **E18** | HL7 ORM → MWL (MLLP 2575) | `./scripts/smoke-test.sh E18` |
 | **i18n** | Traduções pt-BR, en-US, es (viewer, portal, login clínico) | `?lng=en-US` / `docs/I18N.md` |
 | **Tema** | Modo claro e escuro + botão de alternância (viewer, portal, clínica) | `localStorage lex-theme`; ver `docs/I18N.md` § tema |
 
@@ -419,7 +422,9 @@ Atualize esta tabela ao concluir cada etapa:
 | Onda D | Concluído | 2026-06 | OIDC redirect, papéis UI, laudo por perfil |
 | i18n | Concluído | 2026-06 | pt-BR, en-US, es — `locales/` + sync |
 | Tema claro/escuro | Concluído | 2026-06 | Viewer + portal + clínica |
+| E16 | Concluído | 2026-06 | Segurança DICOM 4242 |
+| E18 | Concluído | 2026-06 | HL7 ORM → MWL (MLLP 2575) |
 
 ---
 
-*Próximo passo sugerido: **i18n fase 2** (códigos de erro API) ou **E11b** (ICP-Brasil) conforme demanda clínica.*
+*Próximo passo sugerido: **E19** (MPPS) ou **E17** (DICOM TLS) — ver [ROADMAP-PACS-MERCADO.md](./ROADMAP-PACS-MERCADO.md).*

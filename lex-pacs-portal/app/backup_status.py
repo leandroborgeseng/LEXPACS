@@ -5,15 +5,11 @@ from pathlib import Path
 from typing import Any
 
 from .config import settings
+from .portal_settings import get_backup_policy
 
 
 def _retention_fields() -> dict[str, int]:
-    return {
-        "retention_days": settings.backup_retention_days,
-        "retention_daily": settings.backup_retention_daily,
-        "retention_weekly": settings.backup_retention_weekly,
-        "interval_hours": settings.backup_interval_hours,
-    }
+    return get_backup_policy()
 
 
 def get_backup_status() -> dict[str, Any]:

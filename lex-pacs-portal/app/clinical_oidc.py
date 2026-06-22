@@ -58,7 +58,7 @@ def oidc_public_config() -> dict[str, Any]:
         login_url = f"{issuer}/protocol/openid-connect/auth?{params}"
     return {
         "enabled": settings.oidc_enabled,
-        "issuer": settings.oidc_issuer_url if settings.oidc_enabled else "",
+        "issuer": issuer,
         "public_issuer": issuer,
         "client_id": settings.oidc_client_id if settings.oidc_enabled else "",
         "redirect_uri": redirect_uri,

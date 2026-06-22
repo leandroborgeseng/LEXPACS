@@ -139,8 +139,10 @@ services:
       - ./LEX_PACS_VERSION:/compose/LEX_PACS_VERSION:ro
       - ./docker-compose.yml:/compose/docker-compose.yml:ro
       - ./nginx/.htpasswd:/compose/nginx/.htpasswd:ro
+      - server-config:/orthanc-config:ro
     environment:
       BACKUP_ROOT: /backups
+      PORTAL_OPS_ENV: /orthanc-config/portal-ops.env
       BACKUP_INTERVAL_HOURS: ${BACKUP_INTERVAL_HOURS:-24}
       BACKUP_RETENTION_DAILY: ${BACKUP_RETENTION_DAILY:-7}
       BACKUP_RETENTION_WEEKLY: ${BACKUP_RETENTION_WEEKLY:-4}
@@ -149,7 +151,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-orthanc}
       POSTGRES_DB: ${POSTGRES_DB:-orthanc}
     working_dir: /compose
-    entrypoint: ["/bin/sh", "/scripts/backup-scheduler.sh"]
+    entrypoint: ["/bin/sh", "-c", "apk add --no-cache python3 >/dev/null 2>&1 && exec /scripts/backup-scheduler.sh"]
     depends_on:
       database:
         condition: service_healthy

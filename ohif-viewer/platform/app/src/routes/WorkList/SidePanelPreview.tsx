@@ -3,8 +3,6 @@ import React from 'react';
 import { StudyList, type StudyRow } from '@ohif/ui-next';
 import { useSeriesFetch } from '../../hooks';
 
-import { StudyListSettingsPopover } from './StudyListSettingsPopover';
-
 type PreviewSeriesView = 'all' | 'thumbnails' | 'list';
 const ALLOWED_PREVIEW_SERIES_VIEWS: ReadonlyArray<PreviewSeriesView> = [
   'all',
@@ -76,7 +74,6 @@ function DefaultPreviewContent({
   return (
     <StudyList.PreviewContainer>
       <StudyList.PreviewHeader>
-        <StudyListSettingsPopover />
         <StudyList.ClosePreviewButton />
       </StudyList.PreviewHeader>
       <StudyList.PreviewContent

@@ -16,12 +16,29 @@ PACS clínico white-label — visualizador DICOM, worklist, laudos, portal do pa
 | [docs/UPGRADE.md](docs/UPGRADE.md) | Upgrade e rollback |
 | [ohif-viewer/.env.example](ohif-viewer/.env.example) | Variáveis de ambiente |
 
-## Início rápido
+## Início rápido (Linux com Docker)
+
+**Dependências no servidor:** apenas [Docker Engine](https://docs.docker.com/engine/install/) e o plugin **Docker Compose v2** (`docker compose`). Não é necessário Node.js, Python nem nginx no host (opcional para proxy na porta 80).
 
 ```bash
-cd ohif-viewer
-cp .env.example .env
-docker compose up -d
+git clone <url-do-repositorio> lex-pacs && cd lex-pacs
+cp .env.coolify.example .env.coolify
+# Edite .env.coolify (URL, senhas, OIDC)
+./scripts/validate-coolify-env.sh
+
+# Desenvolvimento / teste local (porta 3000)
+docker compose -f docker-compose.coolify.yml \
+  -f docker-compose.coolify.local.yml \
+  --env-file .env.coolify up -d --build
+
+# Produção em VPS (TLS 80/443 com Caddy)
+# docker compose -f docker-compose.coolify.yml -f docker-compose.tls.yml --env-file .env.coolify up -d --build
 ```
 
-Acesso: `http://localhost:3000`
+Acesso local: `http://localhost:3000` · Login clínico: `/clinica/login` · Portal paciente: `/paciente/`
+
+Portas úteis (override local): **3000** HTTP gateway, **4242** DICOM, **8042** Orthanc (admin), **2575** HL7 MLLP.
+
+Guia completo: [docs/COOLIFY.md](docs/COOLIFY.md)
+
+## Início rápido (legado ohif-viewer)

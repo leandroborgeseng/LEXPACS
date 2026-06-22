@@ -1,6 +1,4 @@
 import React, { useState, createContext, useContext, useCallback, useEffect } from 'react';
-import { useTranslation } from 'react-i18next';
-
 interface ModalOptions {
   title?: string;
   shouldCloseOnEsc?: boolean;
@@ -53,7 +51,6 @@ const ModalProvider: React.FC<ModalProviderProps> = ({
   modal: ModalComponent,
   service = null,
 }) => {
-  const { t } = useTranslation('Modals');
   const [options, setOptions] = useState<ModalOptions>(DEFAULT_OPTIONS);
 
   const ModalContent = options.content;
@@ -83,7 +80,7 @@ const ModalProvider: React.FC<ModalProviderProps> = ({
         <RenderedModal
           isOpen={true}
           onClose={hide}
-          title={t(title)}
+          title={title}
           {...options}
         >
           <ModalContent

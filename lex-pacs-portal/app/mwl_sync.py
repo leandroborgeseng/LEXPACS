@@ -1,36 +1,20 @@
 from __future__ import annotations
 
-import json
 import re
 from pathlib import Path
 from typing import Any
 
 import httpx
-import psycopg2
-from fastapi import HTTPException, status
-from psycopg2.extras import RealDictCursor
 from pydicom.dataset import Dataset, FileDataset
 from pydicom.sequence import Sequence
 from pydicom.uid import ExplicitVRLittleEndian, generate_uid
 
 from .config import settings
-from .mwl_sql import mwl_sql_connection_params
+from .mwl_fetch import fetch_mwl_source_rows
 from .pacs_config import _read_config as read_orthanc_config, _write_config as write_orthanc_config
 
 MWL_PLUGIN = "/usr/local/share/orthanc/plugins/libModalityWorklists.so"
 WORKLIST_DIR = Path(settings.orthanc_worklist_path)
-SCHEMA_SQL = """
-CREATE TABLE IF NOT EXISTS lex_mwl_schedule (
-    id SERIAL PRIMARY KEY,
-    accession_number VARCHAR(32) NOT NULL UNIQUE,
-    patient_id VARCHAR(64) NOT NULL,
-    patient_name VARCHAR(128) NOT NULL,
-    modality VARCHAR(16) NOT NULL,
-    station_aet VARCHAR(16) NOT NULL,
-    procedure_description VARCHAR(128) NOT NULL DEFAULT '',
-    scheduled_date DATE NOT NULL DEFAULT CURRENT_DATE
-);
-"""
 
 
 def ensure_mwl_plugin_config() -> bool:
@@ -57,14 +41,10 @@ def ensure_mwl_plugin_config() -> bool:
     return changed
 
 
-def _safe_filename(accession: str) -> str:
-    cleaned = re.sub(r"[^A-Za-z0-9_-]", "_", accession.strip())[:48]
-    return cleaned or "entry"
-
-
 def _write_worklist_file(row: dict[str, Any]) -> Path:
     accession = str(row.get("accession_number", "")).strip()
-    filename = f"lex-{_safe_filename(accession)}.wl"
+    cleaned = re.sub(r"[^A-Za-z0-9_-]", "_", accession)[:48] or "entry"
+    filename = f"lex-{cleaned}.wl"
     target = WORKLIST_DIR / filename
 
     scheduled_date = row.get("scheduled_date")
@@ -113,41 +93,8 @@ def _purge_lex_worklists() -> int:
     return removed
 
 
-def _ensure_schema(conn: psycopg2.extensions.connection) -> None:
-    with conn.cursor() as cur:
-        cur.execute(SCHEMA_SQL)
-        cur.execute(
-            """
-            INSERT INTO lex_mwl_schedule (
-                accession_number, patient_id, patient_name, modality,
-                station_aet, procedure_description, scheduled_date
-            ) VALUES
-                ('LEXMWL001', 'MWLTEST01', 'Paciente^MWL Teste', 'DX', 'RX_SALA1', 'Raio-X sala 1', CURRENT_DATE),
-                ('LEXMWL002', 'MWLTEST02', 'Paciente^MWL CT', 'CT', 'CT_SALA1', 'Tomografia', CURRENT_DATE)
-            ON CONFLICT (accession_number) DO NOTHING
-            """
-        )
-    conn.commit()
-
-
 def fetch_sql_rows() -> list[dict[str, Any]]:
-    params = mwl_sql_connection_params()
-    table = params.pop("table")
-    conn = psycopg2.connect(**params)
-    try:
-        _ensure_schema(conn)
-        query = f"""
-            SELECT accession_number, patient_id, patient_name, modality,
-                   station_aet, procedure_description, scheduled_date
-            FROM {table}
-            WHERE scheduled_date >= CURRENT_DATE - INTERVAL '1 day'
-            ORDER BY scheduled_date, accession_number
-        """
-        with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute(query)
-            return [dict(row) for row in cur.fetchall()]
-    finally:
-        conn.close()
+    return fetch_mwl_source_rows()
 
 
 def sync_mwl_from_sql() -> dict[str, Any]:

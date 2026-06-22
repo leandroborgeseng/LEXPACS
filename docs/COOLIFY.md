@@ -47,6 +47,13 @@ flowchart TB
 | Portal → auth (rede Docker) | `http://auth:8080/auth/realms/lex-pacs` |
 | Admin SSO | `https://pacs.seudominio.com/auth/admin` |
 
+Detalhes da rede interna, proxy no host e validação: **[REDE-DOCKER.md](REDE-DOCKER.md)**.
+
+```bash
+./scripts/check-docker-network.sh
+GATEWAY_URL=https://pacs.seudominio.com ./scripts/check-docker-network.sh
+```
+
 ---
 
 ## 1. Preparar o repositório
@@ -56,7 +63,9 @@ Arquivos relevantes:
 | Arquivo | Função |
 |---------|--------|
 | `docker-compose.coolify.yml` | Stack completo (fonte de verdade no Coolify) |
+| `docker-compose.tls.yml` | Edge Caddy 80/443 + Let's Encrypt (VPS standalone) |
 | `.env.coolify.example` | Modelo de variáveis |
+| `docs/TLS-E-DOMINIO.md` | Domínio, portas 80/443 e certificados |
 | `scripts/validate-coolify-env.sh` | Valida segredos antes do deploy |
 
 ```bash
@@ -78,9 +87,11 @@ cp .env.coolify.example .env.coolify
 
 | Serviço | Domínio exemplo | HTTPS |
 |---------|-----------------|-------|
-| `gateway` | `pacs.hospital.com` | Ativado (Let's Encrypt) |
+| `gateway` | `pacs.hospital.com` | Ativado (Let's Encrypt via Traefik) |
 
 **Não** atribua domínio ao serviço `auth`. Acesso SSO em `https://pacs.hospital.com/auth/`.
+
+**Não** use `docker-compose.tls.yml` no Coolify — o Traefik já expõe **80/443** e emite certificados. Para VPS sem Coolify, veja [TLS-E-DOMINIO.md](./TLS-E-DOMINIO.md).
 
 ### Variáveis de ambiente (aba Environment)
 
@@ -260,6 +271,7 @@ Depois acesse `http://localhost/clinica/login` (porta 80). No **Coolify**, não 
 
 ## Referências
 
+- [TLS-E-DOMINIO.md](./TLS-E-DOMINIO.md)
 - [BACKUP.md](./BACKUP.md)
 - [UPGRADE.md](./UPGRADE.md)
 - [MANUAL-LEX-PACS.md](./MANUAL-LEX-PACS.md)

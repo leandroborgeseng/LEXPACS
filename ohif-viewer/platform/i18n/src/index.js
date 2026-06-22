@@ -8,10 +8,48 @@ import customDebug from './debugger';
 import pkg from '../package.json';
 import { debugMode, detectionOptions } from './config';
 import { getLanguageLabel, getAvailableLanguagesInfo } from './utils.js';
+import {
+  DEFAULT_LANGUAGE,
+  FALLBACK_LANGUAGE,
+  LEX_SUPPORTED_LANGUAGES,
+} from './lexLanguages.js';
 
 // Note: The index.js files inside src/locales are dynamically generated
 // by the pullTranslations.sh script
 import locales from './locales';
+
+/** OHIF usa keySeparator: false — chaves com ponto são literais, não caminhos aninhados. */
+function flattenNamespaceMessages(messages, prefix = '') {
+  const flat = {};
+
+  Object.entries(messages).forEach(([key, value]) => {
+    const flatKey = prefix ? `${prefix}.${key}` : key;
+
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      Object.assign(flat, flattenNamespaceMessages(value, flatKey));
+    } else {
+      flat[flatKey] = value;
+    }
+  });
+
+  return flat;
+}
+
+function flattenLexPacsResources(resources) {
+  const normalized = {};
+
+  Object.entries(resources).forEach(([language, namespaces]) => {
+    normalized[language] = { ...namespaces };
+
+    if (namespaces?.LexPacs) {
+      normalized[language].LexPacs = flattenNamespaceMessages(namespaces.LexPacs);
+    }
+  });
+
+  return normalized;
+}
+
+const bundledLocales = flattenLexPacsResources(locales);
 
 function addLocales(newLocales) {
   customDebug(`Adding locales ${newLocales}`, 'info');
@@ -20,7 +58,10 @@ function addLocales(newLocales) {
 
   Object.keys(newLocales).map(key => {
     Object.keys(newLocales[key]).map(namespace => {
-      const locale = newLocales[key][namespace];
+      let locale = newLocales[key][namespace];
+      if (namespace === 'LexPacs') {
+        locale = flattenNamespaceMessages(locale);
+      }
       resourceBundle.push({ key, namespace, locale });
       i18n.addResourceBundle(key, namespace, locale, true, true);
     });
@@ -44,7 +85,6 @@ const locizeOptions = {
 
 const envUseLocize = !!process.env.USE_LOCIZE;
 const envApiKeyAvailable = !!process.env.LOCIZE_API_KEY;
-const DEFAULT_LANGUAGE = 'en-US';
 
 function initI18n(
   detection = detectionOptions,
@@ -77,7 +117,8 @@ function initI18n(
       // init i18next
       // for all options read: https://www.i18next.com/overview/configuration-options
       .init({
-        fallbackLng: DEFAULT_LANGUAGE,
+        lng: DEFAULT_LANGUAGE,
+        fallbackLng: FALLBACK_LANGUAGE,
         saveMissing: apiKeyAvailable,
         debug: debugMode,
         keySeparator: false,
@@ -113,8 +154,9 @@ function initI18n(
       // init i18next
       // for all options read: https://www.i18next.com/overview/configuration-options
       .init({
-        fallbackLng: DEFAULT_LANGUAGE,
-        resources: locales,
+        lng: DEFAULT_LANGUAGE,
+        fallbackLng: FALLBACK_LANGUAGE,
+        resources: bundledLocales,
         debug: debugMode,
         keySeparator: false,
         interpolation: {
@@ -138,7 +180,11 @@ customDebug(`version ${pkg.version} loaded.`, 'info');
 i18n.initializing = initI18n();
 i18n.initI18n = initI18n;
 i18n.addLocales = addLocales;
-i18n.availableLanguages = getAvailableLanguagesInfo(locales);
+i18n.availableLanguages = getAvailableLanguagesInfo(bundledLocales)
+  .filter(lang => LEX_SUPPORTED_LANGUAGES.includes(lang.value))
+  .sort(
+    (a, b) => LEX_SUPPORTED_LANGUAGES.indexOf(a.value) - LEX_SUPPORTED_LANGUAGES.indexOf(b.value)
+  );
 i18n.defaultLanguage = {
   label: getLanguageLabel(DEFAULT_LANGUAGE),
   value: DEFAULT_LANGUAGE,
@@ -148,4 +194,5 @@ i18n.currentLanguage = () => ({
   value: i18n.language,
 });
 
+export { DEFAULT_LANGUAGE, FALLBACK_LANGUAGE, LEX_SUPPORTED_LANGUAGES } from './lexLanguages.js';
 export default i18n;

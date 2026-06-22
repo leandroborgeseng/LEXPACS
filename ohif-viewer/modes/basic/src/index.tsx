@@ -288,7 +288,7 @@ export const basicLayout = {
     leftPanels: [ohif.thumbnailList],
     leftPanelResizable: true,
     rightPanels: [ohif.lexReport, cornerstone.segmentation, cornerstone.measurements],
-    rightPanelClosed: true,
+    rightPanelClosed: false,
     rightPanelResizable: true,
     viewports: [
       {

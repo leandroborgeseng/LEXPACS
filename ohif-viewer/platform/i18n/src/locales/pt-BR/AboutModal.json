@@ -11,5 +11,7 @@
   "Repository URL": "URL do repositório",
   "Value": "Valor",
   "Version information": "Informação da versão",
-  "Visit the forum": "Central de suporte"
+  "Visit the forum": "Central de suporte",
+  "Commit Hash": "Hash do commit",
+  "Current Browser & OS": "Navegador e SO atuais"
 }

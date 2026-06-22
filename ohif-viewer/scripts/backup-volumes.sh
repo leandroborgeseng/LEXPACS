@@ -108,4 +108,12 @@ root.mkdir(parents=True, exist_ok=True)
 (root / "latest-status.json").write_text(json.dumps(status, indent=2) + "\n")
 PY
 
+if vol_exists lex-pacs_lex-backups; then
+  echo "  • lex-pacs_lex-backups (latest-status.json)"
+  docker run --rm \
+    -v lex-pacs_lex-backups:/lex-backups \
+    -v "${BACKUP_ROOT}:/src:ro" \
+    alpine cp /src/latest-status.json /lex-backups/latest-status.json
+fi
+
 echo "Concluído: ${DEST}"
