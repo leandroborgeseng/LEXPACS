@@ -40,7 +40,7 @@ KEYCLOAK_URL="${KEYCLOAK_URL:-${GATEWAY_URL}/auth}"
 OIDC_CLIENT_SECRET="${OIDC_CLIENT_SECRET:-lex-clinical-dev-secret}"
 
 # Etapas com testes automatizados prontos
-IMPLEMENTED_STAGES=(E1 E2 E2b E2c E2d E3 E4 E5 E6 E7 E8 E9 E10 E11 E12 E13 E14 E15 E16 E18 S10 S11)
+IMPLEMENTED_STAGES=(E1 E2 E2b E2c E2d E3 E4 E5 E6 E7 E8 E9 E10 E11 E12 E13 E14 E15 E16 E18 E19 S10 S11)
 PENDING_STAGES=()
 
 if [ "${1:-}" = "--list" ]; then
@@ -590,6 +590,92 @@ except Exception:
     pass "MLLP ACK AA na porta ${HL7_PORT}"
   else
     skip "MLLP não acessível em ${HL7_HOST}:${HL7_PORT} (exponha 2575 no portal)"
+  fi
+  echo
+fi
+
+# ── E19 ──
+if should_run E19; then
+  echo "▶ E19 — MPPS → MWL"
+  mpps_status=$(curl_auth "${GATEWAY_URL}/clinica-api/admin/pacs/mpps/status")
+  if echo "$mpps_status" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get('config',{}).get('enabled') else 1)" 2>/dev/null; then
+    pass "MPPS habilitado"
+  else
+    fail "MPPS desabilitado"
+  fi
+
+  E19_ACCESSION="ACC_E19_$(date +%s)"
+  ORM_E19=$'MSH|^~\\&|RIS|CLINICA|LEXPACS|LEX|'"$(date +%Y%m%d%H%M%S)"$'||ORM^O01|E19MSG|P|2.5\r\nPID|1||E19PAT^^^CLINIC||SMOKE^E19||19850101|M\r\nORC|NW|PL'"${E19_ACCESSION}"$'|'"${E19_ACCESSION}"$'|||||||'"$(date +%Y%m%d%H%M%S)"$'\r\nOBR|1|PL'"${E19_ACCESSION}"$'|'"${E19_ACCESSION}"$'|DXCHEST^RX TORAX|||||||||'"$(date +%Y%m%d%H%M%S)"$'||||||||DX|'"$(date +%Y%m%d%H%M%S)"$'||||F\r'
+  test_body=$(ORM_MSG="$ORM_E19" python3 -c 'import json, os; print(json.dumps({"message": os.environ["ORM_MSG"], "apply": True}))')
+  curl_auth -X POST "${GATEWAY_URL}/clinica-api/admin/pacs/hl7/test" \
+    -H "Content-Type: application/json" \
+    -d "$test_body" >/dev/null
+
+  mwl_before=$(curl_auth "${GATEWAY_URL}/clinica-api/admin/pacs/mwl/entries")
+  if echo "$mwl_before" | python3 -c "import sys,json; acc='${E19_ACCESSION}'; entries=json.load(sys.stdin).get('entries',[]); sys.exit(0 if any(e.get('accession_number')==acc for e in entries) else 1)" 2>/dev/null; then
+    pass "Entrada MWL criada para teste MPPS"
+  else
+    fail "Entrada MWL ausente antes do MPPS"
+  fi
+
+  sim_body=$(python3 -c "import json; print(json.dumps({'accession_number': '${E19_ACCESSION}'}))")
+  sim_resp=$(curl_auth -X POST "${GATEWAY_URL}/clinica-api/admin/pacs/mpps/simulate" \
+    -H "Content-Type: application/json" \
+    -d "$sim_body")
+  if echo "$sim_resp" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get('applied') else 1)" 2>/dev/null; then
+    pass "Simulação MPPS COMPLETED aplicada"
+  else
+    fail "Simulação MPPS falhou"
+  fi
+
+  mwl_after=$(curl_auth "${GATEWAY_URL}/clinica-api/admin/pacs/mwl/entries")
+  if echo "$mwl_after" | python3 -c "import sys,json; acc='${E19_ACCESSION}'; entries=json.load(sys.stdin).get('entries',[]); sys.exit(1 if any(e.get('accession_number')==acc for e in entries) else 0)" 2>/dev/null; then
+    pass "Entrada MWL removida após MPPS"
+  else
+    fail "Entrada MWL ainda presente após MPPS"
+  fi
+
+  MPPS_HOST="${MPPS_HOST:-127.0.0.1}"
+  MPPS_PORT="${MPPS_PORT:-4243}"
+  MPPS_AET="${MPPS_AET:-LEXMPPS}"
+  DIMSE_ACC="DIMSE_${E19_ACCESSION}"
+  if docker exec portal python3 -c "
+from pydicom.dataset import Dataset
+from pydicom.uid import generate_uid
+from pynetdicom import AE
+from pynetdicom.sop_class import ModalityPerformedProcedureStep
+import sys
+
+acc = '${DIMSE_ACC}'
+ae = AE(ae_title='SMOKE_SCU')
+ae.add_requested_context(ModalityPerformedProcedureStep)
+assoc = ae.associate('127.0.0.1', int('${MPPS_PORT}'), ae_title='${MPPS_AET}')
+if not assoc.is_established:
+    sys.exit(2)
+uid = generate_uid()
+ds = Dataset()
+ds.PerformedProcedureStepStatus = 'IN PROGRESS'
+ds.PatientName = 'MPPS^SMOKE'
+ds.PatientID = 'MPPS01'
+ds.AccessionNumber = acc
+sps = Dataset()
+sps.AccessionNumber = acc
+sps.ScheduledProcedureStepID = 'SPS1'
+sps.StudyInstanceUID = generate_uid()
+ds.ScheduledStepAttributesSequence = [sps]
+status, _ = assoc.send_n_create_request(ModalityPerformedProcedureStep, uid, ds)
+if status and status.Status != 0x0000:
+    assoc.release()
+    sys.exit(3)
+mod = Dataset()
+mod.PerformedProcedureStepStatus = 'COMPLETED'
+status, _ = assoc.send_n_set_request(uid, mod)
+assoc.release()
+sys.exit(0 if status and status.Status == 0x0000 else 4)
+" 2>/dev/null; then
+    pass "MPPS DIMSE N-CREATE/N-SET na porta ${MPPS_PORT}"
+  else
+    skip "MPPS DIMSE não acessível (portal sem pynetdicom ou porta ${MPPS_PORT})"
   fi
   echo
 fi

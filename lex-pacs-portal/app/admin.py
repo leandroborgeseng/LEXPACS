@@ -25,6 +25,9 @@ from .backup_trigger import clear_backup_trigger, request_backup
 from .hl7_orm import parse_orm_message, process_hl7_orm
 from .hl7_mllp import restart_hl7_mllp_server
 from .hl7_settings import get_hl7_config, get_hl7_stats, save_hl7_config
+from .mpps_server import mpps_server_running, restart_mpps_server
+from .mpps_settings import get_mpps_config, get_mpps_stats, save_mpps_config
+from .mpps_service import simulate_mpps_complete
 from .pacs_config import get_pacs_settings, update_server_settings
 from .pacs_stats import collect_pacs_stats
 from .portal_settings import get_portal_ops, save_portal_ops
@@ -281,6 +284,44 @@ class Hl7TestResponse(BaseModel):
     parsed: dict
     applied: bool = False
     result: dict | None = None
+
+
+class MppsConfigResponse(BaseModel):
+    enabled: bool = True
+    listen_host: str = "0.0.0.0"
+    listen_port: int = 4243
+    aet: str = "LEXMPPS"
+    auto_complete_mwl: bool = True
+    complete_on_discontinued: bool = False
+
+
+class MppsStatsResponse(BaseModel):
+    messages_total: int = 0
+    completed_total: int = 0
+    mwl_removed_total: int = 0
+    last_at: str = ""
+    last_accession: str = ""
+    last_status: str = ""
+    last_actor: str = ""
+    last_error: str = ""
+
+
+class MppsStatusResponse(BaseModel):
+    config: MppsConfigResponse
+    stats: MppsStatsResponse
+    server_running: bool = False
+
+
+class MppsSimulateRequest(BaseModel):
+    accession_number: str = Field(min_length=1, max_length=32)
+
+
+class MppsSimulateResponse(BaseModel):
+    applied: bool
+    accession: str = ""
+    mwl_deleted: bool = False
+    worklist_file_removed: bool = False
+    reason: str = ""
 
 
 class PortalOpsResponse(BaseModel):
@@ -739,6 +780,49 @@ async def write_hl7_config(
     restart_hl7_mllp_server()
     log_event("hl7_config", user.username, auth_method=user.auth_method)
     return Hl7ConfigResponse(**saved)
+
+
+@router.get("/mpps/status", response_model=MppsStatusResponse)
+async def read_mpps_status(
+    _: ClinicalUser = Depends(require_clinical_user),
+) -> MppsStatusResponse:
+    return MppsStatusResponse(
+        config=MppsConfigResponse(**get_mpps_config()),
+        stats=MppsStatsResponse(**get_mpps_stats()),
+        server_running=mpps_server_running(),
+    )
+
+
+@router.put("/mpps/config", response_model=MppsConfigResponse)
+async def write_mpps_config(
+    body: MppsConfigResponse,
+    user: ClinicalUser = Depends(require_admin),
+) -> MppsConfigResponse:
+    saved = save_mpps_config(body.model_dump())
+    restart_mpps_server()
+    log_event("mpps_config", user.username, auth_method=user.auth_method)
+    return MppsConfigResponse(**saved)
+
+
+@router.post("/mpps/simulate", response_model=MppsSimulateResponse)
+async def simulate_mpps(
+    body: MppsSimulateRequest,
+    user: ClinicalUser = Depends(require_admin),
+) -> MppsSimulateResponse:
+    result = simulate_mpps_complete(body.accession_number, actor=user.username)
+    log_event(
+        "mpps_simulate",
+        user.username,
+        accession=body.accession_number,
+        auth_method=user.auth_method,
+    )
+    return MppsSimulateResponse(
+        applied=bool(result.get("applied")),
+        accession=str(result.get("accession") or body.accession_number),
+        mwl_deleted=bool(result.get("mwl_deleted")),
+        worklist_file_removed=bool(result.get("worklist_file_removed")),
+        reason=str(result.get("reason") or ""),
+    )
 
 
 @router.get("/portal-ops", response_model=PortalOpsResponse)

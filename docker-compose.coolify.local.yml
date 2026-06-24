@@ -12,3 +12,4 @@ services:
   portal:
     ports:
       - "${HL7_ORM_PORT:-2575}:2575"
+      - "${MPPS_PORT:-4243}:4243"

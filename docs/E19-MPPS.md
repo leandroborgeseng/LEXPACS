@@ -1,22 +1,31 @@
 # E19 — MPPS (Modality Performed Procedure Step)
 
-**Status:** planejado para v1.0 · base documentada
+**Status:** concluído (v0.9) · smoke `E19`
 
 ## Objetivo
 
-Receber **N-CREATE / N-SET** MPPS das modalidades para marcar procedimentos como realizados e alinhar worklist/RIS.
+Receber **N-CREATE / N-SET** MPPS das modalidades para marcar procedimentos como realizados e remover entradas da agenda MWL.
 
-## Situação atual (v0.8)
+## Entrega
 
-- MWL via plugin Worklists + SQL/HL7 ✅
-- MPPS SCP dedicado ❌ (não habilitado no `orthanc.base.json`)
+- Servidor **MPPS SCP** no portal (`pynetdicom`) — porta **4243** (AET padrão `LEXMPPS`)
+- Ao receber status **COMPLETED** (ou **DISCONTINUED**, se habilitado), remove linha em `lex_mwl_schedule` e arquivo `.wl`
+- API admin: `GET/PUT /clinica-api/admin/pacs/mpps/*`, `POST .../mpps/simulate`
+- UI: aba **Integração → MPPS** nas Configurações do Servidor
 
-## Próximo passo técnico
+## Configurar modalidade
 
-1. Verificar plugin MPPS na imagem `jodogne/orthanc-plugins` (ou build custom)
-2. Adicionar em `Plugins` e configurar seção `ModalityPerformedProcedureStep` no `orthanc.json`
-3. Portal: endpoint interno ou job que atualiza `lex_mwl_schedule` / auditoria ao receber MPPS
-4. Smoke test `E19` em `ohif-viewer/scripts/smoke-test.sh`
+| Campo | Valor típico |
+|-------|----------------|
+| MPPS AE Title | `LEXMPPS` |
+| Host | IP do servidor LEX PACS |
+| Porta | `4243` (não usar 4242 — Orthanc C-STORE) |
+
+## Teste
+
+```bash
+./ohif-viewer/scripts/smoke-test.sh E19
+```
 
 ## Integração RIS
 
@@ -24,7 +33,3 @@ Receber **N-CREATE / N-SET** MPPS das modalidades para marcar procedimentos como
 |-------|-----|
 | DICOM MPPS | Modalidade → PACS (padrão DICOM) |
 | HL7 ORU/ORM | Opcional: PACS → RIS após MPPS (fase posterior) |
-
-## Homologação sem MPPS
-
-Clínicas que só precisam de armazenamento + MWL + laudo podem operar sem MPPS; equipamentos que exigem MPPS devem aguardar E19 ou usar gateway DICOM externo.

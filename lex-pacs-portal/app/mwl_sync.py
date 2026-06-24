@@ -93,6 +93,21 @@ def _purge_lex_worklists() -> int:
     return removed
 
 
+def remove_worklist_file(accession: str) -> bool:
+    accession = str(accession or "").strip()
+    if not accession:
+        return False
+    cleaned = re.sub(r"[^A-Za-z0-9_-]", "_", accession)[:48] or "entry"
+    target = WORKLIST_DIR / f"lex-{cleaned}.wl"
+    if not target.is_file():
+        return False
+    try:
+        target.unlink()
+        return True
+    except OSError:
+        return False
+
+
 def fetch_sql_rows() -> list[dict[str, Any]]:
     return fetch_mwl_source_rows()
 

@@ -184,6 +184,30 @@ type AdStatus = {
   lex_groups: string[];
 };
 
+type MppsConfig = {
+  enabled: boolean;
+  listen_host: string;
+  listen_port: number;
+  aet: string;
+  auto_complete_mwl: boolean;
+  complete_on_discontinued: boolean;
+};
+
+type MppsStatus = {
+  config: MppsConfig;
+  stats: {
+    messages_total: number;
+    completed_total: number;
+    mwl_removed_total: number;
+    last_at: string;
+    last_accession: string;
+    last_status: string;
+    last_actor: string;
+    last_error: string;
+  };
+  server_running: boolean;
+};
+
 type PortalOps = {
   backup_interval_hours: number;
   backup_retention_daily: number;
@@ -209,6 +233,15 @@ const emptyHl7Config = (): Hl7Config => ({
   default_station_aet: '',
   sending_application: 'LEXPACS',
   sending_facility: 'LEX',
+});
+
+const emptyMppsConfig = (): MppsConfig => ({
+  enabled: true,
+  listen_host: '0.0.0.0',
+  listen_port: 4243,
+  aet: 'LEXMPPS',
+  auto_complete_mwl: true,
+  complete_on_discontinued: false,
 });
 
 const emptyAdConfig = (): AdConfig => ({
@@ -448,6 +481,8 @@ export function PacsSettingsModal({ hide, mode = 'modal' }: PacsSettingsModalPro
   const [hl7TestApply, setHl7TestApply] = useState(true);
   const [adStatus, setAdStatus] = useState<AdStatus | null>(null);
   const [adConfig, setAdConfig] = useState<AdConfig>(emptyAdConfig);
+  const [mppsStatus, setMppsStatus] = useState<MppsStatus | null>(null);
+  const [mppsConfig, setMppsConfig] = useState<MppsConfig>(emptyMppsConfig);
   const [portalOps, setPortalOps] = useState<PortalOps>(emptyPortalOps);
   const [migrationLoading, setMigrationLoading] = useState(false);
   const [migrationStatus, setMigrationStatus] = useState<MigrationStatus | null>(null);
@@ -484,18 +519,20 @@ export function PacsSettingsModal({ hide, mode = 'modal' }: PacsSettingsModalPro
     setIntegrationLoading(true);
     setError('');
     try {
-      const [meRes, statusRes, entriesRes, hl7Res, adRes] = await Promise.all([
+      const [meRes, statusRes, entriesRes, hl7Res, adRes, mppsRes] = await Promise.all([
         fetch(AUTH_ME, { credentials: 'include' }),
         fetch(`${API_BASE}/mwl/status`, { credentials: 'include' }),
         fetch(`${API_BASE}/mwl/entries`, { credentials: 'include' }),
         fetch(`${API_BASE}/hl7/status`, { credentials: 'include' }),
         fetch(`${API_BASE}/ad/status`, { credentials: 'include' }),
+        fetch(`${API_BASE}/mpps/status`, { credentials: 'include' }),
       ]);
       const me = await meRes.json().catch(() => ({}));
       const status = await statusRes.json().catch(() => null);
       const entriesData = await entriesRes.json().catch(() => ({}));
       const hl7Data = await hl7Res.json().catch(() => null);
       const adData = await adRes.json().catch(() => null);
+      const mppsData = await mppsRes.json().catch(() => null);
 
       const permissions = me.permissions as { can_admin?: boolean } | undefined;
       setIsAdmin(Boolean(permissions?.can_admin));
@@ -515,6 +552,11 @@ export function PacsSettingsModal({ hide, mode = 'modal' }: PacsSettingsModalPro
         const ad = adData as AdStatus;
         setAdStatus(ad);
         setAdConfig({ ...emptyAdConfig(), ...ad.config });
+      }
+      if (mppsRes.ok && mppsData) {
+        const mpps = mppsData as MppsStatus;
+        setMppsStatus(mpps);
+        setMppsConfig({ ...emptyMppsConfig(), ...mpps.config });
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : t('pacsSettings.errors.loadIntegration'));
@@ -939,6 +981,34 @@ export function PacsSettingsModal({ hide, mode = 'modal' }: PacsSettingsModalPro
       await loadIntegrationData();
     } catch (err) {
       setError(err instanceof Error ? err.message : t('pacsSettings.errors.adSync'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSaveMpps = async () => {
+    if (!isAdmin) {
+      return;
+    }
+    setSaving(true);
+    setError('');
+    setMessage('');
+    try {
+      const response = await fetch(`${API_BASE}/mpps/config`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(mppsConfig),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.detail || t('pacsSettings.errors.saveMpps'));
+      }
+      setMppsConfig({ ...emptyMppsConfig(), ...data });
+      setMessage(t('pacsSettings.messages.mppsSaved'));
+      await loadIntegrationData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('pacsSettings.errors.saveMpps'));
     } finally {
       setSaving(false);
     }
@@ -2183,6 +2253,117 @@ export function PacsSettingsModal({ hide, mode = 'modal' }: PacsSettingsModalPro
                             disabled={saving}
                           >
                             {t('pacsSettings.saveAd')}
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="border-border rounded border p-3 text-sm">
+                    <p className="font-medium">{t('pacsSettings.mppsTitle')}</p>
+                    <p className="text-muted-foreground mt-1 text-xs">{t('pacsSettings.mppsHint')}</p>
+                    {mppsStatus ? (
+                      <>
+                        <p className="text-muted-foreground mt-2 text-xs">
+                          {mppsConfig.enabled
+                            ? t('pacsSettings.mppsEnabled', {
+                                aet: mppsConfig.aet,
+                                port: mppsConfig.listen_port,
+                              })
+                            : t('pacsSettings.mppsDisabled')}
+                          {mppsStatus.server_running
+                            ? ` · ${t('pacsSettings.mppsRunning')}`
+                            : ` · ${t('pacsSettings.mppsStopped')}`}
+                        </p>
+                        <p className="text-muted-foreground text-xs">
+                          {t('pacsSettings.mppsStats', {
+                            messages: mppsStatus.stats.messages_total,
+                            completed: mppsStatus.stats.completed_total,
+                            removed: mppsStatus.stats.mwl_removed_total,
+                          })}
+                        </p>
+                        {mppsStatus.stats.last_at ? (
+                          <p className="text-muted-foreground text-xs">
+                            {t('pacsSettings.mppsLast', {
+                              at: formatTs(mppsStatus.stats.last_at, i18n.language),
+                              accession: mppsStatus.stats.last_accession || '—',
+                              status: mppsStatus.stats.last_status || '—',
+                            })}
+                          </p>
+                        ) : null}
+                      </>
+                    ) : null}
+                  </div>
+
+                  <div className="border-border rounded border p-3">
+                    <p className="mb-2 text-sm font-medium">{t('pacsSettings.mppsConfigTitle')}</p>
+                    {!isAdmin ? (
+                      <p className="text-muted-foreground text-xs">{t('pacsSettings.opsAdminOnly')}</p>
+                    ) : (
+                      <div className="flex flex-col gap-2">
+                        <label className="flex items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={mppsConfig.enabled}
+                            onChange={e => setMppsConfig(prev => ({ ...prev, enabled: e.target.checked }))}
+                          />
+                          {t('pacsSettings.mppsEnabledToggle')}
+                        </label>
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                          <label className="flex flex-col gap-1 text-xs">
+                            {t('pacsSettings.mppsAet')}
+                            <Input
+                              value={mppsConfig.aet}
+                              onChange={e =>
+                                setMppsConfig(prev => ({ ...prev, aet: e.target.value.toUpperCase() }))
+                              }
+                              maxLength={16}
+                            />
+                          </label>
+                          <label className="flex flex-col gap-1 text-xs">
+                            {t('pacsSettings.mppsListenPort')}
+                            <Input
+                              type="number"
+                              value={mppsConfig.listen_port}
+                              onChange={e =>
+                                setMppsConfig(prev => ({
+                                  ...prev,
+                                  listen_port: Number(e.target.value) || 4243,
+                                }))
+                              }
+                            />
+                          </label>
+                        </div>
+                        <label className="flex items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={mppsConfig.auto_complete_mwl}
+                            onChange={e =>
+                              setMppsConfig(prev => ({ ...prev, auto_complete_mwl: e.target.checked }))
+                            }
+                          />
+                          {t('pacsSettings.mppsAutoComplete')}
+                        </label>
+                        <label className="flex items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={mppsConfig.complete_on_discontinued}
+                            onChange={e =>
+                              setMppsConfig(prev => ({
+                                ...prev,
+                                complete_on_discontinued: e.target.checked,
+                              }))
+                            }
+                          />
+                          {t('pacsSettings.mppsCompleteDiscontinued')}
+                        </label>
+                        <div className="flex justify-end">
+                          <Button
+                            size="sm"
+                            onClick={handleSaveMpps}
+                            disabled={saving}
+                          >
+                            {t('pacsSettings.saveMpps')}
                           </Button>
                         </div>
                       </div>

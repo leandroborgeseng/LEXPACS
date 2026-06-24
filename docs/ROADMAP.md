@@ -424,7 +424,9 @@ Atualize esta tabela ao concluir cada etapa:
 | Tema claro/escuro | Concluído | 2026-06 | Viewer + portal + clínica |
 | E16 | Concluído | 2026-06 | Segurança DICOM 4242 |
 | E18 | Concluído | 2026-06 | HL7 ORM → MWL (MLLP 2575) |
+| E19 | Concluído | 2026-06 | MPPS SCP porta 4243 |
+| AD | Concluído | 2026-06 | Integração Active Directory via Keycloak |
 
 ---
 
-*Próximo passo sugerido: **E19** (MPPS) ou **E17** (DICOM TLS) — ver [ROADMAP-PACS-MERCADO.md](./ROADMAP-PACS-MERCADO.md).*
+*Próximo passo sugerido: **E21** (Q/R DIMSE) ou **E17** (DICOM TLS) — ver [ROADMAP-PACS-MERCADO.md](./ROADMAP-PACS-MERCADO.md).*
