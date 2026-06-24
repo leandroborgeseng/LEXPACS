@@ -36,6 +36,8 @@ _DICOM_SECURITY_DEFAULTS = {
     "DicomAlwaysAllowStore": False,
     "DicomAlwaysAllowEcho": False,
     "DicomAlwaysAllowFind": False,
+    "DicomAlwaysAllowMove": False,
+    "DicomAlwaysAllowGet": False,
 }
 
 
@@ -111,10 +113,14 @@ def _apply_dicom_security_policy(config: dict, *, restrict_inbound: bool) -> Non
         config["DicomAlwaysAllowStore"] = False
         config["DicomAlwaysAllowEcho"] = False
         config["DicomAlwaysAllowFind"] = False
+        config["DicomAlwaysAllowMove"] = False
+        config["DicomAlwaysAllowGet"] = False
     else:
         config["DicomAlwaysAllowStore"] = True
         config["DicomAlwaysAllowEcho"] = True
         config["DicomAlwaysAllowFind"] = True
+        config["DicomAlwaysAllowMove"] = True
+        config["DicomAlwaysAllowGet"] = True
 
 
 def _sync_equipment_modalities(config: dict, equipment: list[dict]) -> None:
@@ -149,6 +155,7 @@ def _build_equipment_modalities_dict(equipment: list[dict]) -> dict[str, dict]:
             "AllowEcho": True,
             "AllowFind": True,
             "AllowMove": True,
+            "AllowGet": True,
         }
     return modalities
 

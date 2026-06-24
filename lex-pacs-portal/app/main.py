@@ -38,6 +38,7 @@ from .reports import router as reports_router
 from .bootstrap import bootstrap_runtime_files
 from .hl7_mllp import start_hl7_mllp_server
 from .mpps_server import start_mpps_server
+from .qr_service import apply_qr_orthanc_settings
 from .mwl_scheduler import start_mwl_scheduler
 from .orthanc_client import OrthancClient
 from .report_storage import get_patient_report, is_visible_to_patient, load_report, pdf_path
@@ -70,6 +71,7 @@ async def on_startup() -> None:
     start_mwl_scheduler()
     start_hl7_mllp_server()
     start_mpps_server()
+    apply_qr_orthanc_settings()
     start_migration_worker()
     start_storage_worker()
     if str(get_migration_config().get("status") or "") == "running":

@@ -206,7 +206,7 @@ OHIF cobre 2D e MPR básico; diferencial comercial está em estabilidade 3D e pr
 | MWL SCP | Sim | ✅ SQL + **HL7 ORM (E18)** | — |
 | MPPS | Sim | **E19 ✅** | — |
 | DICOMweb | Sim | ✅ | E21b STOW |
-| Q/R DIMSE | Sim | Parcial Orthanc | E21 |
+| Q/R DIMSE | Sim | **E21 ✅** | — |
 | DICOM TLS | Sim | ❌ | E17 |
 | Laudo + portal paciente | Sim | ✅ | E28 templates |
 | Portal solicitante | Sim | ❌ | E30 |
@@ -223,7 +223,7 @@ Checklist mínimo antes de comparar feature-by-feature com Animati PACS:
 - [x] E16 — 4242 restrita a equipamentos cadastrados
 - [x] E18 — HL7 ORM (MLLP 2575) ou integração MWL certificada com 1 RIS parceiro
 - [x] E19 — MPPS para fechar loop “exame realizado”
-- [ ] E21 — C-MOVE/C-GET para viewer externo
+- [x] E21 — C-FIND/C-MOVE/C-GET SCP documentado + smoke DIMSE
 - [ ] E17 — DICOM TLS (se cliente hospitalar)
 - [ ] E23 — merge paciente (suporte operacional)
 
@@ -238,7 +238,7 @@ Checklist mínimo antes de comparar feature-by-feature com Animati PACS:
 | E17 | Planejado | 1.0 | DICOM TLS |
 | E19 | **Concluído** | 0.9 | MPPS SCP porta 4243 |
 | E20 | Planejado | 1.0 | Storage Commitment |
-| E21 | Planejado | 1.0 | Q/R DIMSE |
+| E21 | **Concluído** | 1.0 | Q/R DIMSE + painel Integração |
 | E22 | Planejado | 1.0 | STOW-RS |
 | E23 | Planejado | 1.1 | Merge/reconcile |
 | E28 | Planejado | 1.1 | Templates laudo |

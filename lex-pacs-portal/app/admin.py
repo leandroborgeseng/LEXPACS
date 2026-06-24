@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from .clinical_session import ClinicalUser
@@ -27,7 +27,8 @@ from .hl7_mllp import restart_hl7_mllp_server
 from .hl7_settings import get_hl7_config, get_hl7_stats, save_hl7_config
 from .mpps_server import mpps_server_running, restart_mpps_server
 from .mpps_settings import get_mpps_config, get_mpps_stats, save_mpps_config
-from .mpps_service import simulate_mpps_complete
+from .qr_service import build_qr_status_payload, test_c_find_study
+from .qr_settings import get_qr_config, save_qr_config
 from .pacs_config import get_pacs_settings, update_server_settings
 from .pacs_stats import collect_pacs_stats
 from .portal_settings import get_portal_ops, save_portal_ops
@@ -322,6 +323,57 @@ class MppsSimulateResponse(BaseModel):
     mwl_deleted: bool = False
     worklist_file_removed: bool = False
     reason: str = ""
+
+
+class QrConsumerItem(BaseModel):
+    key: str
+    aet: str
+    host: str
+    allow_find: bool = False
+    allow_move: bool = False
+    allow_get: bool = False
+
+
+class QrOrthancStatus(BaseModel):
+    query_retrieve_size: int = 100
+    dicom_always_allow_move: bool = False
+    dicom_always_allow_get: bool = False
+    dicom_always_allow_find: bool = False
+
+
+class QrConfigResponse(BaseModel):
+    query_retrieve_size: int = 100
+    smoke_consumer_aet: str = "LEXQR"
+    smoke_consumer_host: str = "portal"
+
+
+class QrStatsResponse(BaseModel):
+    last_at: str = ""
+    last_actor: str = ""
+    last_find_count: int = 0
+    last_error: str = ""
+    last_success: bool = False
+
+
+class QrStatusResponse(BaseModel):
+    dicom_aet: str
+    dicom_port: int
+    orthanc: QrOrthancStatus
+    config: QrConfigResponse
+    stats: QrStatsResponse
+    consumers: list[QrConsumerItem] = Field(default_factory=list)
+    consumer_count: int = 0
+    qr_ready: bool = False
+
+
+class QrTestResponse(BaseModel):
+    success: bool
+    find_count: int = 0
+    calling_aet: str = ""
+    called_aet: str = ""
+    host: str = ""
+    port: int = 4242
+    error: str = ""
 
 
 class PortalOpsResponse(BaseModel):
@@ -823,6 +875,52 @@ async def simulate_mpps(
         worklist_file_removed=bool(result.get("worklist_file_removed")),
         reason=str(result.get("reason") or ""),
     )
+
+
+@router.get("/qr/status", response_model=QrStatusResponse)
+async def read_qr_status(
+    _: ClinicalUser = Depends(require_clinical_user),
+) -> QrStatusResponse:
+    payload = build_qr_status_payload()
+    return QrStatusResponse(
+        dicom_aet=str(payload["dicom_aet"]),
+        dicom_port=int(payload["dicom_port"]),
+        orthanc=QrOrthancStatus(**payload["orthanc"]),
+        config=QrConfigResponse(**payload["config"]),
+        stats=QrStatsResponse(**payload["stats"]),
+        consumers=[QrConsumerItem(**item) for item in payload.get("consumers") or []],
+        consumer_count=int(payload.get("consumer_count") or 0),
+        qr_ready=bool(payload.get("qr_ready")),
+    )
+
+
+@router.put("/qr/config", response_model=QrConfigResponse)
+async def write_qr_config(
+    body: QrConfigResponse,
+    user: ClinicalUser = Depends(require_admin),
+) -> QrConfigResponse:
+    saved = save_qr_config(body.model_dump())
+    build_qr_status_payload()
+    log_event("qr_config", user.username, auth_method=user.auth_method)
+    return QrConfigResponse(**saved)
+
+
+@router.post("/qr/test-find", response_model=QrTestResponse)
+async def test_qr_find(
+    user: ClinicalUser = Depends(require_admin),
+) -> QrTestResponse:
+    try:
+        result = test_c_find_study(actor=user.username)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    log_event(
+        "qr_test_find",
+        user.username,
+        find_count=result.get("find_count", 0),
+        success=result.get("success"),
+        auth_method=user.auth_method,
+    )
+    return QrTestResponse(**result)
 
 
 @router.get("/portal-ops", response_model=PortalOpsResponse)

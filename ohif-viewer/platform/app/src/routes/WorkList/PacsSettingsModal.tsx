@@ -208,6 +208,41 @@ type MppsStatus = {
   server_running: boolean;
 };
 
+type QrConsumer = {
+  key: string;
+  aet: string;
+  host: string;
+  allow_find: boolean;
+  allow_move: boolean;
+  allow_get: boolean;
+};
+
+type QrStatus = {
+  dicom_aet: string;
+  dicom_port: number;
+  orthanc: {
+    query_retrieve_size: number;
+    dicom_always_allow_move: boolean;
+    dicom_always_allow_get: boolean;
+    dicom_always_allow_find: boolean;
+  };
+  config: {
+    query_retrieve_size: number;
+    smoke_consumer_aet: string;
+    smoke_consumer_host: string;
+  };
+  stats: {
+    last_at: string;
+    last_actor: string;
+    last_find_count: number;
+    last_error: string;
+    last_success: boolean;
+  };
+  consumers: QrConsumer[];
+  consumer_count: number;
+  qr_ready: boolean;
+};
+
 type PortalOps = {
   backup_interval_hours: number;
   backup_retention_daily: number;
@@ -483,6 +518,8 @@ export function PacsSettingsModal({ hide, mode = 'modal' }: PacsSettingsModalPro
   const [adConfig, setAdConfig] = useState<AdConfig>(emptyAdConfig);
   const [mppsStatus, setMppsStatus] = useState<MppsStatus | null>(null);
   const [mppsConfig, setMppsConfig] = useState<MppsConfig>(emptyMppsConfig);
+  const [qrStatus, setQrStatus] = useState<QrStatus | null>(null);
+  const [qrTesting, setQrTesting] = useState(false);
   const [portalOps, setPortalOps] = useState<PortalOps>(emptyPortalOps);
   const [migrationLoading, setMigrationLoading] = useState(false);
   const [migrationStatus, setMigrationStatus] = useState<MigrationStatus | null>(null);
@@ -519,13 +556,14 @@ export function PacsSettingsModal({ hide, mode = 'modal' }: PacsSettingsModalPro
     setIntegrationLoading(true);
     setError('');
     try {
-      const [meRes, statusRes, entriesRes, hl7Res, adRes, mppsRes] = await Promise.all([
+      const [meRes, statusRes, entriesRes, hl7Res, adRes, mppsRes, qrRes] = await Promise.all([
         fetch(AUTH_ME, { credentials: 'include' }),
         fetch(`${API_BASE}/mwl/status`, { credentials: 'include' }),
         fetch(`${API_BASE}/mwl/entries`, { credentials: 'include' }),
         fetch(`${API_BASE}/hl7/status`, { credentials: 'include' }),
         fetch(`${API_BASE}/ad/status`, { credentials: 'include' }),
         fetch(`${API_BASE}/mpps/status`, { credentials: 'include' }),
+        fetch(`${API_BASE}/qr/status`, { credentials: 'include' }),
       ]);
       const me = await meRes.json().catch(() => ({}));
       const status = await statusRes.json().catch(() => null);
@@ -533,6 +571,7 @@ export function PacsSettingsModal({ hide, mode = 'modal' }: PacsSettingsModalPro
       const hl7Data = await hl7Res.json().catch(() => null);
       const adData = await adRes.json().catch(() => null);
       const mppsData = await mppsRes.json().catch(() => null);
+      const qrData = await qrRes.json().catch(() => null);
 
       const permissions = me.permissions as { can_admin?: boolean } | undefined;
       setIsAdmin(Boolean(permissions?.can_admin));
@@ -557,6 +596,9 @@ export function PacsSettingsModal({ hide, mode = 'modal' }: PacsSettingsModalPro
         const mpps = mppsData as MppsStatus;
         setMppsStatus(mpps);
         setMppsConfig({ ...emptyMppsConfig(), ...mpps.config });
+      }
+      if (qrRes.ok && qrData) {
+        setQrStatus(qrData as QrStatus);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : t('pacsSettings.errors.loadIntegration'));
@@ -983,6 +1025,39 @@ export function PacsSettingsModal({ hide, mode = 'modal' }: PacsSettingsModalPro
       setError(err instanceof Error ? err.message : t('pacsSettings.errors.adSync'));
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleQrTestFind = async () => {
+    if (!isAdmin) {
+      return;
+    }
+    setQrTesting(true);
+    setError('');
+    setMessage('');
+    try {
+      const response = await fetch(`${API_BASE}/qr/test-find`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.detail || data.error || t('pacsSettings.errors.qrTest'));
+      }
+      if (!data.success) {
+        throw new Error(data.error || t('pacsSettings.errors.qrTest'));
+      }
+      setMessage(
+        t('pacsSettings.messages.qrTestOk', {
+          count: data.find_count ?? 0,
+          aet: data.calling_aet || '—',
+        })
+      );
+      await loadIntegrationData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('pacsSettings.errors.qrTest'));
+    } finally {
+      setQrTesting(false);
     }
   };
 
@@ -2368,6 +2443,58 @@ export function PacsSettingsModal({ hide, mode = 'modal' }: PacsSettingsModalPro
                         </div>
                       </div>
                     )}
+                  </div>
+
+                  <div className="border-border rounded border p-3 text-sm">
+                    <p className="font-medium">{t('pacsSettings.qrTitle')}</p>
+                    <p className="text-muted-foreground mt-1 text-xs">{t('pacsSettings.qrHint')}</p>
+                    {qrStatus ? (
+                      <>
+                        <p className="text-muted-foreground mt-2 text-xs">
+                          {t('pacsSettings.qrScp', {
+                            aet: qrStatus.dicom_aet,
+                            port: qrStatus.dicom_port,
+                            size: qrStatus.orthanc.query_retrieve_size,
+                          })}
+                        </p>
+                        <p className="text-muted-foreground text-xs">
+                          {qrStatus.orthanc.dicom_always_allow_find ||
+                          qrStatus.orthanc.dicom_always_allow_move ||
+                          qrStatus.orthanc.dicom_always_allow_get
+                            ? t('pacsSettings.qrPolicyOpen')
+                            : t('pacsSettings.qrPolicyRestricted')}
+                        </p>
+                        <p className="text-muted-foreground text-xs">
+                          {t('pacsSettings.qrConsumers', { count: qrStatus.consumer_count })}
+                        </p>
+                        {qrStatus.stats.last_at ? (
+                          <p className="text-muted-foreground text-xs">
+                            {qrStatus.stats.last_success
+                              ? t('pacsSettings.qrLastOk', {
+                                  at: formatTs(qrStatus.stats.last_at, i18n.language),
+                                  count: qrStatus.stats.last_find_count,
+                                  actor: qrStatus.stats.last_actor || '—',
+                                })
+                              : t('pacsSettings.qrLastFail', {
+                                  at: formatTs(qrStatus.stats.last_at, i18n.language),
+                                  error: qrStatus.stats.last_error || '—',
+                                })}
+                          </p>
+                        ) : null}
+                        {isAdmin ? (
+                          <div className="mt-2 flex justify-end">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={handleQrTestFind}
+                              disabled={qrTesting || saving}
+                            >
+                              {qrTesting ? t('pacsSettings.qrTesting') : t('pacsSettings.qrTestFind')}
+                            </Button>
+                          </div>
+                        ) : null}
+                      </>
+                    ) : null}
                   </div>
 
                   <div className="border-border rounded border p-3 text-sm">

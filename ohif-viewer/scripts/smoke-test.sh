@@ -40,7 +40,7 @@ KEYCLOAK_URL="${KEYCLOAK_URL:-${GATEWAY_URL}/auth}"
 OIDC_CLIENT_SECRET="${OIDC_CLIENT_SECRET:-lex-clinical-dev-secret}"
 
 # Etapas com testes automatizados prontos
-IMPLEMENTED_STAGES=(E1 E2 E2b E2c E2d E3 E4 E5 E6 E7 E8 E9 E10 E11 E12 E13 E14 E15 E16 E18 E19 S10 S11)
+IMPLEMENTED_STAGES=(E1 E2 E2b E2c E2d E3 E4 E5 E6 E7 E8 E9 E10 E11 E12 E13 E14 E15 E16 E18 E19 E21 S10 S11)
 PENDING_STAGES=()
 
 if [ "${1:-}" = "--list" ]; then
@@ -676,6 +676,43 @@ sys.exit(0 if status and status.Status == 0x0000 else 4)
     pass "MPPS DIMSE N-CREATE/N-SET na porta ${MPPS_PORT}"
   else
     skip "MPPS DIMSE não acessível (portal sem pynetdicom ou porta ${MPPS_PORT})"
+  fi
+  echo
+fi
+
+# ── E21 ──
+if should_run E21; then
+  echo "▶ E21 — Query/Retrieve DIMSE (C-FIND)"
+  qr_status=$(curl_auth "${GATEWAY_URL}/clinica-api/admin/pacs/qr/status")
+  if echo "$qr_status" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+o = d.get('orthanc', {})
+sys.exit(0 if not o.get('dicom_always_allow_find', True) and not o.get('dicom_always_allow_move', True) and not o.get('dicom_always_allow_get', True) else 1)
+" 2>/dev/null; then
+    pass "Q/R restrito a equipamentos cadastrados (E16)"
+  else
+    fail "Política Q/R aberta no Orthanc"
+  fi
+
+  if echo "$qr_status" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if int(d.get('orthanc',{}).get('query_retrieve_size',0))>=10 else 1)" 2>/dev/null; then
+    pass "QueryRetrieveSize configurado"
+  else
+    fail "QueryRetrieveSize ausente"
+  fi
+
+  find_resp=$(curl_auth -X POST "${GATEWAY_URL}/clinica-api/admin/pacs/qr/test-find")
+  if echo "$find_resp" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get('success') else 1)" 2>/dev/null; then
+    pass "C-FIND Study via DIMSE (SCP Orthanc)"
+  else
+    fail "C-FIND DIMSE falhou"
+  fi
+
+  if docker compose -f "${COMPOSE_FILE}" exec -T portal \
+    grep -q '"AllowFind": true' /orthanc-config/orthanc.json 2>/dev/null; then
+    pass "Equipamento com AllowFind no Orthanc"
+  else
+    skip "Sem AllowFind em DicomModalities"
   fi
   echo
 fi
