@@ -1,41 +1,64 @@
 # E17 — DICOM TLS (porta 4242)
 
-**Status:** planejado para v1.0 · ver também [TLS-E-DOMINIO.md](./TLS-E-DOMINIO.md) (HTTP/HTTPS)
+**Status:** concluído — painel Servidor + certificados no volume + smoke `E17`
+
+Ver também [TLS-E-DOMINIO.md](./TLS-E-DOMINIO.md) (HTTP/HTTPS do portal).
 
 ## Objetivo
 
-Criptografar associações DICOM na porta **4242** (modalidades → PACS).
+Criptografar associações DICOM na porta **4242** (modalidades → PACS) via TLS DIMSE no Orthanc.
 
-## Configuração Orthanc (referência)
+## Portal LEX
 
-No `orthanc.json` (volume `server-config`), após gerar certificado e chave:
+| Recurso | Descrição |
+|---------|-----------|
+| `GET /clinica-api/admin/pacs/dicom-tls/status` | Status TLS, certificados e Orthanc |
+| `PUT /clinica-api/admin/pacs/dicom-tls/config` | Habilitar/desabilitar TLS, exigir cert. cliente |
+| `POST /clinica-api/admin/pacs/dicom-tls/generate` | Gera CA + par servidor/cliente (desenvolvimento) |
+| `POST /clinica-api/admin/pacs/dicom-tls/test-echo` | C-ECHO TLS via `pynetdicom` (SSL) |
+
+Na aba **Servidor** das configurações PACS: toggle TLS, gerar certificados de dev e testar C-ECHO.
+
+Certificados ficam em `/orthanc-config/dicom-tls/` (volume `server-config`):
+
+- `server.crt` / `server.key` — Orthanc SCP
+- `trusted.crt` — CAs confiáveis (peers)
+- `ca.crt` — CA de desenvolvimento
+- `client.crt` / `client.key` — cliente smoke / mTLS
+
+## Orthanc (`orthanc.json`)
 
 ```json
 {
   "DicomTlsEnabled": true,
-  "DicomTlsCertificate": "/orthanc-config/dicom-tls.crt",
-  "DicomTlsPrivateKey": "/orthanc-config/dicom-tls.key",
-  "DicomTlsTrustedCertificates": "/orthanc-config/dicom-tls-ca.pem",
-  "DicomTlsRemoteCertificateRequired": true
+  "DicomTlsCertificate": "/orthanc-config/dicom-tls/server.crt",
+  "DicomTlsPrivateKey": "/orthanc-config/dicom-tls/server.key",
+  "DicomTlsTrustedCertificates": "/orthanc-config/dicom-tls/trusted.crt",
+  "DicomTlsRemoteCertificateRequired": false,
+  "DicomTlsMinimumProtocolVersion": 0
 }
 ```
 
-Montar os arquivos via volume ou init container. Reinício do serviço `server` após alteração.
+O entrypoint do Orthanc reinicia o processo ao detectar alteração em `orthanc.json`.
 
 ## Modalidades
 
 Cada equipamento deve:
 
-- Confiar na CA do PACS (ou certificado autoassinado importado)
+- Confiar na CA do PACS (ou importar o certificado autoassinado)
 - Usar **TLS** na associação DICOM (não apenas TCP)
-- Manter AE Title e IP/host alinhados com a aba **Equipamentos** (E16)
+- Manter AE Title e IP alinhados com a aba **Equipamentos** (E16)
 
-## LEX PACS — entrega prevista
+**Fallback legado:** TLS desabilitado por padrão — adequado para VLAN isolada sem criptografia DIMSE.
 
-- UI na aba Servidor: toggle TLS + caminhos dos certificados (somente leitura dos paths no volume)
-- Documentação de geração com `openssl` ou certificado interno da clínica
-- Smoke test `E17` (associação TLS com `storescu`/`echoscu` do DCMTK)
+## Produção
 
-## Homologação atual
+Substitua os PEM de desenvolvimento pelos certificados da clínica (PKI interna ou CA hospitalar). Ajuste `DicomTlsRemoteCertificateRequired` se as modalidades suportam mTLS.
 
-Sem TLS na 4242: aceitável em rede VLAN isolada; **não** recomendado para tráfego DICOM pela internet.
+## Smoke
+
+```bash
+./ohif-viewer/scripts/smoke-test.sh E17
+```
+
+Habilita TLS temporariamente, valida C-ECHO DIMSE com `pynetdicom` e restaura TCP legado ao final (se não estava ativo antes).

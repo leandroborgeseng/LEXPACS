@@ -42,7 +42,7 @@ watch_config() {
       if [ -f "${PID_FILE}" ]; then
         kill "$(cat "${PID_FILE}")" 2>/dev/null || true
       fi
-      LAST_MTIME=${NEW_MTIME}
+      LAST_MTIME=$(stat -c %Y "${CONFIG_FILE}" 2>/dev/null || echo 0)
     fi
   done
 }

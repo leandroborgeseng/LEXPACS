@@ -243,6 +243,39 @@ type QrStatus = {
   qr_ready: boolean;
 };
 
+type DicomTlsStatus = {
+  config: {
+    enabled: boolean;
+    remote_certificate_required: boolean;
+    smoke_consumer_aet: string;
+    min_protocol_version: number;
+  };
+  stats: {
+    last_at: string;
+    last_actor: string;
+    last_success: boolean;
+    last_error: string;
+    generated_at: string;
+    generated_by: string;
+  };
+  orthanc: {
+    enabled: boolean;
+    remote_certificate_required: boolean;
+    certificate: string;
+    trusted_certificates: string;
+  };
+  certificates: {
+    ready: boolean;
+    server_present: boolean;
+    directory: string;
+    server_certificate: string;
+    trusted_certificates: string;
+  };
+  dicom_aet: string;
+  dicom_port: number;
+  tls_ready: boolean;
+};
+
 type PortalOps = {
   backup_interval_hours: number;
   backup_retention_daily: number;
@@ -277,6 +310,13 @@ const emptyMppsConfig = (): MppsConfig => ({
   aet: 'LEXMPPS',
   auto_complete_mwl: true,
   complete_on_discontinued: false,
+});
+
+const emptyDicomTlsConfig = () => ({
+  enabled: false,
+  remote_certificate_required: false,
+  smoke_consumer_aet: 'LEXTLS',
+  min_protocol_version: 0,
 });
 
 const emptyAdConfig = (): AdConfig => ({
@@ -520,6 +560,10 @@ export function PacsSettingsModal({ hide, mode = 'modal' }: PacsSettingsModalPro
   const [mppsConfig, setMppsConfig] = useState<MppsConfig>(emptyMppsConfig);
   const [qrStatus, setQrStatus] = useState<QrStatus | null>(null);
   const [qrTesting, setQrTesting] = useState(false);
+  const [dicomTlsStatus, setDicomTlsStatus] = useState<DicomTlsStatus | null>(null);
+  const [dicomTlsConfig, setDicomTlsConfig] = useState(emptyDicomTlsConfig);
+  const [dicomTlsSaving, setDicomTlsSaving] = useState(false);
+  const [dicomTlsTesting, setDicomTlsTesting] = useState(false);
   const [portalOps, setPortalOps] = useState<PortalOps>(emptyPortalOps);
   const [migrationLoading, setMigrationLoading] = useState(false);
   const [migrationStatus, setMigrationStatus] = useState<MigrationStatus | null>(null);
@@ -740,14 +784,16 @@ export function PacsSettingsModal({ hide, mode = 'modal' }: PacsSettingsModalPro
     let cancelled = false;
     (async () => {
       try {
-        const [settingsRes, equipmentRes, viewsRes] = await Promise.all([
+        const [settingsRes, equipmentRes, viewsRes, tlsRes] = await Promise.all([
           fetch(`${API_BASE}/settings`, { credentials: 'include' }),
           fetch(`${API_BASE}/equipment`, { credentials: 'include' }),
           fetch(`${API_BASE}/worklist-views`, { credentials: 'include' }),
+          fetch(`${API_BASE}/dicom-tls/status`, { credentials: 'include' }),
         ]);
         const settings = await settingsRes.json().catch(() => ({}));
         const equipmentData = await equipmentRes.json().catch(() => ({}));
         const viewsData = await viewsRes.json().catch(() => ({}));
+        const tlsData = await tlsRes.json().catch(() => null);
         if (!settingsRes.ok) {
           throw new Error(settings.detail || t('pacsSettings.errors.loadSettings'));
         }
@@ -764,6 +810,11 @@ export function PacsSettingsModal({ hide, mode = 'modal' }: PacsSettingsModalPro
           setWorklistsFilterIssuerAet(Boolean(settings.worklists_filter_issuer_aet));
           setEquipment(Array.isArray(equipmentData.items) ? equipmentData.items : []);
           setViews(Array.isArray(viewsData.views) ? viewsData.views : []);
+          if (tlsRes.ok && tlsData) {
+            const tls = tlsData as DicomTlsStatus;
+            setDicomTlsStatus(tls);
+            setDicomTlsConfig({ ...emptyDicomTlsConfig(), ...tls.config });
+          }
         }
       } catch (err) {
         if (!cancelled) {
@@ -866,6 +917,103 @@ export function PacsSettingsModal({ hide, mode = 'modal' }: PacsSettingsModalPro
       setError(err instanceof Error ? err.message : t('pacsSettings.errors.save'));
     } finally {
       setSaving(false);
+    }
+  };
+
+  const reloadDicomTlsStatus = async () => {
+    const tlsRes = await fetch(`${API_BASE}/dicom-tls/status`, { credentials: 'include' });
+    const tlsData = await tlsRes.json().catch(() => null);
+    if (tlsRes.ok && tlsData) {
+      const tls = tlsData as DicomTlsStatus;
+      setDicomTlsStatus(tls);
+      setDicomTlsConfig({ ...emptyDicomTlsConfig(), ...tls.config });
+    }
+  };
+
+  const handleSaveDicomTls = async () => {
+    if (!isAdmin) {
+      return;
+    }
+    setDicomTlsSaving(true);
+    setError('');
+    setMessage('');
+    try {
+      const response = await fetch(`${API_BASE}/dicom-tls/config`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(dicomTlsConfig),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.detail || t('pacsSettings.errors.saveDicomTls'));
+      }
+      setDicomTlsConfig({ ...emptyDicomTlsConfig(), ...data });
+      setMessage(t('pacsSettings.messages.dicomTlsSaved'));
+      await reloadDicomTlsStatus();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('pacsSettings.errors.saveDicomTls'));
+    } finally {
+      setDicomTlsSaving(false);
+    }
+  };
+
+  const handleGenerateDicomTlsCerts = async () => {
+    if (!isAdmin) {
+      return;
+    }
+    setDicomTlsSaving(true);
+    setError('');
+    setMessage('');
+    try {
+      const response = await fetch(`${API_BASE}/dicom-tls/generate`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.detail || t('pacsSettings.errors.generateDicomTls'));
+      }
+      const tls = data as DicomTlsStatus;
+      setDicomTlsStatus(tls);
+      setDicomTlsConfig({ ...emptyDicomTlsConfig(), ...tls.config });
+      setMessage(t('pacsSettings.messages.dicomTlsGenerated'));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('pacsSettings.errors.generateDicomTls'));
+    } finally {
+      setDicomTlsSaving(false);
+    }
+  };
+
+  const handleTestDicomTlsEcho = async () => {
+    if (!isAdmin) {
+      return;
+    }
+    setDicomTlsTesting(true);
+    setError('');
+    setMessage('');
+    try {
+      const response = await fetch(`${API_BASE}/dicom-tls/test-echo`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.detail || data.error || t('pacsSettings.errors.dicomTlsTest'));
+      }
+      if (!data.success) {
+        throw new Error(data.error || t('pacsSettings.errors.dicomTlsTest'));
+      }
+      setMessage(
+        t('pacsSettings.messages.dicomTlsTestOk', {
+          aet: data.calling_aet || '—',
+        })
+      );
+      await reloadDicomTlsStatus();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('pacsSettings.errors.dicomTlsTest'));
+    } finally {
+      setDicomTlsTesting(false);
     }
   };
 
@@ -1642,6 +1790,106 @@ export function PacsSettingsModal({ hide, mode = 'modal' }: PacsSettingsModalPro
                     {t('pacsSettings.checkModalityHost')}
                   </label>
                   <p className="text-muted-foreground text-xs">{t('pacsSettings.dicomSecurityHint')}</p>
+
+                  <div className="border-border mt-2 rounded border p-3">
+                    <p className="mb-2 text-sm font-medium">{t('pacsSettings.dicomTlsTitle')}</p>
+                    <p className="text-muted-foreground mb-2 text-xs">{t('pacsSettings.dicomTlsHint')}</p>
+                    {dicomTlsStatus ? (
+                      <>
+                        <p className="text-muted-foreground text-xs">
+                          {dicomTlsConfig.enabled
+                            ? t('pacsSettings.dicomTlsEnabled', { port: dicomTlsStatus.dicom_port })
+                            : t('pacsSettings.dicomTlsDisabled')}
+                          {dicomTlsStatus.orthanc.enabled
+                            ? ` · ${t('pacsSettings.dicomTlsOrthancActive')}`
+                            : ` · ${t('pacsSettings.dicomTlsOrthancInactive')}`}
+                        </p>
+                        <p className="text-muted-foreground text-xs">
+                          {dicomTlsStatus.certificates.server_present
+                            ? t('pacsSettings.dicomTlsCertsOk')
+                            : t('pacsSettings.dicomTlsCertsMissing')}
+                        </p>
+                        {dicomTlsStatus.certificates.server_certificate ? (
+                          <p className="text-muted-foreground break-all text-xs">
+                            {t('pacsSettings.dicomTlsCertPath', {
+                              path: dicomTlsStatus.certificates.server_certificate,
+                            })}
+                          </p>
+                        ) : null}
+                        {dicomTlsStatus.stats.last_at ? (
+                          <p className="text-muted-foreground text-xs">
+                            {dicomTlsStatus.stats.last_success
+                              ? t('pacsSettings.dicomTlsLastOk', {
+                                  at: formatTs(dicomTlsStatus.stats.last_at, i18n.language),
+                                  actor: dicomTlsStatus.stats.last_actor || '—',
+                                })
+                              : t('pacsSettings.dicomTlsLastFail', {
+                                  at: formatTs(dicomTlsStatus.stats.last_at, i18n.language),
+                                  error: dicomTlsStatus.stats.last_error || '—',
+                                })}
+                          </p>
+                        ) : null}
+                      </>
+                    ) : null}
+                    {!isAdmin ? (
+                      <p className="text-muted-foreground mt-2 text-xs">{t('pacsSettings.opsAdminOnly')}</p>
+                    ) : (
+                      <div className="mt-2 flex flex-col gap-2">
+                        <label className="flex items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={dicomTlsConfig.enabled}
+                            onChange={e =>
+                              setDicomTlsConfig(prev => ({ ...prev, enabled: e.target.checked }))
+                            }
+                          />
+                          {t('pacsSettings.dicomTlsEnabledToggle')}
+                        </label>
+                        <label className="flex items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={dicomTlsConfig.remote_certificate_required}
+                            onChange={e =>
+                              setDicomTlsConfig(prev => ({
+                                ...prev,
+                                remote_certificate_required: e.target.checked,
+                              }))
+                            }
+                          />
+                          {t('pacsSettings.dicomTlsRequireClientCert')}
+                        </label>
+                        <p className="text-muted-foreground text-xs">{t('pacsSettings.dicomTlsLegacyNote')}</p>
+                        <div className="flex flex-wrap justify-end gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={handleGenerateDicomTlsCerts}
+                            disabled={dicomTlsSaving || saving}
+                          >
+                            {t('pacsSettings.dicomTlsGenerate')}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={handleTestDicomTlsEcho}
+                            disabled={dicomTlsTesting || saving || !dicomTlsConfig.enabled}
+                          >
+                            {dicomTlsTesting
+                              ? t('pacsSettings.dicomTlsTesting')
+                              : t('pacsSettings.dicomTlsTestEcho')}
+                          </Button>
+                          <Button
+                            size="sm"
+                            onClick={handleSaveDicomTls}
+                            disabled={dicomTlsSaving || saving}
+                          >
+                            {t('pacsSettings.saveDicomTls')}
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
                   <div className="flex justify-end">
                     <Button
                       onClick={handleSaveServer}

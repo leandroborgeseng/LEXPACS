@@ -207,7 +207,7 @@ OHIF cobre 2D e MPR básico; diferencial comercial está em estabilidade 3D e pr
 | MPPS | Sim | **E19 ✅** | — |
 | DICOMweb | Sim | ✅ | E21b STOW |
 | Q/R DIMSE | Sim | **E21 ✅** | — |
-| DICOM TLS | Sim | ❌ | E17 |
+| DICOM TLS | Sim | **E17 ✅** | — |
 | Laudo + portal paciente | Sim | ✅ | E28 templates |
 | Portal solicitante | Sim | ❌ | E30 |
 | Workstation 3D | Sim (produto à parte) | ⚠️ OHIF | E33 |
@@ -224,7 +224,7 @@ Checklist mínimo antes de comparar feature-by-feature com Animati PACS:
 - [x] E18 — HL7 ORM (MLLP 2575) ou integração MWL certificada com 1 RIS parceiro
 - [x] E19 — MPPS para fechar loop “exame realizado”
 - [x] E21 — C-FIND/C-MOVE/C-GET SCP documentado + smoke DIMSE
-- [ ] E17 — DICOM TLS (se cliente hospitalar)
+- [x] E17 — DICOM TLS na porta 4242 (fallback TCP documentado)
 - [ ] E23 — merge paciente (suporte operacional)
 
 ---
@@ -235,7 +235,7 @@ Checklist mínimo antes de comparar feature-by-feature com Animati PACS:
 |----|--------|-------------|-------|
 | E16 | **Concluído** | 0.8 | Segurança DICOM 4242 |
 | E18 | **Concluído** | 0.9 | HL7 ORM → MWL (MLLP 2575) |
-| E17 | Planejado | 1.0 | DICOM TLS |
+| E17 | **Concluído** | 1.0 | DICOM TLS 4242 + painel Servidor |
 | E19 | **Concluído** | 0.9 | MPPS SCP porta 4243 |
 | E20 | Planejado | 1.0 | Storage Commitment |
 | E21 | **Concluído** | 1.0 | Q/R DIMSE + painel Integração |

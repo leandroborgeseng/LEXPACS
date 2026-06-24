@@ -29,6 +29,13 @@ from .mpps_server import mpps_server_running, restart_mpps_server
 from .mpps_settings import get_mpps_config, get_mpps_stats, save_mpps_config
 from .qr_service import build_qr_status_payload, test_c_find_study
 from .qr_settings import get_qr_config, save_qr_config
+from .dicom_tls_service import (
+    apply_dicom_tls_orthanc_settings,
+    build_dicom_tls_status_payload,
+    generate_dev_certificates,
+    test_dicom_tls_echo,
+)
+from .dicom_tls_settings import save_dicom_tls_config
 from .pacs_config import get_pacs_settings, update_server_settings
 from .pacs_stats import collect_pacs_stats
 from .portal_settings import get_portal_ops, save_portal_ops
@@ -374,6 +381,65 @@ class QrTestResponse(BaseModel):
     host: str = ""
     port: int = 4242
     error: str = ""
+
+
+class DicomTlsConfigResponse(BaseModel):
+    enabled: bool = False
+    remote_certificate_required: bool = False
+    smoke_consumer_aet: str = "LEXTLS"
+    min_protocol_version: int = 0
+
+
+class DicomTlsOrthancStatus(BaseModel):
+    enabled: bool = False
+    remote_certificate_required: bool = False
+    min_protocol_version: int = 0
+    certificate: str = ""
+    private_key: str = ""
+    trusted_certificates: str = ""
+    configured_enabled: bool = False
+
+
+class DicomTlsCertificatesStatus(BaseModel):
+    ca_present: bool = False
+    server_present: bool = False
+    trusted_present: bool = False
+    client_present: bool = False
+    ready: bool = False
+    directory: str = ""
+    server_certificate: str = ""
+    server_private_key: str = ""
+    trusted_certificates: str = ""
+    client_certificate: str = ""
+
+
+class DicomTlsStatsResponse(BaseModel):
+    last_at: str = ""
+    last_actor: str = ""
+    last_success: bool = False
+    last_error: str = ""
+    generated_at: str = ""
+    generated_by: str = ""
+
+
+class DicomTlsStatusResponse(BaseModel):
+    config: DicomTlsConfigResponse
+    stats: DicomTlsStatsResponse
+    orthanc: DicomTlsOrthancStatus
+    certificates: DicomTlsCertificatesStatus
+    dicom_aet: str
+    dicom_port: int
+    tls_ready: bool = False
+
+
+class DicomTlsTestResponse(BaseModel):
+    success: bool
+    calling_aet: str = ""
+    called_aet: str = ""
+    host: str = ""
+    port: int = 4242
+    error: str = ""
+    return_code: int | None = None
 
 
 class PortalOpsResponse(BaseModel):
@@ -921,6 +987,69 @@ async def test_qr_find(
         auth_method=user.auth_method,
     )
     return QrTestResponse(**result)
+
+
+@router.get("/dicom-tls/status", response_model=DicomTlsStatusResponse)
+async def read_dicom_tls_status(
+    _: ClinicalUser = Depends(require_clinical_user),
+) -> DicomTlsStatusResponse:
+    payload = build_dicom_tls_status_payload()
+    return DicomTlsStatusResponse(
+        config=DicomTlsConfigResponse(**payload["config"]),
+        stats=DicomTlsStatsResponse(**payload["stats"]),
+        orthanc=DicomTlsOrthancStatus(**payload["orthanc"]),
+        certificates=DicomTlsCertificatesStatus(**payload["certificates"]),
+        dicom_aet=str(payload["dicom_aet"]),
+        dicom_port=int(payload["dicom_port"]),
+        tls_ready=bool(payload.get("tls_ready")),
+    )
+
+
+@router.put("/dicom-tls/config", response_model=DicomTlsConfigResponse)
+async def write_dicom_tls_config(
+    body: DicomTlsConfigResponse,
+    user: ClinicalUser = Depends(require_admin),
+) -> DicomTlsConfigResponse:
+    saved = save_dicom_tls_config(body.model_dump())
+    try:
+        apply_dicom_tls_orthanc_settings()
+    except HTTPException:
+        if saved["enabled"]:
+            save_dicom_tls_config({**saved, "enabled": False})
+        raise
+    log_event("dicom_tls_config", user.username, enabled=saved["enabled"], auth_method=user.auth_method)
+    return DicomTlsConfigResponse(**saved)
+
+
+@router.post("/dicom-tls/generate", response_model=DicomTlsStatusResponse)
+async def generate_dicom_tls_certs(
+    user: ClinicalUser = Depends(require_admin),
+) -> DicomTlsStatusResponse:
+    payload = generate_dev_certificates(actor=user.username)
+    log_event("dicom_tls_generate", user.username, auth_method=user.auth_method)
+    return DicomTlsStatusResponse(
+        config=DicomTlsConfigResponse(**payload["config"]),
+        stats=DicomTlsStatsResponse(**payload["stats"]),
+        orthanc=DicomTlsOrthancStatus(**payload["orthanc"]),
+        certificates=DicomTlsCertificatesStatus(**payload["certificates"]),
+        dicom_aet=str(payload["dicom_aet"]),
+        dicom_port=int(payload["dicom_port"]),
+        tls_ready=bool(payload.get("tls_ready")),
+    )
+
+
+@router.post("/dicom-tls/test-echo", response_model=DicomTlsTestResponse)
+async def test_dicom_tls(
+    user: ClinicalUser = Depends(require_admin),
+) -> DicomTlsTestResponse:
+    result = test_dicom_tls_echo(actor=user.username)
+    log_event(
+        "dicom_tls_test_echo",
+        user.username,
+        success=result.get("success"),
+        auth_method=user.auth_method,
+    )
+    return DicomTlsTestResponse(**result)
 
 
 @router.get("/portal-ops", response_model=PortalOpsResponse)

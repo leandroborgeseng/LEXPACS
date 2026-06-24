@@ -14,8 +14,15 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 REPO_ROOT="$(dirname "$PROJECT_DIR")"
-SMOKE_COMPOSE_FILE="${SMOKE_COMPOSE_FILE}"
-SMOKE_COMPOSE_DIR="${SMOKE_COMPOSE_DIR:-$(dirname "$SMOKE_COMPOSE_FILE")}"
+SMOKE_COMPOSE_DIR="${SMOKE_COMPOSE_DIR:-${REPO_ROOT}}"
+SMOKE_COMPOSE_FILE="${SMOKE_COMPOSE_FILE:-${REPO_ROOT}/docker-compose.coolify.yml}"
+
+if [ -f "${REPO_ROOT}/.env.coolify" ]; then
+  set -a
+  # shellcheck disable=SC1091
+  source "${REPO_ROOT}/.env.coolify"
+  set +a
+fi
 
 run_backup_volumes() {
   COMPOSE_FILE="${SMOKE_COMPOSE_FILE}" COMPOSE_DIR="${SMOKE_COMPOSE_DIR}" \
@@ -40,7 +47,7 @@ KEYCLOAK_URL="${KEYCLOAK_URL:-${GATEWAY_URL}/auth}"
 OIDC_CLIENT_SECRET="${OIDC_CLIENT_SECRET:-lex-clinical-dev-secret}"
 
 # Etapas com testes automatizados prontos
-IMPLEMENTED_STAGES=(E1 E2 E2b E2c E2d E3 E4 E5 E6 E7 E8 E9 E10 E11 E12 E13 E14 E15 E16 E18 E19 E21 S10 S11)
+IMPLEMENTED_STAGES=(E1 E2 E2b E2c E2d E3 E4 E5 E6 E7 E8 E9 E10 E11 E12 E13 E14 E15 E16 E17 E18 E19 E21 S10 S11)
 PENDING_STAGES=()
 
 if [ "${1:-}" = "--list" ]; then
@@ -713,6 +720,73 @@ sys.exit(0 if not o.get('dicom_always_allow_find', True) and not o.get('dicom_al
     pass "Equipamento com AllowFind no Orthanc"
   else
     skip "Sem AllowFind em DicomModalities"
+  fi
+  echo
+fi
+
+# ── E17 ──
+if should_run E17; then
+  echo "▶ E17 — DICOM TLS (porta 4242)"
+  tls_was_enabled=false
+  if curl_auth "${GATEWAY_URL}/clinica-api/admin/pacs/dicom-tls/status" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+sys.exit(0 if d.get('config', {}).get('enabled') else 1)
+" 2>/dev/null; then
+    tls_was_enabled=true
+  fi
+
+  gen_resp=$(curl_auth -X POST "${GATEWAY_URL}/clinica-api/admin/pacs/dicom-tls/generate")
+  if echo "$gen_resp" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get('certificates',{}).get('server_present') else 1)" 2>/dev/null; then
+    pass "Certificados TLS gerados no volume Orthanc"
+  else
+    fail "Geração de certificados TLS falhou"
+  fi
+
+  enable_resp=$(curl_auth -X PUT "${GATEWAY_URL}/clinica-api/admin/pacs/dicom-tls/config" \
+    -H "Content-Type: application/json" \
+    -d '{"enabled":true,"remote_certificate_required":false,"smoke_consumer_aet":"LEXTLS","min_protocol_version":0}')
+  if echo "$enable_resp" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get('enabled') else 1)" 2>/dev/null; then
+    pass "DICOM TLS habilitado via API"
+  else
+    fail "PUT dicom-tls/config falhou"
+  fi
+
+  echo "  … aguardando reinício do Orthanc (TLS)"
+  sleep 5
+  for _ in $(seq 1 30); do
+    if curl -fsS "${ORTHANC_URL}/system" >/dev/null 2>&1; then
+      break
+    fi
+    sleep 1
+  done
+  sleep 3
+  if curl -fsS "${ORTHANC_URL}/system" >/dev/null 2>&1; then
+    pass "Orthanc acessível após habilitar TLS"
+  else
+    fail "Orthanc indisponível após TLS"
+  fi
+
+  if docker compose -f "${COMPOSE_FILE}" exec -T portal \
+    grep -q '"DicomTlsEnabled": true' /orthanc-config/orthanc.json 2>/dev/null; then
+    pass "DicomTlsEnabled no orthanc.json"
+  else
+    fail "DicomTlsEnabled ausente no orthanc.json"
+  fi
+
+  echo_resp=$(curl_auth -X POST "${GATEWAY_URL}/clinica-api/admin/pacs/dicom-tls/test-echo")
+  if echo "$echo_resp" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get('success') else 1)" 2>/dev/null; then
+    pass "C-ECHO TLS via pynetdicom"
+  else
+    fail "C-ECHO TLS falhou"
+  fi
+
+  if [ "$tls_was_enabled" = false ]; then
+    curl_auth -X PUT "${GATEWAY_URL}/clinica-api/admin/pacs/dicom-tls/config" \
+      -H "Content-Type: application/json" \
+      -d '{"enabled":false,"remote_certificate_required":false,"smoke_consumer_aet":"LEXTLS","min_protocol_version":0}' >/dev/null || true
+    sleep 12
+    pass "TLS restaurado para TCP legado (pós-teste)"
   fi
   echo
 fi
