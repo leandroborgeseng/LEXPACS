@@ -20,6 +20,21 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  database-password-sync:
+    image: postgres:16-alpine
+    network_mode: "service:database"
+    depends_on:
+      database:
+        condition: service_healthy
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-orthanc}
+      POSTGRES_DB: ${POSTGRES_DB:-orthanc}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-orthanc}
+    volumes:
+      - ./postgres/sync-password.sh:/sync-password.sh:ro
+    entrypoint: ["/bin/sh", "/sync-password.sh"]
+    restart: "no"
+
   server:
     image: jodogne/orthanc-plugins:1.12.5
     container_name: server
@@ -42,6 +57,8 @@ services:
     depends_on:
       database:
         condition: service_healthy
+      database-password-sync:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8042/system >/dev/null 2>&1 || exit 1"]
       interval: 10s

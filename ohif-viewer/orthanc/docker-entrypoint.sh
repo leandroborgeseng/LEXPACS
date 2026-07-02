@@ -26,23 +26,52 @@ postgres_field() {
   grep -A20 '"PostgreSQL"' "${CONFIG_FILE}" 2>/dev/null | grep "\"${_field}\"" | head -1 | sed 's/.*: "\?\([^",}]*\)"\?.*/\1/' || true
 }
 
+config_field_needs_update() {
+  _field="$1"
+  _expected="$2"
+  _current=$(postgres_field "${_field}")
+  [ "${_current}" != "${_expected}" ]
+}
+
 sync_postgres_config() {
+  _needs_sync=0
   _pass_esc=$(escape_sed "${POSTGRES_PASSWORD}")
   _user_esc=$(escape_sed "${POSTGRES_USER}")
   _db_esc=$(escape_sed "${POSTGRES_DB}")
   _host_esc=$(escape_sed "${POSTGRES_HOST}")
 
-  sed -i "s/__LEX_POSTGRES_PASSWORD__/${_pass_esc}/g" "${CONFIG_FILE}"
-  sed -i "/\"PostgreSQL\"/,/^  }/ s/\"Host\": \"[^\"]*\"/\"Host\": \"${_host_esc}\"/" "${CONFIG_FILE}"
-  sed -i "/\"PostgreSQL\"/,/^  }/ s/\"Port\": [0-9]*/\"Port\": ${POSTGRES_PORT}/" "${CONFIG_FILE}"
-  sed -i "/\"PostgreSQL\"/,/^  }/ s/\"Database\": \"[^\"]*\"/\"Database\": \"${_db_esc}\"/" "${CONFIG_FILE}"
-  sed -i "/\"PostgreSQL\"/,/^  }/ s/\"Username\": \"[^\"]*\"/\"Username\": \"${_user_esc}\"/" "${CONFIG_FILE}"
-  sed -i "/\"PostgreSQL\"/,/^  }/ s/\"Password\": \"[^\"]*\"/\"Password\": \"${_pass_esc}\"/" "${CONFIG_FILE}"
+  if grep -q '__LEX_POSTGRES_PASSWORD__' "${CONFIG_FILE}" 2>/dev/null; then
+    _needs_sync=1
+  fi
+  if config_field_needs_update Host "${POSTGRES_HOST}"; then _needs_sync=1; fi
+  if config_field_needs_update Port "${POSTGRES_PORT}"; then _needs_sync=1; fi
+  if config_field_needs_update Database "${POSTGRES_DB}"; then _needs_sync=1; fi
+  if config_field_needs_update Username "${POSTGRES_USER}"; then _needs_sync=1; fi
+  if config_field_needs_update Password "${POSTGRES_PASSWORD}"; then _needs_sync=1; fi
+
+  if [ "${_needs_sync}" -eq 0 ]; then
+    return 0
+  fi
+
+  _tmp="${CONFIG_FILE}.tmp.$$"
+  cp "${CONFIG_FILE}" "${_tmp}"
+
+  sed -i "s/__LEX_POSTGRES_PASSWORD__/${_pass_esc}/g" "${_tmp}"
+  sed -i "/\"PostgreSQL\"/,/^  }/ s/\"Host\": \"[^\"]*\"/\"Host\": \"${_host_esc}\"/" "${_tmp}"
+  sed -i "/\"PostgreSQL\"/,/^  }/ s/\"Port\": [0-9]*/\"Port\": ${POSTGRES_PORT}/" "${_tmp}"
+  sed -i "/\"PostgreSQL\"/,/^  }/ s/\"Database\": \"[^\"]*\"/\"Database\": \"${_db_esc}\"/" "${_tmp}"
+  sed -i "/\"PostgreSQL\"/,/^  }/ s/\"Username\": \"[^\"]*\"/\"Username\": \"${_user_esc}\"/" "${_tmp}"
+  sed -i "/\"PostgreSQL\"/,/^  }/ s/\"Password\": \"[^\"]*\"/\"Password\": \"${_pass_esc}\"/" "${_tmp}"
+
+  mv "${_tmp}" "${CONFIG_FILE}"
 }
 
 sanitize_config() {
+  _changed=0
+
   if grep -q '"IngestTranscoding"[[:space:]]*:[[:space:]]*""' "${CONFIG_FILE}" 2>/dev/null; then
     sed -i '/"IngestTranscoding"[[:space:]]*:[[:space:]]*""/d' "${CONFIG_FILE}"
+    _changed=1
   fi
 
   if grep -q '"DicomTlsEnabled"[[:space:]]*:[[:space:]]*true' "${CONFIG_FILE}" 2>/dev/null; then
@@ -51,13 +80,16 @@ sanitize_config() {
     if [ -z "${_tls_cert}" ] || [ ! -f "${_tls_cert}" ] || [ -z "${_tls_key}" ] || [ ! -f "${_tls_key}" ]; then
       echo "[lex-pacs] DICOM TLS desabilitado — certificados ausentes em ${CONFIG_DIR}/dicom-tls" >&2
       sed -i 's/"DicomTlsEnabled"[[:space:]]*:[[:space:]]*true/"DicomTlsEnabled": false/' "${CONFIG_FILE}"
+      _changed=1
     fi
   fi
+
+  [ "${_changed}" -eq 1 ]
 }
 
 repair_config() {
   sync_postgres_config
-  sanitize_config
+  sanitize_config || true
 }
 
 wait_for_postgres() {
@@ -107,7 +139,6 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 while true; do
-  repair_config
   PG_HOST=$(postgres_field Host)
   PG_PORT=$(postgres_field Port)
   PG_HOST=${PG_HOST:-${POSTGRES_HOST}}
