@@ -214,6 +214,7 @@ Rollback: redeploy de commit anterior no Coolify (volumes intactos) ou `git reve
 
 | Sintoma | Causa provável | Ação |
 |---------|----------------|------|
+| `auth-realm-init` exit 1 | `OHIF_VIEWER_URL` ausente ou volume `/output` | Ver `docker logs` do container init; conferir `OHIF_VIEWER_URL` no Coolify |
 | OIDC redirect errado | `OHIF_VIEWER_URL` incorreta | Conferir URL exata com HTTPS, sem barra final |
 | Auth 502 em `/auth/` | Realm ainda importando | Aguardar healthcheck; ver logs `auth` |
 | Login 401 após OIDC | `OIDC_CLIENT_SECRET` divergente | Igualar secret no Coolify e realm |

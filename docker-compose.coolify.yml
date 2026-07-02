@@ -19,8 +19,10 @@ name: lex-pacs
 
 services:
   auth-realm-init:
-    image: alpine:3.20
-    container_name: auth-realm-init
+    image: "lex-pacs/auth-realm-init:${LEX_PACS_VERSION:-0.7.0}"
+    build:
+      context: ./ohif-viewer/keycloak
+      dockerfile: Dockerfile.realm-init
     environment:
       OHIF_VIEWER_URL: ${OHIF_VIEWER_URL:-http://localhost:3000}
       OIDC_PUBLIC_ISSUER_URL: ${OIDC_PUBLIC_ISSUER_URL:-}
@@ -29,26 +31,7 @@ services:
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-lex-clinical-dev-secret}
       KEYCLOAK_SSL_REQUIRED: ${KEYCLOAK_SSL_REQUIRED:-none}
     volumes:
-      - ./ohif-viewer/keycloak/lex-pacs-realm.template.json:/template/lex-pacs-realm.template.json:ro
       - auth-realm-import:/output
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - |
-        set -eu
-        apk add --no-cache gettext >/dev/null
-        LEX_PUBLIC_URL=$$(echo "$$OHIF_VIEWER_URL" | sed 's:/*$$::')
-        KC_PATH=$${KEYCLOAK_HTTP_RELATIVE_PATH:-/auth}
-        KC_PATH=$$(echo "$$KC_PATH" | sed 's:/*$$::')
-        KEYCLOAK_PUBLIC_URL=$${KEYCLOAK_PUBLIC_URL:-$$LEX_PUBLIC_URL$$KC_PATH}
-        OIDC_PUBLIC_ISSUER_URL=$${OIDC_PUBLIC_ISSUER_URL:-$$LEX_PUBLIC_URL$$KC_PATH/realms/lex-pacs}
-        export LEX_PUBLIC_URL KEYCLOAK_PUBLIC_URL OIDC_CLIENT_SECRET KEYCLOAK_SSL_REQUIRED
-        echo "OIDC público: $$OIDC_PUBLIC_ISSUER_URL"
-        case "$$LEX_PUBLIC_URL" in
-          https://*) export KEYCLOAK_SSL_REQUIRED=$${KEYCLOAK_SSL_REQUIRED:-external} ;;
-        esac
-        envsubst '$${LEX_PUBLIC_URL} $${KEYCLOAK_PUBLIC_URL} $${KEYCLOAK_SSL_REQUIRED} $${OIDC_CLIENT_SECRET}' \
-          < /template/lex-pacs-realm.template.json > /output/lex-pacs-realm.json
-        echo "Realm OIDC gerado para $$LEX_PUBLIC_URL"
     restart: "no"
 
   database:
@@ -249,6 +232,8 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./ohif-viewer/scripts:/scripts:ro
       - lex-backups:/backups
+      # Railway: anexe um volume persistente e defina BACKUP_REMOTE_DIR=/railway-backups
+      # - railway-backups:/railway-backups
       - ./LEX_PACS_VERSION:/compose/LEX_PACS_VERSION:ro
       - ./docker-compose.coolify.yml:/compose/docker-compose.yml:ro
       - server-config:/orthanc-config
@@ -263,8 +248,15 @@ services:
       BACKUP_RETENTION_DAILY: ${BACKUP_RETENTION_DAILY:-7}
       BACKUP_RETENTION_WEEKLY: ${BACKUP_RETENTION_WEEKLY:-4}
       BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+      BACKUP_REMOTE_DIR: ${BACKUP_REMOTE_DIR:-}
+      BACKUP_S3_BUCKET: ${BACKUP_S3_BUCKET:-}
+      BACKUP_S3_PREFIX: ${BACKUP_S3_PREFIX:-lex-pacs}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_ENDPOINT_URL: ${AWS_ENDPOINT_URL:-}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-auto}
     working_dir: /compose
-    entrypoint: ["/bin/sh", "-c", "apk add --no-cache python3 >/dev/null 2>&1 && exec /scripts/backup-scheduler.sh"]
+    entrypoint: ["/bin/sh", "-c", "apk add --no-cache python3 rsync >/dev/null 2>&1 && exec /scripts/backup-scheduler.sh"]
     depends_on:
       database:
         condition: service_healthy

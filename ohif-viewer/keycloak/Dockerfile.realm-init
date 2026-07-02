@@ -1,0 +1,9 @@
+FROM alpine:3.20
+
+RUN apk add --no-cache gettext
+
+COPY lex-pacs-realm.template.json /template/lex-pacs-realm.template.json
+COPY realm-init.sh /usr/local/bin/realm-init.sh
+RUN chmod +x /usr/local/bin/realm-init.sh
+
+ENTRYPOINT ["/usr/local/bin/realm-init.sh"]

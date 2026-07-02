@@ -29,6 +29,10 @@ Variáveis (`.env`):
 
 Status na UI: **Admin → Configurações DICOM → Backup**, ou `GET /clinica-api/admin/pacs/backup/status`.
 
+## Backup remoto (Railway / S3)
+
+Para espelhar snapshots para volume Railway ou bucket S3 (imagens, banco, configs), configure `BACKUP_REMOTE_DIR` e/ou `BACKUP_S3_*` — ver **[BACKUP-RAILWAY-S3.md](./BACKUP-RAILWAY-S3.md)**.
+
 ## Política de retenção
 
 1. **7 diários** — o backup mais recente de cada um dos últimos 7 dias.
@@ -52,10 +56,11 @@ docker compose up -d
 ```
 backups/YYYY-MM-DD_HHMMSS/
 ├── manifest.json
-├── ohif-viewer_orthanc-storage.tar.gz
-├── ohif-viewer_orthanc-config.tar.gz
-├── ohif-viewer_lex-reports.tar.gz
-├── ohif-viewer_lex-audit.tar.gz
+├── *_server-data.tar.gz          # DICOM / Orthanc storage
+├── *_server-config.tar.gz        # orthanc.json, TLS, etc.
+├── *_server-worklists.tar.gz
+├── *_lex-reports.tar.gz
+├── *_lex-audit.tar.gz
 ├── postgres.dump
 └── htpasswd                 # se existir
 ```

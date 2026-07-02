@@ -38,6 +38,19 @@ while true; do
   fi
   BACKUP_RETENTION_DAILY="${RETENTION_DAILY}" BACKUP_RETENTION_WEEKLY="${RETENTION_WEEKLY}" \
     "${SCRIPT_DIR}/backup-retention.sh" "${BACKUP_ROOT}" || true
+  if [ -n "${BACKUP_REMOTE_DIR:-}" ] || [ -n "${BACKUP_S3_BUCKET:-}" ]; then
+    echo "[$(date -Iseconds)] Espelhando backup remoto…"
+    BACKUP_ROOT="${BACKUP_ROOT}" \
+      BACKUP_REMOTE_DIR="${BACKUP_REMOTE_DIR:-}" \
+      BACKUP_S3_BUCKET="${BACKUP_S3_BUCKET:-}" \
+      BACKUP_S3_PREFIX="${BACKUP_S3_PREFIX:-lex-pacs}" \
+      AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-}" \
+      AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-}" \
+      AWS_ENDPOINT_URL="${AWS_ENDPOINT_URL:-}" \
+      AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-auto}" \
+      "${SCRIPT_DIR}/backup-remote-mirror.sh" "${BACKUP_ROOT}" || \
+      echo "[$(date -Iseconds)] Mirror remoto falhou (backup local preservado)" >&2
+  fi
   echo "[$(date -Iseconds)] Próximo backup em ${INTERVAL_HOURS}h"
   sleep "${INTERVAL_SEC}"
 done

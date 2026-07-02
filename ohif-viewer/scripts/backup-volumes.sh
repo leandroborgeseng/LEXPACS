@@ -32,7 +32,7 @@ backup_vol() {
 }
 
 for prefix in lex-pacs ohif-viewer; do
-  for suffix in server-data server-config lex-reports lex-audit; do
+  for suffix in server-data server-config server-worklists lex-reports lex-audit; do
     backup_vol "${prefix}_${suffix}" || true
   done
 done
@@ -90,7 +90,7 @@ manifest = {
     "created_at": "${STAMP}",
     "compose_project": "${COMPOSE_PROJECT}",
     "lex_pacs_version": "${LEX_VERSION}",
-    "volumes": ["server-data", "server-config", "lex-reports", "lex-audit", "database-data"],
+    "volumes": ["server-data", "server-config", "server-worklists", "lex-reports", "lex-audit", "database-data"],
     "images": images,
 }
 Path("${DEST}/manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
