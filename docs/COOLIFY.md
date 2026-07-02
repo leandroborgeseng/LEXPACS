@@ -214,6 +214,7 @@ Rollback: redeploy de commit anterior no Coolify (volumes intactos) ou `git reve
 
 | Sintoma | Causa provável | Ação |
 |---------|----------------|------|
+| `server` unhealthy | PostgreSQL indisponível, senha divergente no volume ou TLS sem certificados | `docker logs server --tail 80`; conferir `POSTGRES_PASSWORD` igual ao volume `database-data`; se alterou a senha, recrie o volume ou ajuste manualmente |
 | `auth-realm-init` exit 1 | `OHIF_VIEWER_URL` ausente ou volume `/output` | Ver `docker logs` do container init; conferir `OHIF_VIEWER_URL` no Coolify |
 | OIDC redirect errado | `OHIF_VIEWER_URL` incorreta | Conferir URL exata com HTTPS, sem barra final |
 | Auth 502 em `/auth/` | Realm ainda importando | Aguardar healthcheck; ver logs `auth` |

@@ -25,6 +25,10 @@ services:
     container_name: server
     entrypoint: ["/bin/sh", "/docker-entrypoint.sh"]
     environment:
+      POSTGRES_HOST: database
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: ${POSTGRES_USER:-orthanc}
+      POSTGRES_DB: ${POSTGRES_DB:-orthanc}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-orthanc}
     ports:
       - "8042:8042"   # somente desenvolvimento; omitir em produção (ver docker-compose.prod.yml)
@@ -39,11 +43,11 @@ services:
       database:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8042/system"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8042/system >/dev/null 2>&1 || exit 1"]
       interval: 10s
       timeout: 5s
-      retries: 12
-      start_period: 30s
+      retries: 18
+      start_period: 120s
     restart: unless-stopped
 
   web-viewer:
