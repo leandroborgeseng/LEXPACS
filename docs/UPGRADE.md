@@ -13,7 +13,7 @@ Runbook para atualizar o LEX PACS em produção com **backup obrigatório**, **t
 | Produto LEX PACS | `ohif-viewer/LEX_PACS_VERSION` (ex. `0.4.0`) |
 | Viewer | `lex-pacs/viewer:${LEX_PACS_VERSION}` |
 | Portal / API | `lex-pacs/portal:${LEX_PACS_VERSION}` |
-| Servidor DICOM | `jodogne/orthanc-plugins:1.12.5` (fixa no compose) |
+| Servidor DICOM | `lex-pacs/orthanc:${LEX_PACS_VERSION}` (build em `ohif-viewer/orthanc/`, base `jodogne/orthanc-plugins:1.12.5`) |
 | Gateway | `nginx:1.27-alpine` |
 
 **Nunca use `latest`** para viewer e portal em produção.

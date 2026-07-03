@@ -36,9 +36,11 @@ services:
     restart: "no"
 
   server:
-    image: jodogne/orthanc-plugins:1.12.5
+    image: "lex-pacs/orthanc:${LEX_PACS_VERSION:-0.7.0}"
     container_name: server
-    entrypoint: ["/bin/sh", "/docker-entrypoint.sh"]
+    build:
+      context: ./orthanc
+      dockerfile: Dockerfile
     environment:
       POSTGRES_HOST: database
       POSTGRES_PORT: "5432"
@@ -49,8 +51,6 @@ services:
       - "8042:8042"   # somente desenvolvimento; omitir em produção (ver docker-compose.prod.yml)
       - "4242:4242"   # DICOM C-STORE (modalidades); restringir firewall em produção
     volumes:
-      - ./orthanc/orthanc.base.json:/etc/orthanc/orthanc.base.json:ro
-      - ./orthanc/docker-entrypoint.sh:/docker-entrypoint.sh:ro
       - server-config:/orthanc-config
       - server-data:/var/lib/orthanc/storage
       - server-worklists:/var/lib/orthanc/worklists
@@ -60,11 +60,11 @@ services:
       database-password-sync:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8042/system >/dev/null 2>&1 || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 18
-      start_period: 180s
+      test: ["CMD-SHELL", "pid=$(cat /orthanc-config/orthanc.pid 2>/dev/null) && kill -0 \"$$pid\" 2>/dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 24
+      start_period: 120s
     restart: unless-stopped
 
   web-viewer:

@@ -36,6 +36,15 @@ key_pem_ok() {
   tls_file_ok "${_path}" && (openssl rsa -in "${_path}" -noout 2>/dev/null || openssl ec -in "${_path}" -noout 2>/dev/null)
 }
 
+validate_config_json() {
+  jq empty "${CONFIG_FILE}" 2>/dev/null
+}
+
+reset_config_from_base() {
+  echo "[lex-pacs] Restaurando orthanc.json a partir do template base" >&2
+  cp "${BASE_FILE}" "${CONFIG_FILE}"
+}
+
 sync_postgres_config() {
   _tmp="${CONFIG_FILE}.tmp.$$"
   POSTGRES_HOST="${POSTGRES_HOST}" \
@@ -91,17 +100,13 @@ pg && /^  \}/ { pg = 0 }
 }
 
 sanitize_config() {
-  _changed=0
-
   if grep -q '"IngestTranscoding"[[:space:]]*:[[:space:]]*""' "${CONFIG_FILE}" 2>/dev/null; then
     sed -i '/"IngestTranscoding"[[:space:]]*:[[:space:]]*""/d' "${CONFIG_FILE}"
-    _changed=1
   fi
 
   if grep -q '"HttpServerEnabled"[[:space:]]*:[[:space:]]*false' "${CONFIG_FILE}" 2>/dev/null; then
     echo "[lex-pacs] HttpServerEnabled forçado para true (healthcheck HTTP)" >&2
     sed -i 's/"HttpServerEnabled"[[:space:]]*:[[:space:]]*false/"HttpServerEnabled": true/' "${CONFIG_FILE}"
-    _changed=1
   fi
 
   _tls_cert=$(json_field DicomTlsCertificate)
@@ -117,7 +122,6 @@ sanitize_config() {
     if [ "${_tls_bad}" -eq 1 ]; then
       echo "[lex-pacs] DICOM TLS desabilitado — certificados ausentes, ilegíveis ou inválidos" >&2
       sed -i 's/"DicomTlsEnabled"[[:space:]]*:[[:space:]]*true/"DicomTlsEnabled": false/' "${CONFIG_FILE}"
-      _changed=1
     fi
   fi
 
@@ -126,16 +130,21 @@ sanitize_config() {
     if ! cert_pem_ok "${_ssl_cert}"; then
       echo "[lex-pacs] SslEnabled desabilitado — certificado HTTPS ausente" >&2
       sed -i 's/"SslEnabled"[[:space:]]*:[[:space:]]*true/"SslEnabled": false/' "${CONFIG_FILE}"
-      _changed=1
     fi
   fi
-
-  return 0
 }
 
 repair_config() {
+  if ! validate_config_json; then
+    reset_config_from_base
+  fi
   sync_postgres_config || true
   sanitize_config || true
+  if ! validate_config_json; then
+    reset_config_from_base
+    sync_postgres_config || true
+    sanitize_config || true
+  fi
 }
 
 config_hash() {
@@ -163,6 +172,7 @@ start_orthanc() {
   AET=$(json_field DicomAet)
   AET=${AET:-?}
   echo "[lex-pacs] Iniciando servidor DICOM (AE Title: ${AET}, DB: ${POSTGRES_USER}@${POSTGRES_HOST}/${POSTGRES_DB})"
+  rm -f "${PID_FILE}"
   Orthanc "${CONFIG_FILE}" 2>&1 &
   _pid=$!
   echo "${_pid}" > "${PID_FILE}"
@@ -175,6 +185,7 @@ start_orthanc() {
     fi
     if ! kill -0 "${_pid}" 2>/dev/null; then
       echo "[lex-pacs] ERRO: Orthanc encerrou durante a subida (pid ${_pid})" >&2
+      rm -f "${PID_FILE}"
       return 1
     fi
     sleep 2
@@ -185,8 +196,6 @@ start_orthanc() {
   return 0
 }
 
-repair_config
-
 watch_config() {
   LAST_HASH=$(config_hash)
   while true; do
@@ -196,40 +205,40 @@ watch_config() {
       echo "[lex-pacs] Configuração alterada — reiniciando servidor DICOM..."
       if [ -f "${PID_FILE}" ]; then
         kill "$(cat "${PID_FILE}")" 2>/dev/null || true
+        rm -f "${PID_FILE}"
       fi
       LAST_HASH="${NEW_HASH}"
     fi
   done
 }
 
-watch_config &
-WATCH_PID=$!
-
+WATCH_PID=""
 cleanup() {
-  kill "${WATCH_PID}" 2>/dev/null || true
+  if [ -n "${WATCH_PID}" ]; then
+    kill "${WATCH_PID}" 2>/dev/null || true
+  fi
   if [ -f "${PID_FILE}" ]; then
     kill "$(cat "${PID_FILE}")" 2>/dev/null || true
+    rm -f "${PID_FILE}"
   fi
 }
 trap cleanup EXIT INT TERM
 
-_failures=0
+_bootstrapped=0
 while true; do
   repair_config
   wait_for_postgres "${POSTGRES_HOST}" "${POSTGRES_PORT}" || true
 
   if start_orthanc; then
-    _failures=0
+    if [ "${_bootstrapped}" -eq 0 ]; then
+      _bootstrapped=1
+      watch_config &
+      WATCH_PID=$!
+    fi
     wait "$(cat "${PID_FILE}")" 2>/dev/null || true
   else
-    _failures=$((_failures + 1))
-    echo "[lex-pacs] Falha de subida #${_failures}" >&2
-    if [ "${_failures}" -ge 3 ]; then
-      echo "[lex-pacs] Restaurando orthanc.json a partir do template base" >&2
-      cp "${BASE_FILE}" "${CONFIG_FILE}"
-      repair_config
-      _failures=0
-    fi
+    reset_config_from_base
+    repair_config
   fi
 
   sleep 2
