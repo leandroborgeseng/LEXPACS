@@ -214,7 +214,7 @@ Rollback: redeploy de commit anterior no Coolify (volumes intactos) ou `git reve
 
 | Sintoma | Causa provável | Ação |
 |---------|----------------|------|
-| `server` unhealthy | PostgreSQL indisponível, senha divergente ou TLS sem certificados | `docker logs server --tail 80`; se aparecer `password authentication failed`, confira `POSTGRES_PASSWORD` no Coolify — o job `database-password-sync` alinha a senha do volume a cada deploy |
+| `server` unhealthy | Loop de restart do Orthanc, senha divergente ou TLS sem certificados | `docker logs server --tail 80`; se repetir `Configuração alterada`, atualize o entrypoint; se `password authentication failed`, confira `POSTGRES_PASSWORD` (job `database-password-sync` alinha a senha a cada deploy) |
 | `auth-realm-init` exit 1 | `OHIF_VIEWER_URL` ausente ou volume `/output` | Ver `docker logs` do container init; conferir `OHIF_VIEWER_URL` no Coolify |
 | OIDC redirect errado | `OHIF_VIEWER_URL` incorreta | Conferir URL exata com HTTPS, sem barra final |
 | Auth 502 em `/auth/` | Realm ainda importando | Aguardar healthcheck; ver logs `auth` |

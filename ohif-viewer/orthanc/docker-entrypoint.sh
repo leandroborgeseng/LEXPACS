@@ -17,53 +17,58 @@ if [ ! -f "${CONFIG_FILE}" ]; then
   cp "${BASE_FILE}" "${CONFIG_FILE}"
 fi
 
-escape_sed() {
-  printf '%s' "$1" | sed -e 's/[\\/&]/\\&/g'
-}
-
-postgres_field() {
-  _field="$1"
-  grep -A20 '"PostgreSQL"' "${CONFIG_FILE}" 2>/dev/null | grep "\"${_field}\"" | head -1 | sed 's/.*: "\?\([^",}]*\)"\?.*/\1/' || true
-}
-
-config_field_needs_update() {
-  _field="$1"
-  _expected="$2"
-  _current=$(postgres_field "${_field}")
-  [ "${_current}" != "${_expected}" ]
-}
-
 sync_postgres_config() {
-  _needs_sync=0
-  _pass_esc=$(escape_sed "${POSTGRES_PASSWORD}")
-  _user_esc=$(escape_sed "${POSTGRES_USER}")
-  _db_esc=$(escape_sed "${POSTGRES_DB}")
-  _host_esc=$(escape_sed "${POSTGRES_HOST}")
-
-  if grep -q '__LEX_POSTGRES_PASSWORD__' "${CONFIG_FILE}" 2>/dev/null; then
-    _needs_sync=1
-  fi
-  if config_field_needs_update Host "${POSTGRES_HOST}"; then _needs_sync=1; fi
-  if config_field_needs_update Port "${POSTGRES_PORT}"; then _needs_sync=1; fi
-  if config_field_needs_update Database "${POSTGRES_DB}"; then _needs_sync=1; fi
-  if config_field_needs_update Username "${POSTGRES_USER}"; then _needs_sync=1; fi
-  if config_field_needs_update Password "${POSTGRES_PASSWORD}"; then _needs_sync=1; fi
-
-  if [ "${_needs_sync}" -eq 0 ]; then
-    return 0
-  fi
-
   _tmp="${CONFIG_FILE}.tmp.$$"
-  cp "${CONFIG_FILE}" "${_tmp}"
+  POSTGRES_HOST="${POSTGRES_HOST}" \
+  POSTGRES_PORT="${POSTGRES_PORT}" \
+  POSTGRES_USER="${POSTGRES_USER}" \
+  POSTGRES_DB="${POSTGRES_DB}" \
+  POSTGRES_PASSWORD="${POSTGRES_PASSWORD}" \
+  awk '
+BEGIN {
+  host = ENVIRON["POSTGRES_HOST"]
+  port = ENVIRON["POSTGRES_PORT"]
+  user = ENVIRON["POSTGRES_USER"]
+  db = ENVIRON["POSTGRES_DB"]
+  pass = ENVIRON["POSTGRES_PASSWORD"]
+}
+function json_escape(s,    i, c, out) {
+  out = ""
+  for (i = 1; i <= length(s); i++) {
+    c = substr(s, i, 1)
+    if (c == "\\") out = out "\\\\"
+    else if (c == "\"") out = out "\\\""
+    else out = out c
+  }
+  return out
+}
+/"PostgreSQL"/ { pg = 1 }
+pg && /^  \}/ { pg = 0 }
+{
+  line = $0
+  if (index(line, "__LEX_POSTGRES_PASSWORD__") > 0) {
+    gsub(/__LEX_POSTGRES_PASSWORD__/, json_escape(pass), line)
+  }
+  if (pg && line ~ /"Host"/) {
+    sub(/: *"[^"]*"/, ": \"" json_escape(host) "\"", line)
+  } else if (pg && line ~ /"Port"/) {
+    sub(/: *[0-9]+/, ": " port, line)
+  } else if (pg && line ~ /"Database"/) {
+    sub(/: *"[^"]*"/, ": \"" json_escape(db) "\"", line)
+  } else if (pg && line ~ /"Username"/) {
+    sub(/: *"[^"]*"/, ": \"" json_escape(user) "\"", line)
+  } else if (pg && line ~ /"Password"/) {
+    sub(/: *"[^"]*"/, ": \"" json_escape(pass) "\"", line)
+  }
+  print line
+}
+' "${CONFIG_FILE}" > "${_tmp}"
 
-  sed -i "s/__LEX_POSTGRES_PASSWORD__/${_pass_esc}/g" "${_tmp}"
-  sed -i "/\"PostgreSQL\"/,/^  }/ s/\"Host\": \"[^\"]*\"/\"Host\": \"${_host_esc}\"/" "${_tmp}"
-  sed -i "/\"PostgreSQL\"/,/^  }/ s/\"Port\": [0-9]*/\"Port\": ${POSTGRES_PORT}/" "${_tmp}"
-  sed -i "/\"PostgreSQL\"/,/^  }/ s/\"Database\": \"[^\"]*\"/\"Database\": \"${_db_esc}\"/" "${_tmp}"
-  sed -i "/\"PostgreSQL\"/,/^  }/ s/\"Username\": \"[^\"]*\"/\"Username\": \"${_user_esc}\"/" "${_tmp}"
-  sed -i "/\"PostgreSQL\"/,/^  }/ s/\"Password\": \"[^\"]*\"/\"Password\": \"${_pass_esc}\"/" "${_tmp}"
-
-  mv "${_tmp}" "${CONFIG_FILE}"
+  if ! cmp -s "${_tmp}" "${CONFIG_FILE}" 2>/dev/null; then
+    mv "${_tmp}" "${CONFIG_FILE}"
+  else
+    rm -f "${_tmp}"
+  fi
 }
 
 sanitize_config() {
@@ -84,12 +89,16 @@ sanitize_config() {
     fi
   fi
 
-  [ "${_changed}" -eq 1 ]
+  return $((1 - _changed))
 }
 
 repair_config() {
   sync_postgres_config
   sanitize_config || true
+}
+
+config_hash() {
+  sha256sum "${CONFIG_FILE}" 2>/dev/null | awk '{print $1}'
 }
 
 wait_for_postgres() {
@@ -112,17 +121,16 @@ wait_for_postgres() {
 repair_config
 
 watch_config() {
-  LAST_MTIME=$(stat -c %Y "${CONFIG_FILE}" 2>/dev/null || echo 0)
+  LAST_HASH=$(config_hash)
   while true; do
     sleep 2
-    NEW_MTIME=$(stat -c %Y "${CONFIG_FILE}" 2>/dev/null || echo 0)
-    if [ "${NEW_MTIME}" != "${LAST_MTIME}" ]; then
+    NEW_HASH=$(config_hash)
+    if [ -n "${NEW_HASH}" ] && [ "${NEW_HASH}" != "${LAST_HASH}" ]; then
       echo "[lex-pacs] Configuração alterada — reiniciando servidor DICOM..."
-      repair_config
       if [ -f "${PID_FILE}" ]; then
         kill "$(cat "${PID_FILE}")" 2>/dev/null || true
       fi
-      LAST_MTIME=$(stat -c %Y "${CONFIG_FILE}" 2>/dev/null || echo 0)
+      LAST_HASH="${NEW_HASH}"
     fi
   done
 }
@@ -139,14 +147,10 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 while true; do
-  PG_HOST=$(postgres_field Host)
-  PG_PORT=$(postgres_field Port)
-  PG_HOST=${PG_HOST:-${POSTGRES_HOST}}
-  PG_PORT=${PG_PORT:-${POSTGRES_PORT}}
-  wait_for_postgres "${PG_HOST}" "${PG_PORT}" || true
+  wait_for_postgres "${POSTGRES_HOST}" "${POSTGRES_PORT}" || true
 
   AET=$(grep -o '"DicomAet"[[:space:]]*:[[:space:]]*"[^"]*"' "${CONFIG_FILE}" | sed 's/.*"\([^"]*\)"$/\1/' || echo "?")
-  echo "[lex-pacs] Iniciando servidor DICOM (AE Title: ${AET}, DB: ${POSTGRES_USER}@${PG_HOST}/${POSTGRES_DB})"
+  echo "[lex-pacs] Iniciando servidor DICOM (AE Title: ${AET}, DB: ${POSTGRES_USER}@${POSTGRES_HOST}/${POSTGRES_DB})"
   Orthanc "${CONFIG_FILE}" &
   echo $! > "${PID_FILE}"
   wait "$(cat "${PID_FILE}")" || true
