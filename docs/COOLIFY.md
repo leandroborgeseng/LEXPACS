@@ -215,6 +215,7 @@ Rollback: redeploy de commit anterior no Coolify (volumes intactos) ou `git reve
 | Sintoma | Causa provável | Ação |
 |---------|----------------|------|
 | `server` unhealthy / `Error` em ~2s | Orthanc crasha na subida (TLS/SSL inválido no volume), loop do watcher ou senha PostgreSQL | `docker logs server --tail 80` no host Coolify; se `DicomTls`/`SslEnabled` sem PEM válido, o entrypoint desabilita automaticamente; após 3 falhas restaura `orthanc.base.json`; último recurso: apagar volume `server-config` no Coolify (perde ajustes admin/TLS) |
+| Deploy falha em `cat .../Dockerfile` (exit 255) | Container helper do Coolify caiu (disco/memória) ou variável de ambiente com aspas quebra o shell | Redeploy; no servidor `df -h` e `docker system df`; revisar env vars com `'`, `"` ou `;`; não é erro do código do repositório |
 | `auth-realm-init` exit 1 | `OHIF_VIEWER_URL` ausente ou volume `/output` | Ver `docker logs` do container init; conferir `OHIF_VIEWER_URL` no Coolify |
 | OIDC redirect errado | `OHIF_VIEWER_URL` incorreta | Conferir URL exata com HTTPS, sem barra final |
 | Auth 502 em `/auth/` | Realm ainda importando | Aguardar healthcheck; ver logs `auth` |
