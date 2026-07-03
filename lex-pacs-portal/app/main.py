@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from urllib.parse import quote
 
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
@@ -243,7 +244,9 @@ async def clinical_oidc_callback(code: str = "", state: str = "", error: str = "
     user = await exchange_oidc_code(code)
     token = create_clinical_session(user.username, user.groups, user.auth_method)
     log_event("clinical_login", user.username, auth_method="oidc_redirect")
-    response = RedirectResponse(url=next_path, status_code=302)
+    sep = "&" if "?" in next_path else "?"
+    redirect_url = f"{next_path}{sep}token={quote(token, safe='')}"
+    response = RedirectResponse(url=redirect_url, status_code=302)
     response.set_cookie(key=CLINICAL_COOKIE_NAME, value=token, **session_cookie_kwargs())
     return response
 

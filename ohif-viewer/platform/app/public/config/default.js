@@ -34,6 +34,15 @@ window.config = {
         acceptHeader: [
           'multipart/related; type="application/octet-stream"; transfer-syntax=*',
         ],
+        onConfiguration: (config) => {
+          const hooks = [
+            request => {
+              request.withCredentials = true;
+              return request;
+            },
+          ];
+          return { ...config, requestHooks: hooks };
+        },
       },
     },
   ],

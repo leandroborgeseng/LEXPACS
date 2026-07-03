@@ -82,6 +82,8 @@ export type DicomWebConfig = {
   onConfiguration: (config: DicomWebConfig, params) => DicomWebConfig;
   /** Whether to use the static WADO client */
   staticWado?: boolean;
+  /** Hooks passed to dicomweb-client (e.g. withCredentials) */
+  requestHooks?: Array<(request: XMLHttpRequest, metadata?: object) => XMLHttpRequest>;
   /** User authentication service */
   userAuthenticationService: Record<string, unknown>;
 };
@@ -196,6 +198,7 @@ function createDicomWebApi(dicomWebConfig: DicomWebConfig, servicesManager) {
         staticWado: dicomWebConfig.staticWado,
         singlepart: dicomWebConfig.singlepart,
         headers: userAuthenticationService.getAuthorizationHeader(),
+        requestHooks: dicomWebConfig.requestHooks,
         errorInterceptor: errorHandler.getHTTPErrorHandler(),
         supportsFuzzyMatching: dicomWebConfig.supportsFuzzyMatching,
       };
@@ -205,6 +208,7 @@ function createDicomWebApi(dicomWebConfig: DicomWebConfig, servicesManager) {
         staticWado: dicomWebConfig.staticWado,
         singlepart: dicomWebConfig.singlepart,
         headers: userAuthenticationService.getAuthorizationHeader(),
+        requestHooks: dicomWebConfig.requestHooks,
         errorInterceptor: errorHandler.getHTTPErrorHandler(),
         supportsFuzzyMatching: dicomWebConfig.supportsFuzzyMatching,
       };

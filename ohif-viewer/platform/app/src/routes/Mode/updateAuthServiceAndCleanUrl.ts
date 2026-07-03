@@ -1,3 +1,5 @@
+import { setClinicalSessionToken } from '../WorkList/lexClinicalSession';
+
 /**
  * Updates the user authentication service with the provided token and cleans the token from the URL.
  * @param token - The token to set in the user authentication service.
@@ -12,6 +14,8 @@ export function updateAuthServiceAndCleanUrl(
   if (!token) {
     return;
   }
+
+  setClinicalSessionToken(token);
 
   // if a token is passed in, set the userAuthenticationService to use it
   // for the Authorization header for all requests

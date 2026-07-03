@@ -74,6 +74,13 @@ form.addEventListener('submit', async event => {
       showError(data.detail || t('errors.invalidCredentials'));
       return;
     }
+    if (data.access_token) {
+      try {
+        sessionStorage.setItem('lex_clinical_token', data.access_token);
+      } catch {
+        /* ignore */
+      }
+    }
     window.location.href = data.redirect_url || safeNextPath();
   } catch {
     showError(t('errors.connection'));
