@@ -222,13 +222,13 @@ services:
     restart: unless-stopped
 
   gateway:
-    image: nginx:1.27-alpine
+    image: "lex-pacs/gateway:${LEX_PACS_VERSION:-0.7.0}"
     container_name: gateway
+    build:
+      context: ./ohif-viewer/nginx
+      dockerfile: Dockerfile
     expose:
       - "80"
-    volumes:
-      - ./ohif-viewer/nginx/00-lex-security.conf:/etc/nginx/conf.d/00-lex-security.conf:ro
-      - ./ohif-viewer/nginx/gateway.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
       web-viewer:
         condition: service_healthy
