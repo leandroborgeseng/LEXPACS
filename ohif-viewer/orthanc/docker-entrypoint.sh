@@ -10,6 +10,24 @@ POSTGRES_USER="${POSTGRES_USER:-orthanc}"
 POSTGRES_DB="${POSTGRES_DB:-orthanc}"
 POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-orthanc}"
 
+normalize_postgres_password() {
+  _v="${POSTGRES_PASSWORD}"
+  # Aspas externas (erro comum no Coolify/.env)
+  case "${_v}" in
+    \"*) _v="${_v#\"}"; _v="${_v%\"}" ;;
+  esac
+  case "${_v}" in
+    \'*) _v="${_v#\'}"; _v="${_v%\'}" ;;
+  esac
+  # Valor colado como "POSTGRES_PASSWORD=senha" no campo Valor
+  case "${_v}" in
+    POSTGRES_PASSWORD=*) _v="${_v#POSTGRES_PASSWORD=}" ;;
+  esac
+  POSTGRES_PASSWORD="${_v}"
+}
+
+normalize_postgres_password
+
 mkdir -p "${CONFIG_DIR}" /var/lib/orthanc/worklists
 
 if [ ! -f "${CONFIG_FILE}" ]; then
@@ -134,10 +152,19 @@ sanitize_config() {
   fi
 }
 
+strip_postgres_connection_uri() {
+  if jq -e '.PostgreSQL.ConnectionUri // empty | length > 0' "${CONFIG_FILE}" >/dev/null 2>&1; then
+    echo "[lex-pacs] Removendo PostgreSQL.ConnectionUri inválido (usa Host/Port/Password)" >&2
+    jq 'del(.PostgreSQL.ConnectionUri)' "${CONFIG_FILE}" > "${CONFIG_FILE}.uri.$$" \
+      && mv "${CONFIG_FILE}.uri.$$" "${CONFIG_FILE}"
+  fi
+}
+
 repair_config() {
   if ! validate_config_json; then
     reset_config_from_base
   fi
+  strip_postgres_connection_uri || true
   sync_postgres_config || true
   sanitize_config || true
   if ! validate_config_json; then

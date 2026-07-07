@@ -1,0 +1,10 @@
+FROM docker:27-cli
+
+RUN apk add --no-cache python3 rsync bash
+
+COPY backup-scheduler.sh backup-volumes.sh backup-retention.sh backup-retention.py backup-remote-mirror.sh /scripts/
+RUN chmod +x /scripts/*.sh
+
+WORKDIR /compose
+
+ENTRYPOINT ["/bin/sh", "/scripts/backup-scheduler.sh"]

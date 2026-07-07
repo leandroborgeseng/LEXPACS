@@ -216,6 +216,9 @@ Rollback: redeploy de commit anterior no Coolify (volumes intactos) ou `git reve
 |---------|----------------|------|
 | `server` unhealthy / `Error` em ~2–3s | Healthcheck HTTP antes do Orthanc subir, `orthanc.json` inválido no volume ou crash TLS/SSL | Imagem `lex-pacs/orthanc` valida JSON (`jq`), restaura template e usa healthcheck por PID; `docker logs server --tail 80`; último recurso: apagar volume `server-config` |
 | `gateway` mount `gateway.conf` — not a directory | Bind mount antigo: Docker criou pasta no host em `/data/coolify/.../gateway.conf` | A partir de `lex-pacs/gateway` a config vai na imagem (sem bind mount); redeploy; opcional: `rm -rf /data/coolify/applications/<uuid>/ohif-viewer/nginx/gateway.conf` no host |
+| `backup` — `/scripts/backup-scheduler.sh: not found` | Bind mount `./ohif-viewer/scripts` ausente no host Coolify | Imagem `lex-pacs/backup` embute scripts; redeploy |
+| `server` — `missing "=" after "POSTGRES_PASSWORD"` | `POSTGRES_PASSWORD` com aspas ou `POSTGRES_PASSWORD=senha` no **valor** da variável; ou `ConnectionUri` inválido no volume | No Coolify: valor **só a senha** (sem aspas, sem prefixo); apagar volume `server-config` se persistir após redeploy |
+| `auth-realm-init` — realm em `localhost:3000` | `OHIF_VIEWER_URL` errada | Definir `OHIF_VIEWER_URL=https://seu-dominio` (igual ao domínio do `gateway`) |
 | Deploy falha em `cat .../Dockerfile` (exit 255) | Container helper do Coolify caiu (disco/memória) ou variável de ambiente com aspas quebra o shell | Redeploy; no servidor `df -h` e `docker system df`; revisar env vars com `'`, `"` ou `;`; não é erro do código do repositório |
 | `auth-realm-init` exit 1 | `OHIF_VIEWER_URL` ausente ou volume `/output` | Ver `docker logs` do container init; conferir `OHIF_VIEWER_URL` no Coolify |
 | OIDC redirect errado | `OHIF_VIEWER_URL` incorreta | Conferir URL exata com HTTPS, sem barra final |
