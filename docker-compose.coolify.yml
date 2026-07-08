@@ -25,7 +25,7 @@ services:
       dockerfile: Dockerfile.realm-init
     environment:
       OHIF_VIEWER_URL: ${OHIF_VIEWER_URL:-http://localhost:3000}
-      OIDC_PUBLIC_ISSUER_URL: ${OIDC_PUBLIC_ISSUER_URL:-}
+      OIDC_PUBLIC_ISSUER_URL: ${OIDC_PUBLIC_ISSUER_URL:-${OHIF_VIEWER_URL}/auth/realms/lex-pacs}
       KEYCLOAK_PUBLIC_URL: ${KEYCLOAK_PUBLIC_URL:-}
       KEYCLOAK_HTTP_RELATIVE_PATH: ${KEYCLOAK_HTTP_RELATIVE_PATH:-/auth}
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-lex-clinical-dev-secret}
@@ -35,7 +35,10 @@ services:
     restart: "no"
 
   database:
-    image: postgres:16-alpine
+    image: "lex-pacs/database:${LEX_PACS_VERSION:-0.7.0}"
+    build:
+      context: ./ohif-viewer/postgres
+      dockerfile: Dockerfile
     container_name: database
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-orthanc}
@@ -43,7 +46,6 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD}
     volumes:
       - database-data:/var/lib/postgresql/data
-      - ./ohif-viewer/postgres/init-lex-mwl.sql:/docker-entrypoint-initdb.d/10-lex-mwl.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-orthanc} -d ${POSTGRES_DB:-orthanc}"]
       interval: 5s
@@ -53,7 +55,10 @@ services:
     restart: unless-stopped
 
   database-password-sync:
-    image: postgres:16-alpine
+    image: "lex-pacs/database-password-sync:${LEX_PACS_VERSION:-0.7.0}"
+    build:
+      context: ./ohif-viewer/postgres
+      dockerfile: Dockerfile.password-sync
     network_mode: "service:database"
     depends_on:
       database:
@@ -62,9 +67,6 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-orthanc}
       POSTGRES_DB: ${POSTGRES_DB:-orthanc}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD}
-    volumes:
-      - ./ohif-viewer/postgres/sync-password.sh:/sync-password.sh:ro
-    entrypoint: ["/bin/sh", "/sync-password.sh"]
     restart: "no"
 
   auth:
@@ -250,15 +252,15 @@ services:
     image: "lex-pacs/backup:${LEX_PACS_VERSION:-0.7.0}"
     container_name: backup
     build:
-      context: ./ohif-viewer/scripts
-      dockerfile: Dockerfile.backup
+      context: .
+      dockerfile: ohif-viewer/scripts/Dockerfile.backup
+      args:
+        LEX_PACS_VERSION: ${LEX_PACS_VERSION:-0.7.0}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - lex-backups:/backups
       # Railway: anexe um volume persistente e defina BACKUP_REMOTE_DIR=/railway-backups
       # - railway-backups:/railway-backups
-      - ./LEX_PACS_VERSION:/compose/LEX_PACS_VERSION:ro
-      - ./docker-compose.coolify.yml:/compose/docker-compose.yml:ro
       - server-config:/orthanc-config
     environment:
       BACKUP_ROOT: /backups

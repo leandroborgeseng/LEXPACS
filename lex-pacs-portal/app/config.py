@@ -45,6 +45,16 @@ class Settings(BaseSettings):
     def keycloak_admin_user(self) -> str:
         return self.keycloak_admin
 
+    @property
+    def resolved_oidc_public_issuer_url(self) -> str:
+        """Issuer OIDC para o browser; deriva de OHIF_VIEWER_URL se vazio ou interno."""
+        custom = (self.oidc_public_issuer_url or "").strip().rstrip("/")
+        if custom and not custom.startswith("http://auth"):
+            return custom
+        base = (self.ohif_viewer_url or "").strip().rstrip("/")
+        if base:
+            return f"{base}/auth/realms/lex-pacs"
+        return ""
 
     @property
     def oidc_redirect_uri(self) -> str:

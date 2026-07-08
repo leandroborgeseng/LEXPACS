@@ -1,9 +1,19 @@
 FROM docker:27-cli
 
+ARG LEX_PACS_VERSION=0.7.0
+
 RUN apk add --no-cache python3 rsync bash
 
-COPY backup-scheduler.sh backup-volumes.sh backup-retention.sh backup-retention.py backup-remote-mirror.sh /scripts/
+COPY ohif-viewer/scripts/backup-scheduler.sh \
+     ohif-viewer/scripts/backup-volumes.sh \
+     ohif-viewer/scripts/backup-retention.sh \
+     ohif-viewer/scripts/backup-retention.py \
+     ohif-viewer/scripts/backup-remote-mirror.sh \
+     /scripts/
 RUN chmod +x /scripts/*.sh
+
+COPY docker-compose.coolify.yml /compose/docker-compose.yml
+RUN printf '%s\n' "${LEX_PACS_VERSION}" > /compose/LEX_PACS_VERSION
 
 WORKDIR /compose
 

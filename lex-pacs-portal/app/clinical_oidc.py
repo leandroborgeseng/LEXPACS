@@ -42,7 +42,7 @@ def clinical_permissions(user: ClinicalUser) -> dict[str, Any]:
 
 
 def oidc_public_config() -> dict[str, Any]:
-    issuer = settings.oidc_public_issuer_url.rstrip("/") if settings.oidc_enabled else ""
+    issuer = settings.resolved_oidc_public_issuer_url if settings.oidc_enabled else ""
     redirect_uri = ""
     login_url = ""
     if settings.oidc_enabled and issuer:
@@ -99,7 +99,7 @@ def oidc_authorize_url(next_path: str) -> str:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="OIDC desabilitado.")
     state = create_oidc_state(next_path)
     redirect_uri = settings.oidc_redirect_uri
-    issuer = settings.oidc_public_issuer_url.rstrip("/")
+    issuer = settings.resolved_oidc_public_issuer_url
     params = urlencode(
         {
             "client_id": settings.oidc_client_id,

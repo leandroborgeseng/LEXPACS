@@ -217,16 +217,21 @@ Rollback: redeploy de commit anterior no Coolify (volumes intactos) ou `git reve
 | `server` unhealthy / `Error` em ~2–3s | Healthcheck HTTP antes do Orthanc subir, `orthanc.json` inválido no volume ou crash TLS/SSL | Imagem `lex-pacs/orthanc` valida JSON (`jq`), restaura template e usa healthcheck por PID; `docker logs server --tail 80`; último recurso: apagar volume `server-config` |
 | `gateway` mount `gateway.conf` — not a directory | Bind mount antigo: Docker criou pasta no host em `/data/coolify/.../gateway.conf` | A partir de `lex-pacs/gateway` a config vai na imagem (sem bind mount); redeploy; opcional: `rm -rf /data/coolify/applications/<uuid>/ohif-viewer/nginx/gateway.conf` no host |
 | `backup` — `/scripts/backup-scheduler.sh: not found` | Bind mount `./ohif-viewer/scripts` ausente no host Coolify | Imagem `lex-pacs/backup` embute scripts; redeploy |
+| `server` — `password authentication failed for user "orthanc"` | Volume `database-data` criado com outra `POSTGRES_PASSWORD`; sync antigo usava TCP e não conseguia `ALTER USER` | No Coolify: valor **só a senha** (sem aspas); **Terminal** no container `database`: `psql -U orthanc -d orthanc -c "ALTER USER orthanc WITH PASSWORD 'sua-senha';"` (sem `-h`); **Redeploy**; ou apagar volume `database-data` (perde índice SQL/MWL, não os arquivos DICOM em `server-data`) |
 | `server` — `missing "=" after "POSTGRES_PASSWORD"` | `POSTGRES_PASSWORD` com aspas ou `POSTGRES_PASSWORD=senha` no **valor** da variável; ou `ConnectionUri` inválido no volume | No Coolify: valor **só a senha** (sem aspas, sem prefixo); apagar volume `server-config` se persistir após redeploy |
 | `auth-realm-init` — realm em `localhost:3000` | `OHIF_VIEWER_URL` errada | Definir `OHIF_VIEWER_URL=https://seu-dominio` (igual ao domínio do `gateway`) |
 | Deploy falha em `cat .../Dockerfile` (exit 255) | Container helper do Coolify caiu (disco/memória) ou variável de ambiente com aspas quebra o shell | Redeploy; no servidor `df -h` e `docker system df`; revisar env vars com `'`, `"` ou `;`; não é erro do código do repositório |
+| Deploy falha ao gravar `docker-compose.coolify.yml` (exit 255, sem stderr) | Falha transitória do helper Coolify ou sessão SSH (`mux_client_request_session: Session open refused by peer`) | Aguardar 1–2 min e **Redeploy**; se persistir: reiniciar Docker no SRV ou limpar `docker system prune` (cuidado); não alterar código |
+| `COOLIFY_BRANCH` com valor `"main"` (aspas duplas) | Variável `COOLIFY_BRANCH` definida manualmente no Coolify — o painel já injeta essa variável | **Remover** `COOLIFY_BRANCH` das variáveis de ambiente do recurso; deixar só o branch na configuração Git |
+| `database` / `database-password-sync` — arquivo SQL ou script ausente no host | Bind mounts `./ohif-viewer/postgres/*` no host Coolify | Imagens `lex-pacs/database` e `lex-pacs/database-password-sync` embutem init e sync; redeploy após pull |
 | `auth-realm-init` exit 1 | `OHIF_VIEWER_URL` ausente ou volume `/output` | Ver `docker logs` do container init; conferir `OHIF_VIEWER_URL` no Coolify |
 | OIDC redirect errado | `OHIF_VIEWER_URL` incorreta | Conferir URL exata com HTTPS, sem barra final |
 | Auth 502 em `/auth/` | Realm ainda importando | Aguardar healthcheck; ver logs `auth` |
 | Login 401 após OIDC | `OIDC_CLIENT_SECRET` divergente | Igualar secret no Coolify e realm |
 | Cookie não persiste | `COOKIE_SECURE=true` sem HTTPS | Ativar TLS no Coolify |
 | Modalidade não envia | Firewall 4242 | Abrir porta para IP da modalidade |
-| Issuer OIDC errado | `OIDC_PUBLIC_ISSUER_URL` manual desatualizada | Omitir variável (usa `${OHIF_VIEWER_URL}/auth/realms/lex-pacs`) |
+| Modal "LEX PACS / request failed" na worklist | Orthanc (`server`) indisponível — gateway devolve **502** em `/dicom-web` | `curl -b cookies.txt https://seu-dominio/clinica-api/health` → `"storage": false`; ver logs do container `server`; apagar volume `server-config` se `orthanc.json` inválido; conferir `POSTGRES_PASSWORD` |
+| `OIDC_PUBLIC_ISSUER_URL` vazia / login Keycloak quebra | Variável definida como `''` no Coolify (sobrescreve o default do compose) | **Remover** `OIDC_PUBLIC_ISSUER_URL` das env vars ou setar `${OHIF_VIEWER_URL}/auth/realms/lex-pacs`; após fix no portal, `/clinica-api/auth/clinical/config` deve mostrar `issuer` preenchido |
 
 Logs:
 
