@@ -15,6 +15,7 @@ from .migration_orthanc import (
     modality_echo,
     retrieve_remote_study,
     study_exists_locally,
+    sync_migration_modality_runtime,
 )
 from .migration_store import (
     MIGRATION_MODALITY_KEY,
@@ -80,11 +81,12 @@ def sync_migration_modality_to_orthanc() -> bool:
     else:
         modalities.pop(MIGRATION_MODALITY_KEY, None)
     previous = config.get("DicomModalities") or {}
-    if previous == modalities:
-        return False
-    config["DicomModalities"] = modalities
-    _write_orthanc_config(config)
-    return True
+    changed = previous != modalities
+    if changed:
+        config["DicomModalities"] = modalities
+        _write_orthanc_config(config)
+    sync_migration_modality_runtime(mig)
+    return changed
 
 
 def save_migration_settings(payload: dict[str, Any]) -> dict[str, Any]:

@@ -37,7 +37,16 @@ def modality_echo(modality_key: str = MIGRATION_MODALITY_KEY) -> dict[str, Any]:
 
 
 def _build_study_query(filters: dict[str, Any]) -> dict[str, str]:
-    query: dict[str, str] = {}
+    """Monta C-FIND Study. Tags vazias = curinga (requerido por vários PACS legados)."""
+    query: dict[str, str] = {
+        "PatientID": "",
+        "PatientName": "",
+        "StudyInstanceUID": "",
+        "StudyDate": "",
+        "AccessionNumber": "",
+        "ModalitiesInStudy": "",
+        "StudyDescription": "",
+    }
     patient_id = str(filters.get("patient_id") or "").strip()
     modality = str(filters.get("modality") or "").strip()
     date_from = str(filters.get("study_date_from") or "").strip()
@@ -53,6 +62,28 @@ def _build_study_query(filters: dict[str, Any]) -> dict[str, str]:
     elif date_to:
         query["StudyDate"] = f"-{date_to}"
     return query
+
+
+def upsert_modality(modality_key: str, entry: dict[str, Any]) -> None:
+    """Registra modalidade no Orthanc em execução (não basta gravar orthanc.json)."""
+    with _client() as client:
+        response = client.put(f"/modalities/{modality_key}", json=entry)
+        if response.status_code >= 400:
+            raise MigrationOrthancError(
+                response.text[:240] or f"Falha ao registrar modalidade {modality_key}."
+            )
+
+
+def remove_modality(modality_key: str) -> None:
+    with _client() as client:
+        client.delete(f"/modalities/{modality_key}")
+
+
+def sync_migration_modality_runtime(entry: dict[str, Any] | None) -> None:
+    if entry:
+        upsert_modality(MIGRATION_MODALITY_KEY, entry)
+    else:
+        remove_modality(MIGRATION_MODALITY_KEY)
 
 
 def discover_remote_studies(
