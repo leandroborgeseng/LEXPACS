@@ -33,4 +33,5 @@ done
 psql -v ON_ERROR_STOP=1 -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" \
   -c "ALTER USER \"${POSTGRES_USER}\" WITH PASSWORD '${_pass_sql}';"
 
+touch /var/lib/postgresql/data/.lex-password-synced
 echo "[lex-pacs] Senha PostgreSQL sincronizada com POSTGRES_PASSWORD"

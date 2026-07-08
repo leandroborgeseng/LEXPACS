@@ -25,7 +25,6 @@ services:
       dockerfile: Dockerfile.realm-init
     environment:
       OHIF_VIEWER_URL: ${OHIF_VIEWER_URL:-http://localhost:3000}
-      OIDC_PUBLIC_ISSUER_URL: ${OIDC_PUBLIC_ISSUER_URL:-${OHIF_VIEWER_URL}/auth/realms/lex-pacs}
       KEYCLOAK_PUBLIC_URL: ${KEYCLOAK_PUBLIC_URL:-}
       KEYCLOAK_HTTP_RELATIVE_PATH: ${KEYCLOAK_HTTP_RELATIVE_PATH:-/auth}
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-lex-clinical-dev-secret}
@@ -47,27 +46,14 @@ services:
     volumes:
       - database-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-orthanc} -d ${POSTGRES_DB:-orthanc}"]
+      test:
+        - CMD-SHELL
+        - pg_isready -U ${POSTGRES_USER:-orthanc} -d ${POSTGRES_DB:-orthanc} && test -f /var/lib/postgresql/data/.lex-password-synced
       interval: 5s
       timeout: 5s
       retries: 10
       start_period: 10s
     restart: unless-stopped
-
-  database-password-sync:
-    image: "lex-pacs/database-password-sync:${LEX_PACS_VERSION:-0.7.0}"
-    build:
-      context: ./ohif-viewer/postgres
-      dockerfile: Dockerfile.password-sync
-    network_mode: "service:database"
-    depends_on:
-      database:
-        condition: service_healthy
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-orthanc}
-      POSTGRES_DB: ${POSTGRES_DB:-orthanc}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD}
-    restart: "no"
 
   auth:
     image: quay.io/keycloak/keycloak:26.0
@@ -125,8 +111,6 @@ services:
     depends_on:
       database:
         condition: service_healthy
-      database-password-sync:
-        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "pid=$(cat /orthanc-config/orthanc.pid 2>/dev/null) && kill -0 \"$$pid\" 2>/dev/null"]
       interval: 5s
@@ -187,7 +171,6 @@ services:
       LEX_PACS_VERSION: ${LEX_PACS_VERSION:-0.7.0}
       OIDC_ENABLED: ${OIDC_ENABLED:-true}
       OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:-http://auth:8080/auth/realms/lex-pacs}
-      OIDC_PUBLIC_ISSUER_URL: ${OIDC_PUBLIC_ISSUER_URL:-${OHIF_VIEWER_URL}/auth/realms/lex-pacs}
       OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-lex-clinical}
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:?defina OIDC_CLIENT_SECRET}
       KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
@@ -284,8 +267,6 @@ services:
     depends_on:
       database:
         condition: service_healthy
-      database-password-sync:
-        condition: service_completed_successfully
       portal:
         condition: service_started
     restart: unless-stopped

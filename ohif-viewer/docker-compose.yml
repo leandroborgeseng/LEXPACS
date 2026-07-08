@@ -3,7 +3,10 @@ version: '3.8'
 # Versão do produto LEX PACS — arquivo LEX_PACS_VERSION e docs/UPGRADE.md
 services:
   database:
-    image: postgres:16-alpine
+    image: "lex-pacs/database:${LEX_PACS_VERSION:-0.7.0}"
+    build:
+      context: ./postgres
+      dockerfile: Dockerfile
     container_name: database
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-orthanc}
@@ -11,29 +14,15 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-orthanc}
     volumes:
       - database-data:/var/lib/postgresql/data
-      - ./postgres/init-lex-mwl.sql:/docker-entrypoint-initdb.d/10-lex-mwl.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-orthanc} -d ${POSTGRES_DB:-orthanc}"]
+      test:
+        - CMD-SHELL
+        - pg_isready -U ${POSTGRES_USER:-orthanc} -d ${POSTGRES_DB:-orthanc} && test -f /var/lib/postgresql/data/.lex-password-synced
       interval: 5s
       timeout: 5s
       retries: 10
       start_period: 10s
     restart: unless-stopped
-
-  database-password-sync:
-    image: postgres:16-alpine
-    network_mode: "service:database"
-    depends_on:
-      database:
-        condition: service_healthy
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-orthanc}
-      POSTGRES_DB: ${POSTGRES_DB:-orthanc}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-orthanc}
-    volumes:
-      - ./postgres/sync-password.sh:/sync-password.sh:ro
-    entrypoint: ["/bin/sh", "/sync-password.sh"]
-    restart: "no"
 
   server:
     image: "lex-pacs/orthanc:${LEX_PACS_VERSION:-0.7.0}"
@@ -57,8 +46,6 @@ services:
     depends_on:
       database:
         condition: service_healthy
-      database-password-sync:
-        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "pid=$(cat /orthanc-config/orthanc.pid 2>/dev/null) && kill -0 \"$$pid\" 2>/dev/null"]
       interval: 5s

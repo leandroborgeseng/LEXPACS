@@ -110,7 +110,7 @@ Copie de `.env.coolify.example`. **Obrigatórias:**
 
 | Variável | Padrão |
 |----------|--------|
-| `OIDC_PUBLIC_ISSUER_URL` | `${OHIF_VIEWER_URL}/auth/realms/lex-pacs` |
+| `OIDC_PUBLIC_ISSUER_URL` | *(omitir — derivada de `OHIF_VIEWER_URL` no portal)* |
 | `OIDC_ISSUER_URL` | `http://auth:8080/auth/realms/lex-pacs` |
 | `KEYCLOAK_HTTP_RELATIVE_PATH` | `/auth` |
 
@@ -223,7 +223,8 @@ Rollback: redeploy de commit anterior no Coolify (volumes intactos) ou `git reve
 | Deploy falha em `cat .../Dockerfile` (exit 255) | Container helper do Coolify caiu (disco/memória) ou variável de ambiente com aspas quebra o shell | Redeploy; no servidor `df -h` e `docker system df`; revisar env vars com `'`, `"` ou `;`; não é erro do código do repositório |
 | Deploy falha ao gravar `docker-compose.coolify.yml` (exit 255, sem stderr) | Falha transitória do helper Coolify ou sessão SSH (`mux_client_request_session: Session open refused by peer`) | Aguardar 1–2 min e **Redeploy**; se persistir: reiniciar Docker no SRV ou limpar `docker system prune` (cuidado); não alterar código |
 | `COOLIFY_BRANCH` com valor `"main"` (aspas duplas) | Variável `COOLIFY_BRANCH` definida manualmente no Coolify — o painel já injeta essa variável | **Remover** `COOLIFY_BRANCH` das variáveis de ambiente do recurso; deixar só o branch na configuração Git |
-| `database` / `database-password-sync` — arquivo SQL ou script ausente no host | Bind mounts `./ohif-viewer/postgres/*` no host Coolify | Imagens `lex-pacs/database` e `lex-pacs/database-password-sync` embutem init e sync; redeploy após pull |
+| `database-password-sync` exit 2 | Sidecar antigo não acessava o socket Unix do Postgres | Removido: sync embutido na imagem `lex-pacs/database`; healthcheck aguarda `.lex-password-synced` |
+| `database` / init SQL ausente no host | Bind mounts `./ohif-viewer/postgres/*` no host Coolify | Imagem `lex-pacs/database` embute init e sync; redeploy após pull |
 | `auth-realm-init` exit 1 | `OHIF_VIEWER_URL` ausente ou volume `/output` | Ver `docker logs` do container init; conferir `OHIF_VIEWER_URL` no Coolify |
 | OIDC redirect errado | `OHIF_VIEWER_URL` incorreta | Conferir URL exata com HTTPS, sem barra final |
 | Auth 502 em `/auth/` | Realm ainda importando | Aguardar healthcheck; ver logs `auth` |
@@ -231,7 +232,7 @@ Rollback: redeploy de commit anterior no Coolify (volumes intactos) ou `git reve
 | Cookie não persiste | `COOKIE_SECURE=true` sem HTTPS | Ativar TLS no Coolify |
 | Modalidade não envia | Firewall 4242 | Abrir porta para IP da modalidade |
 | Modal "LEX PACS / request failed" na worklist | Orthanc (`server`) indisponível — gateway devolve **502** em `/dicom-web` | `curl -b cookies.txt https://seu-dominio/clinica-api/health` → `"storage": false`; ver logs do container `server`; apagar volume `server-config` se `orthanc.json` inválido; conferir `POSTGRES_PASSWORD` |
-| `OIDC_PUBLIC_ISSUER_URL` vazia / login Keycloak quebra | Variável definida como `''` no Coolify (sobrescreve o default do compose) | **Remover** `OIDC_PUBLIC_ISSUER_URL` das env vars ou setar `${OHIF_VIEWER_URL}/auth/realms/lex-pacs`; após fix no portal, `/clinica-api/auth/clinical/config` deve mostrar `issuer` preenchido |
+| `OIDC_PUBLIC_ISSUER_URL` vazia / login Keycloak quebra | Variável definida como `''` no Coolify (legado) | **Remover** `OIDC_PUBLIC_ISSUER_URL` das env vars — não está mais no compose; o portal deriva de `OHIF_VIEWER_URL`; `/clinica-api/auth/clinical/config` deve mostrar `issuer` preenchido |
 
 Logs:
 
