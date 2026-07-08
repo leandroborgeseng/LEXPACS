@@ -114,6 +114,13 @@ def run_migration_discovery() -> dict[str, Any]:
     if status_value == "running":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Pause a migração antes de redescobrir.")
 
+    src = cfg.get("source") or {}
+    if not str(src.get("aet") or "").strip() or not str(src.get("host") or "").strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Configure o PACS de origem (AE Title e host) e salve antes de descobrir.",
+        )
+
     sync_migration_modality_to_orthanc()
     update_migration_state(status="discovering", last_error="")
     try:
@@ -122,18 +129,31 @@ def run_migration_discovery() -> dict[str, Any]:
         update_migration_state(status="error", last_error=str(exc)[:240])
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
-    save_migration_queue(studies)
+    existing = load_migration_queue()
+    seen = {str(item.get("study_instance_uid") or "") for item in existing}
+    merged = list(existing)
+    new_count = 0
+    for item in studies:
+        uid = str(item.get("study_instance_uid") or "")
+        if not uid or uid in seen:
+            continue
+        merged.append(item)
+        seen.add(uid)
+        new_count += 1
+
+    save_migration_queue(merged)
+    cursor = int(cfg.get("cursor") or 0)
     update_migration_state(
         status="idle",
-        cursor=0,
-        queue_total=len(studies),
+        cursor=cursor,
+        queue_total=len(merged),
         discovered_at=utc_now_iso(),
-        stats=deepcopy({"completed": 0, "failed": 0, "skipped": 0, "instances_imported": 0}),
         last_error="",
     )
     return {
-        "discovered": len(studies),
-        "queue_total": len(studies),
+        "discovered": new_count,
+        "found_in_query": len(studies),
+        "queue_total": len(merged),
     }
 
 

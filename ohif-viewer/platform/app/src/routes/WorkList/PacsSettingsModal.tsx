@@ -1543,6 +1543,26 @@ export function PacsSettingsModal({ hide, mode = 'modal' }: PacsSettingsModalPro
     }));
   };
 
+  const persistMigrationConfig = async () => {
+    const response = await fetch(`${API_BASE}/migration/config`, {
+      method: 'PUT',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...migrationForm,
+        source: {
+          ...migrationForm.source,
+          aet: migrationForm.source.aet.trim().toUpperCase(),
+        },
+      }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(data.detail || t('pacsSettings.errors.saveMigration'));
+    }
+    return data;
+  };
+
   const handleSaveMigration = async () => {
     if (!isAdmin) {
       return;
@@ -1551,22 +1571,7 @@ export function PacsSettingsModal({ hide, mode = 'modal' }: PacsSettingsModalPro
     setError('');
     setMessage('');
     try {
-      const response = await fetch(`${API_BASE}/migration/config`, {
-        method: 'PUT',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...migrationForm,
-          source: {
-            ...migrationForm.source,
-            aet: migrationForm.source.aet.trim().toUpperCase(),
-          },
-        }),
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(data.detail || t('pacsSettings.errors.saveMigration'));
-      }
+      await persistMigrationConfig();
       setMessage(t('pacsSettings.messages.migrationSaved'));
       await loadMigrationData();
     } catch (err) {
@@ -1588,6 +1593,9 @@ export function PacsSettingsModal({ hide, mode = 'modal' }: PacsSettingsModalPro
     setError('');
     setMessage('');
     try {
+      if (endpoint === 'test-echo' || endpoint === 'discover') {
+        await persistMigrationConfig();
+      }
       const response = await fetch(`${API_BASE}/migration/${endpoint}`, {
         method: 'POST',
         credentials: 'include',
@@ -1597,7 +1605,12 @@ export function PacsSettingsModal({ hide, mode = 'modal' }: PacsSettingsModalPro
         throw new Error(data.detail || t(errorKey));
       }
       if (endpoint === 'discover') {
-        setMessage(t('pacsSettings.messages.migrationDiscovered', { count: data.discovered || 0 }));
+        setMessage(
+          t('pacsSettings.messages.migrationDiscovered', {
+            count: data.discovered || 0,
+            total: data.queue_total || 0,
+          })
+        );
       } else {
         setMessage(okMessage);
       }

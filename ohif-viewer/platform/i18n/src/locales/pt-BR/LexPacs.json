@@ -164,7 +164,7 @@
   "pacsSettings.loadingMigration": "Carregando migração…",
   "pacsSettings.messages.migrationSaved": "Origem de migração salva.",
   "pacsSettings.messages.migrationEchoOk": "Conexão C-ECHO OK.",
-  "pacsSettings.messages.migrationDiscovered": "{{count}} estudo(s) encontrado(s).",
+  "pacsSettings.messages.migrationDiscovered": "{{count}} novo(s) estudo(s); {{total}} na fila.",
   "pacsSettings.messages.migrationStarted": "Migração iniciada.",
   "pacsSettings.messages.migrationPaused": "Migração pausada.",
   "pacsSettings.messages.migrationReset": "Fila de migração resetada.",

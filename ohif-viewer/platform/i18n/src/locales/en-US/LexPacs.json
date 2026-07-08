@@ -164,7 +164,7 @@
   "pacsSettings.loadingMigration": "Loading migration…",
   "pacsSettings.messages.migrationSaved": "Migration source saved.",
   "pacsSettings.messages.migrationEchoOk": "C-ECHO connection OK.",
-  "pacsSettings.messages.migrationDiscovered": "{{count}} study(ies) found.",
+  "pacsSettings.messages.migrationDiscovered": "{{count}} new study(ies); {{total}} in queue.",
   "pacsSettings.messages.migrationStarted": "Migration started.",
   "pacsSettings.messages.migrationPaused": "Migration paused.",
   "pacsSettings.messages.migrationReset": "Migration queue reset.",
