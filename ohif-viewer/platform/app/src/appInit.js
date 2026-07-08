@@ -26,7 +26,7 @@ import {
 
 import loadModules, { loadModule as peerImport } from './pluginImports';
 import { publicUrl } from './utils/publicUrl';
-import { configureLexClinicalAuth } from './routes/WorkList/lexClinicalDicomAuth';
+import { configureLexClinicalAuth, bootstrapClinicalDicomAuth } from './routes/WorkList/lexClinicalDicomAuth';
 
 /**
  * @param {object|func} appConfigOrFunc - application configuration, or a function that returns application configuration
@@ -81,7 +81,7 @@ async function appInit(appConfigOrFunc, defaultExtensions, defaultModes) {
     [StudyPrefetcherService.REGISTRATION, appConfig.studyPrefetcher],
   ]);
 
-  configureLexClinicalAuth(servicesManager.services.userAuthenticationService);
+  await bootstrapClinicalDicomAuth(servicesManager.services.userAuthenticationService);
 
   errorHandler.getHTTPErrorHandler = () => {
     if (typeof appConfig.httpErrorHandler === 'function') {

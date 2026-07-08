@@ -23,6 +23,7 @@ from .audit import log_event
 from .clinical_session import ClinicalUser
 from .clinical_session import (
     authenticate_clinical,
+    clinical_user_from_session_token,
     create_clinical_session,
     session_cookie_kwargs,
     CLINICAL_COOKIE_NAME,
@@ -259,6 +260,18 @@ async def clinical_me(clinical_user: ClinicalUser = Depends(require_clinical_use
         "auth_method": clinical_user.auth_method,
         "permissions": clinical_permissions(clinical_user),
     }
+
+
+@app.get("/api/auth/clinical/session")
+async def clinical_session_bearer(request: Request) -> JSONResponse:
+    """Devolve o JWT da sessão clínica para o viewer usar em Authorization Bearer (DICOMweb)."""
+    token = request.cookies.get(CLINICAL_COOKIE_NAME, "").strip()
+    if not token:
+        return JSONResponse(status_code=401, content={"detail": "Sessão ausente."})
+    user = clinical_user_from_session_token(token)
+    if not user:
+        return JSONResponse(status_code=401, content={"detail": "Sessão inválida ou expirada."})
+    return JSONResponse(content={"access_token": token, "username": user.username})
 
 
 @app.post("/api/auth/login", response_model=LoginResponse)
