@@ -47,7 +47,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
-      - run: node --test lex-tests/
+      - run: node --test lex-tests/*.test.mjs
 
   busca-curinga-it:
     name: Busca com curinga (Orthanc local sintético + gateway)
