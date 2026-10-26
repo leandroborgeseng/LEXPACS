@@ -85,6 +85,19 @@ async def on_startup() -> None:
     local_users.init_db()
     if local_users.bootstrap_admin():
         log_event("user_bootstrap_admin", "bootstrap", target=settings.lex_admin_user.strip().lower())
+    # Índice da lista de exames: carga/incremental em segundo plano (só leitura do Orthanc).
+    if settings.orthanc_url:
+        import asyncio
+
+        from . import worklist_index
+
+        async def _index_bg() -> None:
+            try:
+                await worklist_index.sync()
+            except Exception as exc:  # sem PII: só o tipo do erro
+                print(f"worklist_index: sync inicial falhou ({type(exc).__name__})")
+
+        asyncio.get_event_loop().create_task(_index_bg())
     if settings.orthanc_external_readonly:
         # V2/V4: Orthanc externo (prefeitura) — nada que grave config, plugins ou dados nele.
         return

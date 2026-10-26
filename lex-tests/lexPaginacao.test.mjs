@@ -34,7 +34,7 @@ test('LP9: nome e ID vão no corpo do POST, nunca na URL', async () => {
   assert.equal(seen.init.method, 'POST');
   assert.match(seen.init.body, /Concei/);
   assert.doesNotMatch(seen.url, /Concei|SINT/);
-  assert.deepEqual(r, { rows: [{}], total: 35214, hasMore: true, truncated: false });
+  assert.deepEqual(r, { rows: [{}], total: 35214, hasMore: true, truncated: false, sortScope: 'global' });
 });
 
 test('erro do PACS vira mensagem com código HTTP', async () => {
@@ -43,7 +43,7 @@ test('erro do PACS vira mensagem com código HTTP', async () => {
 });
 
 test('resposta sem total: total null', () => {
-  assert.deepEqual(parseWorklistResponse({ studies: [], hasMore: true }), { rows: [], total: null, hasMore: true, truncated: false });
+  assert.deepEqual(parseWorklistResponse({ studies: [], hasMore: true }), { rows: [], total: null, hasMore: true, truncated: false, sortScope: 'global' });
 });
 
 test('textos da paginação (esboço do Designer)', () => {
@@ -118,4 +118,17 @@ test('VW11b/d: Enter abre; segundo duplo clique ignorado; "Abrindo exame…"', (
   assert.match(table, /if \(openingId\) \{\s*return;/);
   assert.match(table, /Abrindo exame…/);
   assert.match(read('platform/ui-next/src/components/DataTable/DataTable.tsx'), /tabIndex: 0,\s*onKeyDown/);
+});
+
+test('"Buscando…" só depois de 1 s, com filtros visíveis', async () => {
+  const m = await import('../ohif-viewer/platform/ui-next/src/components/DataTable/lexPaginationLabel.js');
+  assert.equal(m.LEX_SEARCHING_DELAY_MS, 1000);
+  assert.equal(m.lexShowSearching(true, 999), false);
+  assert.equal(m.lexShowSearching(true, 1000), true);
+  assert.equal(m.lexShowSearching(false, 5000), false);
+  const wl = read('platform/app/src/routes/WorkList/WorkList.tsx');
+  assert.match(wl, /setTimeout\([\s\S]{0,120}LEX_SEARCHING_DELAY_MS/);
+  // o aviso fica junto da barra de filtros (toolbarBelowComponent), que continua renderizada
+  assert.match(wl, /<WorkListViewBar[\s\S]{0,400}searchingSlow \?[\s\S]{0,400}Buscando…/);
+  assert.equal(m.lexSortNote('global'), null);
 });

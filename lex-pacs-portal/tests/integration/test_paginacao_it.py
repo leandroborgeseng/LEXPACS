@@ -49,7 +49,7 @@ def test_paginacao_alem_dos_101_sem_repetir(s):
     assert len(all_ids) == 200 and len(set(all_ids)) == 200
 
 
-@pytest.mark.parametrize("typed", ["jose conceicao", "JOSÉ CONCEIÇÃO", "conceicao jose", "zzteste"])
+@pytest.mark.parametrize("typed", ["jose conceicao", "JOSÉ CONCEIÇÃO", "conceicao jose", "zzteste jose conceicao"])
 def test_nome_sem_acento_acha_2023(s, typed):
     res = post(s, patientName=typed)
     assert "SINT-ZZ-2023" in ids(res), typed
@@ -87,3 +87,38 @@ def test_lpt_c_nome_comum_alem_da_pagina_1(s):
     p2 = post(s, patientName="oliveira", limit=10, offset=10)
     assert p1["total"] and p1["total"] > 20 and p1["hasMore"]
     assert len(p2["studies"]) == 10 and not set(ids(p1)) & set(ids(p2))
+
+
+def test_tempos_indice(s):
+    """Tempos (3 medições cada) via gateway real; o índice já está carregado nos testes acima."""
+    total = post(s, limit=50)["total"]
+    last = (total - 1) // 50 * 50
+    casos = {"nome 'ana'": dict(patientName="ana"), "nome 'jose'": dict(patientName="jose"),
+             "nome 'maria'": dict(patientName="maria"), "primeira página": dict(offset=0),
+             f"última página (offset {last})": dict(offset=last)}
+    print("\n== Tempos do índice (s), POST /clinica-api/worklist/studies ==")
+    for label, body in casos.items():
+        runs = []
+        for _ in range(3):
+            t = time.perf_counter()
+            r = s.post(API, json={"limit": 50, **body})
+            runs.append(time.perf_counter() - t)
+            assert r.status_code == 200
+        out = r.json()
+        print(f"{label}: total={out['total']} n={len(out['studies'])} " + ", ".join(f"{x:.3f}" for x in runs))
+        assert out["studies"], label
+        assert max(runs) < 3.0, label
+
+
+def test_incremental_changes_orthanc_real(s):
+    """Estudo novo no Orthanc LOCAL descartável aparece na busca pelo /changes (sem recarga)."""
+    import sys
+    sys.path.insert(0, str(Path(__file__).parent))
+    from gerar_sinteticos import dataset
+
+    url = os.environ["LEX_IT_ORTHANC"]
+    assert "127.0.0.1" in url
+    auth = tuple(os.environ["LEX_IT_ORTHANC_AUTH"].split(":", 1))
+    httpx.post(f"{url}/instances", content=dataset(999999, "ZZTESTE^INCREMENTAL JOÃO", "SINT-INCR", "20261026", "CT"),
+               auth=auth).raise_for_status()
+    assert ids(post(s, patientName="incremental joao")) == ["SINT-INCR"]

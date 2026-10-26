@@ -62,7 +62,7 @@ def main() -> None:
             return dataset(i, *ALVO_ACENTO, "MR")
         if i == alvo_idx + 2:
             return dataset(i, *ALVO_2023, "CT")
-        name = f"{SOBRENOMES[i % 10]}^{NOMES[(i // 10) % 10]} {i:05d}"
+        name = f"ZZTESTE {SOBRENOMES[i % 10]}^{NOMES[(i // 10) % 10]} {i:05d}"
         d = (base - timedelta(days=i % 3650)).strftime("%Y%m%d")
         return dataset(i, name, f"SINT-{i:06d}", d, MODS[i % len(MODS)])
 

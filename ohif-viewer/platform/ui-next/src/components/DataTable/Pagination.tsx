@@ -18,7 +18,7 @@ import { lexPageOf, lexPageRange } from './lexPaginationLabel';
 export function Pagination<TData>() {
   const { table } = useDataTable<TData>();
   const { pageIndex, pageSize } = table.getState().pagination ?? { pageIndex: 0, pageSize: 50 };
-  const serverPaging = (table.options.meta as { lexServerPaging?: { total: number | null } } | undefined)
+  const serverPaging = (table.options.meta as { lexServerPaging?: { total: number | null; sortNote?: string | null } } | undefined)
     ?.lexServerPaging;
   if (serverPaging) {
     return (
@@ -27,6 +27,7 @@ export function Pagination<TData>() {
         pageIndex={pageIndex}
         pageSize={pageSize}
         total={serverPaging.total}
+        sortNote={serverPaging.sortNote ?? null}
       />
     );
   }
@@ -99,11 +100,13 @@ function ServerPagination({
   pageIndex,
   pageSize,
   total,
+  sortNote,
 }: {
   table: ReturnType<typeof useDataTable>['table'];
   pageIndex: number;
   pageSize: number;
   total: number | null;
+  sortNote: string | null;
 }) {
   const count = table.getRowModel().rows.length;
   const range = lexPageRange({ pageIndex, pageSize, count, total });
@@ -148,6 +151,7 @@ function ServerPagination({
       >
         Anterior
       </Button>
+      {sortNote ? <span className="text-muted-foreground px-1 text-xs">{sortNote}</span> : null}
       {pageOf ? <span className="lex-num text-muted-foreground px-1 text-sm">{pageOf}</span> : null}
       <Button
         variant="outline"

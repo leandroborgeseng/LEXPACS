@@ -27,3 +27,15 @@ export function lexPageOf({ pageIndex = 0, pageSize = 50, total = null }) {
   }
   return `Página ${fmt(pageIndex + 1)} de ${fmt(Math.max(1, Math.ceil(total / pageSize)))}`;
 }
+
+/** Atraso antes de mostrar "Buscando…" (buscas rápidas não piscam). */
+export const LEX_SEARCHING_DELAY_MS = 1000;
+
+export function lexShowSearching(isLoading, elapsedMs) {
+  return Boolean(isLoading) && elapsedMs >= LEX_SEARCHING_DELAY_MS;
+}
+
+/** Nota do rodapé quando o acervo é grande demais para ordenar no servidor. */
+export function lexSortNote(sortScope) {
+  return sortScope === 'page' ? 'Ordenado por data dentro da página' : null;
+}

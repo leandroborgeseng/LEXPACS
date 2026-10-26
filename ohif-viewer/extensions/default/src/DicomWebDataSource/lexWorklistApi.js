@@ -44,7 +44,13 @@ export function buildWorklistBody(params = {}) {
 export function parseWorklistResponse(payload) {
   const rows = Array.isArray(payload?.studies) ? payload.studies : [];
   const total = Number.isFinite(payload?.total) ? payload.total : null;
-  return { rows, total, hasMore: Boolean(payload?.hasMore), truncated: Boolean(payload?.truncated) };
+  return {
+    rows,
+    total,
+    hasMore: Boolean(payload?.hasMore),
+    truncated: Boolean(payload?.truncated),
+    sortScope: payload?.sortScope === 'page' ? 'page' : 'global',
+  };
 }
 
 export async function fetchWorklistPage(url, params, fetchImpl = fetch) {

@@ -5,7 +5,12 @@ import { useAppConfig } from '@state';
 import { preserveQueryParameters } from '../../utils/preserveQueryParameters';
 import { useStudyListStateSync, useWorkListToolbarActions } from '../../hooks';
 
-import { StudyList, Icons, InvestigationalUseDialog, LexThemeToggle, type StudyRow } from '@ohif/ui-next';
+import {
+  lexShowSearching,
+  lexSortNote,
+  LEX_SEARCHING_DELAY_MS,
+  StudyList,
+  Icons, InvestigationalUseDialog, LexThemeToggle, type StudyRow } from '@ohif/ui-next';
 import { StudyListSettingsPopover } from './StudyListSettingsPopover';
 import { SidePanelPreview } from './SidePanelPreview';
 import { WorkListViewBar } from './WorkListViewBar';
@@ -21,6 +26,7 @@ type Props = withAppTypes & {
   serverPaging?: boolean;
   dataTotal?: number | null;
   dataHasMore?: boolean;
+  dataSortScope?: string;
   onRefresh: () => void;
 };
 
@@ -33,6 +39,7 @@ export default function WorkList({
   serverPaging = false,
   dataTotal = null,
   dataHasMore = false,
+  dataSortScope = 'global',
   onRefresh,
   servicesManager,
   extensionManager,
@@ -102,6 +109,21 @@ export default function WorkList({
     return 30;
   }, []);
 
+  // LEX PACS: "Buscando…" só se a busca passar de 1 s; filtros continuam visíveis.
+  const [searchingSlow, setSearchingSlow] = useState(false);
+  useEffect(() => {
+    if (!isLoadingData) {
+      setSearchingSlow(false);
+      return;
+    }
+    const started = Date.now();
+    const timer = window.setTimeout(
+      () => setSearchingSlow(lexShowSearching(true, Date.now() - started)),
+      LEX_SEARCHING_DELAY_MS
+    );
+    return () => window.clearTimeout(timer);
+  }, [isLoadingData]);
+
   useEffect(() => {
     if (isLoadingData) {
       return;
@@ -168,6 +190,7 @@ export default function WorkList({
               manualFiltering={serverPaging}
               rowCount={serverPaging ? dataTotal : undefined}
               hasMore={dataHasMore}
+              sortNote={serverPaging ? lexSortNote(dataSortScope) : null}
               onFiltersChange={updater => {
                 setIsFilterPending(true);
                 setFilters(updater);
@@ -185,10 +208,21 @@ export default function WorkList({
               toolbarLeftComponent={logoComponent}
               toolbarRightActionsComponent={toolbarActions}
               toolbarBelowComponent={
-                <WorkListViewBar
-                  activeView={activeView}
-                  onViewChange={handleViewChange}
-                />
+                <>
+                  <WorkListViewBar
+                    activeView={activeView}
+                    onViewChange={handleViewChange}
+                  />
+                  {searchingSlow ? (
+                    <div
+                      role="status"
+                      aria-live="polite"
+                      className="text-primary px-3 py-1 text-sm"
+                    >
+                      Buscando…
+                    </div>
+                  ) : null}
+                </>
               }
               toolbarRightComponent={
                 <div className="relative -top-px mt-1 ml-2 flex items-center gap-1">

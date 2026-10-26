@@ -85,7 +85,7 @@ function DataSourceWrapper(props: withAppTypes) {
     return dataSource;
   });
 
-  const { studies, serverPaging, total, hasMore, isLoading, hasFetchedOnce, refresh } =
+  const { studies, serverPaging, total, hasMore, sortScope, isLoading, hasFetchedOnce, refresh } =
     useStudyListQuery({
     dataSource,
     isDataSourceInitialized,
@@ -134,6 +134,7 @@ function DataSourceWrapper(props: withAppTypes) {
       dataTotal={serverPaging ? total : studies.length}
       serverPaging={serverPaging}
       dataHasMore={hasMore}
+      dataSortScope={sortScope}
       dataPath={dataSourcePath}
       dataSource={dataSource}
       isLoadingData={isLoading}

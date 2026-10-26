@@ -15,6 +15,7 @@ const DEFAULT_DATA = {
   queryFilterValues: null,
   total: null as number | null,
   hasMore: false,
+  sortScope: 'global' as string,
 };
 
 /**
@@ -41,6 +42,7 @@ export function useStudyListQuery({
   serverPaging: boolean;
   total: number | null;
   hasMore: boolean;
+  sortScope: string;
   isLoading: boolean;
   hasFetchedOnce: boolean;
   refresh: () => void;
@@ -87,6 +89,7 @@ export function useStudyListQuery({
           queryFilterValues,
           total: Number.isFinite(studies?.lexTotal) ? studies.lexTotal : null,
           hasMore: Boolean(studies?.lexHasMore),
+          sortScope: studies?.lexSortScope === 'page' ? 'page' : 'global',
         });
         log.timeEnd(Enums.TimingEnum.SCRIPT_TO_VIEW);
         log.timeEnd(Enums.TimingEnum.SEARCH_TO_LIST);
@@ -157,6 +160,7 @@ export function useStudyListQuery({
     serverPaging: Boolean(dataSource?.getConfig?.()?.lexWorklistApi),
     total: data.total,
     hasMore: data.hasMore,
+    sortScope: data.sortScope,
     isLoading,
     hasFetchedOnce,
     refresh,

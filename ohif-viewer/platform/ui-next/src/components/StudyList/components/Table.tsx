@@ -48,6 +48,7 @@ export function Table({
   manualPagination,
   rowCount,
   hasMore,
+  sortNote,
 }: TableProps) {
   return (
     <DataTable<StudyRow>
@@ -65,6 +66,7 @@ export function Table({
       manualPagination={manualPagination}
       rowCount={rowCount}
       hasMore={hasMore}
+      sortNote={sortNote}
       enforceSingleSelection={enforceSingleSelection}
       onSelectionChange={onSelectionChange}
     >

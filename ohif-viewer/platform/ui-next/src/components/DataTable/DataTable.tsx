@@ -71,6 +71,8 @@ export type DataTableProps<TData> = {
   rowCount?: number | null;
   /** Sem total: se há próxima página no servidor. */
   hasMore?: boolean;
+  /** Nota de ordenação no rodapé (ex.: "Ordenado por data dentro da página"). */
+  sortNote?: string | null;
   enforceSingleSelection?: boolean;
   onSelectionChange?: (rows: TData[]) => void;
   children: ReactNode;
@@ -95,6 +97,7 @@ function DataTableRoot<TData>({
   manualPagination = false,
   rowCount = null,
   hasMore = false,
+  sortNote = null,
   enforceSingleSelection = true,
   onSelectionChange,
   children,
@@ -125,7 +128,7 @@ function DataTableRoot<TData>({
             total: rowCount,
             hasMore,
           }),
-          meta: { lexServerPaging: { total: rowCount, hasMore } },
+          meta: { lexServerPaging: { total: rowCount, hasMore, sortNote } },
         }
       : {}),
     enableRowSelection: true,

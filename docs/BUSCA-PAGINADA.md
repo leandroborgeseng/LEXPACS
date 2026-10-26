@@ -6,27 +6,34 @@ Não era o Orthanc nem o proxy: o `LimitFindResults` não está definido no `ort
 usa `queryLimit ?? 101` e o QIDO sai com `limit=101&offset=0`; a paginação era feita no navegador
 sobre esses 101 ("1-50 of 101").
 
-## Como ficou
-- O viewer (`lexWorklistApi` em `config/default.js`) chama `POST /clinica-api/worklist/studies`
-  com filtros no corpo e `limit`/`offset` da página (50 ou 100). Só a página atual é carregada.
-- O portal (`lex-pacs-portal/app/worklist.py`) consulta o Orthanc só para leitura:
-  - sem nome: QIDO com `limit`/`offset` + total por `/tools/count-resources` (Orthanc ≥ 1.12.5;
-    sem ele, total desconhecido e só "Anterior/Próxima");
-  - com nome: `/tools/find` com padrão relaxado e novo filtro no portal (abaixo).
-- Nome, prontuário, nº de acesso e descrição não vão para a URL do navegador (ficam na
-  sessionStorage da aba, chave `lex.worklist.textFilters`) nem para a URL do gateway (corpo do POST).
-  Na URL ficam só período, modalidade, página e tamanho (LP9).
+## Como ficou (índice do portal)
+- O viewer chama `POST /clinica-api/worklist/studies` com filtros no corpo e `limit`/`offset`.
+- O portal mantém um índice SQLite próprio (`app/worklist_index.py`, arquivo
+  `worklist_index.db` ao lado do `users.db`, ou `WORKLIST_INDEX_PATH`): UID e ID Orthanc do
+  estudo, data/hora, nome normalizado (sem acento, minúsculo), modalidades, ID do paciente,
+  nº de acesso e descrição normalizada. Sem pixel e sem o nome original. Migração só aditiva.
+- Sincronização só por GET no Orthanc: carga inicial por QIDO paginado (3.000 estudos em ~1 s
+  no box) e depois incremental pelo `/changes` (NewStudy/StableStudy entram, Deleted sai), com
+  checkpoint em `worklist_meta.changes_seq`. Roda no startup e antes de cada busca.
+- Busca, total e ordem "mais recente primeiro" valem para o resultado todo (SQL no índice).
+  O Orthanc só recebe um QIDO com os UIDs da página.
+- Nome: cada parte digitada (≥3 letras) precisa aparecer no nome, em qualquer ordem, sem
+  acento: "jose conceicao" acha CONCEIÇÃO^JOSÉ e vice-versa. Não há mais curinga relaxado
+  (`*N*`). Menos de 3 letras: nome exato.
+- Nome, prontuário, nº de acesso e descrição não vão para a URL do navegador (sessionStorage
+  `lex.worklist.textFilters`) nem para a URL do gateway (corpo do POST). Logs: só contagem e tempo.
 
-## Busca sem acento: abordagem e limites
-O Orthanc 1.12.x compara PatientName sem diferenciar maiúsculas, mas **não ignora acento**, e o
-curinga `?` casa um byte (falha em "É", 2 bytes em UTF-8). Conferido em Orthanc local descartável.
-Por isso:
-1. O portal pega a parte mais longa do nome digitado e troca cada letra que pode ter acento
-   (A E I O U C) por `*` (ex.: "jose conceicao" → `*J*S*`). O Orthanc devolve um superconjunto.
-2. O portal normaliza o nome gravado (sem acento, maiúsculo, `^` e `,` como espaço) e exige que
-   cada parte digitada apareça, em qualquer ordem. Ordena por data (mais recente primeiro) e pagina.
+## Tempos (box, 3.000 estudos sintéticos ZZTESTE, via gateway, 3 medições)
+| Caso | Total | Tempo (s) |
+|---|---|---|
+| nome "ana" | 300 | 0,037 / 0,036 / 0,038 |
+| nome "jose" | 301 | 0,037 / 0,037 / 0,036 |
+| nome "maria" | 301 | 0,042 / 0,041 / 0,037 |
+| primeira página | 3.000 | 0,036 / 0,038 / 0,040 |
+| última página (offset 2.950) | 3.000 | 0,036 / 0,038 / 0,036 |
 
-Limites: até 50.000 candidatos por busca (cobre o PACS inteiro, ~35 mil); acima disso o total
-fica desconhecido. Nomes muito curtos ou só com vogais/C (ex.: "ana" → `*N*`) trazem muitos
-candidatos e ficam mais lentos — o tempo na rede da prefeitura (LP7) ainda precisa ser medido.
-Ñ e Ý não são tratados. Sem nome, a ordem "mais recente primeiro" vale dentro da página (LP10).
+## Limites
+- Um estudo novo aparece na próxima busca (o incremental roda antes dela). Mudança de tags sem
+  evento de estudo no `/changes` só entra numa recarga (apagar o arquivo do índice).
+- Se o `/changes` do Orthanc for podado antes do checkpoint, é preciso recarregar o índice.
+- O tempo na rede da prefeitura com ~35 mil estudos (LP7) ainda precisa ser medido.
