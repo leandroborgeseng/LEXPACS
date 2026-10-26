@@ -125,6 +125,7 @@ services:
       # Usuários locais (sem Keycloak). Admin inicial troca a senha no 1º acesso.
       LEX_ADMIN_USER: ${LEX_ADMIN_USER:-}
       LEX_ADMIN_PASSWORD: ${LEX_ADMIN_PASSWORD:-}
+      LEX_LAUDOS_HABILITADO: ${LEX_LAUDOS_HABILITADO:-false}
       LOCAL_USERS_DB_PATH: /lex-data/users.db
       SESSION_IDLE_MINUTES: ${SESSION_IDLE_MINUTES:-30}
       ORTHANC_EXTERNAL_READONLY: "false"
