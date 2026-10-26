@@ -24,6 +24,7 @@
  */
 import { DICOMWeb, utils } from '@ohif/core';
 import { sortStudySeries } from '@ohif/core/src/utils/sortStudy';
+import { exactQuery, patientNameQuery, textWildcardQuery } from './lexQidoFilters';
 
 const { getString, getName, getModalities } = DICOMWeb;
 
@@ -159,17 +160,13 @@ function mapParams(params, options = {}) {
   const useWildcard =
     params?.disableWildcard !== undefined ? !params.disableWildcard : options.supportsWildcard;
 
-  const withWildcard = value => {
-    return useWildcard && value ? `*${value}*` : value;
-  };
-
   const parameters = {
     // Named
-    PatientName: withWildcard(params.patientName),
-    //PatientID: withWildcard(params.patientId),
-    '00100020': withWildcard(params.patientId), // Temporarily to make the tests pass with dicomweb-server.. Apparently it's broken?
-    AccessionNumber: withWildcard(params.accessionNumber),
-    StudyDescription: withWildcard(params.studyDescription),
+    // LEX PACS: nome sem acento e com curinga só a partir de 3 letras; ID e acesso exatos.
+    PatientName: patientNameQuery(params.patientName, useWildcard),
+    '00100020': exactQuery(params.patientId),
+    AccessionNumber: exactQuery(params.accessionNumber),
+    StudyDescription: textWildcardQuery(params.studyDescription, useWildcard),
     ModalitiesInStudy: params.modalitiesInStudy,
     // Other
     limit: params.limit || 101,

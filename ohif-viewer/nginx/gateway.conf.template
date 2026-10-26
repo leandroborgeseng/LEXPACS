@@ -3,6 +3,9 @@ server {
     server_name _;
     server_tokens off;
 
+    # LP9 (parcial): log sem query string nem Referer (ver 00-lex-security.conf)
+    access_log /var/log/nginx/access.log lex_sem_args;
+
     # DNS Docker — evita 502 após recreate de portal/viewer (IP antigo em cache)
     resolver 127.0.0.11 valid=10s ipv6=off;
     set $lex_upstream_portal portal;

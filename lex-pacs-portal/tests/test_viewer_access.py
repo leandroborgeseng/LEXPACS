@@ -190,3 +190,26 @@ def test_gateway_paciente_api_so_allowlist():
     for uri in ("/paciente-api/auth/login", "/paciente-api/studies", "/paciente-api/studies/1.2.3/report",
                 "/paciente-api/studies/1.2.3/report/pdf", "/paciente-api/studies/1.2.3/viewer-session"):
         assert is_proxied(uri) and allow.match(uri), uri
+
+
+# ── LP9 (parcial): access log do gateway sem query string nem Referer ──
+def test_lp9_log_format_sem_query_string():
+    sec = (ROOT / "ohif-viewer/nginx/00-lex-security.conf").read_text(encoding="utf-8")
+    m = re.search(r"log_format lex_sem_args (.*?);", sec, re.S)
+    assert m, "log_format lex_sem_args ausente"
+    fmt = m.group(1)
+    assert "$uri" in fmt
+    for proibido in ("$request ", "$request\"", "$request_uri", "$args", "$query_string", "$http_referer", "$arg_"):
+        assert proibido not in fmt, proibido
+    server_head = GATEWAY.split("location", 1)[0]
+    assert "access_log /var/log/nginx/access.log lex_sem_args;" in server_head
+    assert "access_log" not in GATEWAY.split("location", 1)[1]  # nenhum location volta ao formato padrão
+
+
+def test_lp4_datasource_curinga_ligado_e_querylimit_inalterado():
+    cfg = (ROOT / "ohif-viewer/platform/app/public/config/default.js").read_text(encoding="utf-8")
+    assert "supportsWildcard: true" in cfg
+    assert "queryLimit" not in cfg  # continua o padrão do OHIF (101)
+    qido_js = (ROOT / "ohif-viewer/extensions/default/src/DicomWebDataSource/qido.js").read_text(encoding="utf-8")
+    assert "patientNameQuery(params.patientName" in qido_js
+    assert "exactQuery(params.patientId)" in qido_js
