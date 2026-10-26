@@ -172,11 +172,9 @@ services:
       # Regra de teste: todo router traefik.http.routers.<nome> precisa de observability.accesslogs=false.
       - "traefik.enable=true"
       - "traefik.http.services.lexpacs-gateway.loadbalancer.server.port=80"
-      - "traefik.http.middlewares.lexpacs-redirect-https.redirectscheme.scheme=https"
       - "traefik.http.routers.lexpacs-http.rule=Host(`${LEX_PACS_DOMAIN:-localhost}`)"
       - "traefik.http.routers.lexpacs-http.entrypoints=http"
       - "traefik.http.routers.lexpacs-http.priority=10000"
-      - "traefik.http.routers.lexpacs-http.middlewares=lexpacs-redirect-https"
       - "traefik.http.routers.lexpacs-http.service=lexpacs-gateway"
       - "traefik.http.routers.lexpacs-http.observability.accesslogs=false"
       - "traefik.http.routers.lexpacs-https.rule=Host(`${LEX_PACS_DOMAIN:-localhost}`)"

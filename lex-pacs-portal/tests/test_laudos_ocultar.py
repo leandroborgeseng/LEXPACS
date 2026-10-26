@@ -196,3 +196,11 @@ def test_traefik_entrypoints_e_certresolver():
     assert '"traefik.http.routers.lexpacs-http.entrypoints=http"' in compose
     assert '"traefik.http.routers.lexpacs-https.entrypoints=https"' in compose
     assert '"traefik.http.routers.lexpacs-https.tls.certresolver=letsencrypt"' in compose
+
+
+def test_traefik_http_sem_redirect_serve_gateway():
+    # O PACS roda só em HTTP (sem certificado): lexpacs-http serve direto o gateway.
+    compose = (ROOT / "docker-compose.coolify.yml").read_text(encoding="utf-8")
+    assert '"traefik.http.routers.lexpacs-http.service=lexpacs-gateway"' in compose
+    assert "traefik.http.routers.lexpacs-http.middlewares" not in compose
+    assert "redirectscheme" not in compose and "redirect-to-https" not in compose
