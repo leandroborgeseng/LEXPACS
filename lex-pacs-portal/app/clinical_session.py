@@ -1,179 +1,143 @@
+"""Sessão clínica com usuários locais (sem Keycloak/OIDC).
+
+O cookie/Bearer é um JWT HS256 com `sid`; a sessão real vive no banco local
+(`local_users.sessions`) e expira por inatividade (SESSION_IDLE_MINUTES).
+"""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from typing import Any
 
-import httpx
+import jwt
 from fastapi import HTTPException, status
 
+from . import local_users
 from .config import settings
 
 CLINICAL_COOKIE_NAME = "lex_clinical_session"
-CLINICAL_GROUPS = frozenset({"admin", "radiologista", "tecnico"})
+CLINICAL_GROUPS = frozenset(local_users.INTERNAL_PROFILES)
+
+ROLE_LABELS = {
+    "admin": "Administrador",
+    "medico": "Médico",
+    "tecnico": "Técnico",
+    "recepcao": "Recepção",
+    "paciente": "Paciente",
+}
 
 
 @dataclass
 class ClinicalUser:
     username: str
-    groups: list[str]
-    auth_method: str = "session"
+    groups: list[str] = field(default_factory=list)
+    auth_method: str = "local"
+    must_change_password: bool = False
+    sid: str = ""
+
+    @property
+    def profile(self) -> str:
+        return self.groups[0] if self.groups else ""
 
     @property
     def is_admin(self) -> bool:
-        return bool({"admin"}.intersection(self.groups))
+        return "admin" in self.groups
 
     @property
     def can_sign(self) -> bool:
-        return bool({"radiologista", "admin"}.intersection(self.groups))
+        return bool({"medico", "admin"}.intersection(self.groups))
+
+    @property
+    def can_view_images(self) -> bool:
+        return bool({"admin", "medico", "tecnico"}.intersection(self.groups))
 
     @property
     def can_access_clinical(self) -> bool:
-        return bool({"tecnico", "radiologista", "admin"}.intersection(self.groups) or self.groups)
+        return bool(CLINICAL_GROUPS.intersection(self.groups))
 
 
-def _filter_clinical_groups(groups: list[str]) -> list[str]:
-    return [group for group in groups if group in CLINICAL_GROUPS]
-
-
-def _normalize_groups(raw: Any) -> list[str]:
-    if not raw:
-        return []
-    if isinstance(raw, str):
-        return [part.strip().lower() for part in raw.split(",") if part.strip()]
-    if isinstance(raw, list):
-        return [str(item).strip().lower() for item in raw if str(item).strip()]
-    return []
-
-
-def _basic_user_to_groups(username: str) -> list[str]:
-    mapping = {
-        "clinica": ["radiologista", "admin"],
-        "radiologista": ["radiologista"],
-        "tecnico": ["tecnico"],
-        "admin": ["admin"],
+def clinical_permissions(user: ClinicalUser) -> dict[str, Any]:
+    role = user.profile or "tecnico"
+    return {
+        "is_admin": user.is_admin,
+        "can_sign": user.can_sign,
+        "can_draft": user.can_sign or "tecnico" in user.groups,
+        "can_release": user.can_sign,
+        "can_admin": user.is_admin,
+        "can_view_images": user.can_view_images,
+        "must_change_password": user.must_change_password,
+        "role": role,
+        "role_label": ROLE_LABELS.get(role, role),
     }
-    return mapping.get(username.strip().lower(), ["tecnico"])
 
 
-def create_clinical_session(username: str, groups: list[str], auth_method: str) -> str:
+def create_clinical_session(user: ClinicalUser) -> str:
+    sid = local_users.create_session(user.username)
+    user.sid = sid
     expire = datetime.now(timezone.utc) + timedelta(hours=settings.clinical_session_hours)
-    payload = {
-        "sub": username,
-        "groups": groups,
-        "role": "clinical",
-        "auth_method": auth_method,
-        "exp": expire,
-    }
-    import jwt
-
+    payload = {"sub": user.username, "sid": sid, "role": "clinical", "exp": expire}
     return jwt.encode(payload, settings.jwt_secret, algorithm="HS256")
 
 
-def clinical_user_from_session_token(token: str) -> ClinicalUser | None:
-    import jwt
-
+def _decode(token: str) -> dict[str, Any] | None:
     try:
         payload = jwt.decode(token, settings.jwt_secret, algorithms=["HS256"])
     except jwt.PyJWTError:
         return None
-    if payload.get("role") != "clinical":
+    if payload.get("role") != "clinical" or not payload.get("sid"):
         return None
-    username = str(payload.get("sub", "")).strip()
-    if not username:
+    return payload
+
+
+def clinical_user_from_session_token(token: str) -> ClinicalUser | None:
+    payload = _decode(token)
+    if not payload:
         return None
-    groups = _normalize_groups(payload.get("groups")) or _basic_user_to_groups(username)
+    record = local_users.touch_session(str(payload["sid"]))
+    if not record or record["username"] != str(payload.get("sub", "")).lower():
+        return None
+    if record["profile"] not in CLINICAL_GROUPS:
+        return None
     return ClinicalUser(
-        username=username,
-        groups=groups,
-        auth_method=str(payload.get("auth_method", "session")),
+        username=record["username"],
+        groups=[record["profile"]],
+        auth_method="local",
+        must_change_password=record["must_change_password"],
+        sid=str(payload["sid"]),
     )
 
 
-def _verify_htpasswd(username: str, password: str) -> bool:
-    from passlib.apache import HtpasswdFile
-
-    path = Path(settings.clinical_htpasswd_path)
-    if not path.is_file():
-        return False
-    try:
-        ht = HtpasswdFile(str(path))
-        return bool(ht.check_password(username, password))
-    except (OSError, ValueError):
-        return False
+def end_session(token: str) -> None:
+    payload = _decode(token)
+    if payload:
+        local_users.delete_session(str(payload["sid"]))
 
 
-async def _authenticate_keycloak(username: str, password: str) -> ClinicalUser | None:
-    if not settings.oidc_enabled:
-        return None
-    token_url = f"{settings.oidc_issuer_url.rstrip('/')}/protocol/openid-connect/token"
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            response = await client.post(
-                token_url,
-                data={
-                    "grant_type": "password",
-                    "client_id": settings.oidc_client_id,
-                    "client_secret": settings.oidc_client_secret,
-                    "username": username,
-                    "password": password,
-                },
-            )
-            response.raise_for_status()
-            access_token = response.json().get("access_token", "")
-    except httpx.HTTPError:
-        return None
-    if not access_token:
-        return None
-    try:
-        from .clinical_auth import _decode_oidc_token
-
-        claims = _decode_oidc_token(access_token)
-    except HTTPException:
-        return None
-    name = str(claims.get("preferred_username") or claims.get("sub") or username)
-    groups = _filter_clinical_groups(_normalize_groups(claims.get("groups")))
-    if not groups:
-        groups = _filter_clinical_groups(
-            _normalize_groups(claims.get("realm_access", {}).get("roles", []))
-        )
-    if not groups:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Usuário sem perfil clínico (admin, radiologista ou técnico).",
-        )
-    return ClinicalUser(username=name, groups=groups, auth_method="oidc")
+_LOGIN_ERRORS = {
+    "invalid": (status.HTTP_401_UNAUTHORIZED, "Usuário ou senha incorretos."),
+    "inactive": (status.HTTP_401_UNAUTHORIZED, "Usuário ou senha incorretos."),
+    "locked": (
+        status.HTTP_423_LOCKED,
+        "Conta bloqueada temporariamente por tentativas inválidas. Tente novamente mais tarde.",
+    ),
+}
 
 
 async def authenticate_clinical(username: str, password: str) -> ClinicalUser:
-    username = username.strip()
+    username = (username or "").strip()
     if not username or not password:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Usuário ou senha incorretos.",
-        )
-
-    keycloak_user = await _authenticate_keycloak(username, password)
-    if keycloak_user:
-        return keycloak_user
-
-    if not settings.clinical_local_auth_enabled:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Use login institucional (SSO). Autenticação local desabilitada.",
-        )
-
-    if _verify_htpasswd(username, password):
-        return ClinicalUser(
-            username=username,
-            groups=_basic_user_to_groups(username),
-            auth_method="local",
-        )
-
-    raise HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Usuário ou senha incorretos.",
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuário ou senha incorretos.")
+    result = local_users.verify_login(username, password)
+    if not result.ok or not result.user:
+        code, detail = _LOGIN_ERRORS.get(result.reason, _LOGIN_ERRORS["invalid"])
+        raise HTTPException(status_code=code, detail=detail)
+    if result.user["profile"] not in CLINICAL_GROUPS:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Perfil sem acesso à área clínica.")
+    return ClinicalUser(
+        username=result.user["username"],
+        groups=[result.user["profile"]],
+        auth_method="local",
+        must_change_password=result.user["must_change_password"],
     )
 
 

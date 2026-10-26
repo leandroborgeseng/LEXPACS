@@ -5,22 +5,18 @@
   },
   "login": {
     "title": "Entrar",
-    "hintDefault": "Use sus credenciales institucionales (Keycloak).",
-    "hintKeycloak": "Autenticación institucional vía Keycloak.",
-    "hintPasswordOnly": "Use el botón Keycloak o credenciales institucionales.",
+    "hintDefault": "Use su usuario y contraseña de LEX PACS.",
+    "hintPasswordOnly": "Use su usuario y contraseña de LEX PACS.",
     "username": "Usuario",
     "usernamePlaceholder": "Ej.: radiólogo o admin",
     "password": "Contraseña",
     "submit": "Acceder a worklist",
     "submitting": "Entrando…",
-    "keycloak": "Entrar con Keycloak",
-    "orPassword": "O use usuario y contraseña abajo.",
     "devHint": "Dev: login local clinica / lexclinica2024 también funciona.",
     "patientLink": "¿Paciente?",
     "patientPortal": "Portal del paciente"
   },
   "errors": {
-    "keycloakFailed": "Login Keycloak cancelado o fallido. Intente de nuevo.",
     "invalidCredentials": "Usuario o contraseña incorrectos.",
     "connection": "No se pudo conectar al servidor."
   },

@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="/static/portal.css" />
+  <title>LEX PACS — Usuários</title>
+</head>
+<body>
+  <div class="page">
+    <main class="card" style="max-width: 960px;">
+      <h1>Usuários internos</h1>
+      <p class="hint">Somente administradores. A senha inicial deve ser trocada no primeiro acesso.</p>
+      <form id="user-form">
+        <label><span>Usuário</span><input id="u-username" required pattern="[a-z0-9][a-z0-9._\-]{2,63}" autocomplete="off" /></label>
+        <label><span>Nome completo</span><input id="u-fullname" maxlength="128" /></label>
+        <label><span>Perfil</span>
+          <select id="u-profile" required>
+            <option value="medico">Médico</option>
+            <option value="tecnico">Técnico</option>
+            <option value="recepcao">Recepção</option>
+            <option value="admin">Administrador</option>
+          </select>
+        </label>
+        <label><span>Senha inicial (mín. 10)</span><input id="u-password" type="password" required minlength="10" autocomplete="new-password" /></label>
+        <p id="u-error" class="error hidden" role="alert"></p>
+        <p id="u-ok" class="hint hidden" role="status"></p>
+        <button type="submit">Cadastrar</button>
+      </form>
+      <h2 style="margin-top: 1.5rem;">Cadastrados</h2>
+      <table id="u-table" style="width: 100%; border-collapse: collapse;">
+        <thead><tr><th align="left">Usuário</th><th align="left">Nome</th><th align="left">Perfil</th><th align="left">Situação</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </main>
+  </div>
+  <script src="/static/usuarios.js"></script>
+</body>
+</html>

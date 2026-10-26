@@ -10,7 +10,7 @@ class OrthancClient:
         self.base_url = (base_url or settings.orthanc_url).rstrip("/")
 
     async def find_patients_by_id(self, patient_id: str) -> list[dict]:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=30.0, auth=settings.orthanc_auth) as client:
             response = await client.post(
                 f"{self.base_url}/tools/find",
                 json={"Level": "Patient", "Query": {"PatientID": patient_id}},
@@ -35,7 +35,7 @@ class OrthancClient:
             return patients
 
     async def find_studies_for_patient(self, patient_id: str) -> list[dict]:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=30.0, auth=settings.orthanc_auth) as client:
             response = await client.post(
                 f"{self.base_url}/tools/find",
                 json={"Level": "Study", "Query": {"PatientID": patient_id}},

@@ -18,7 +18,7 @@ class MigrationOrthancError(RuntimeError):
 
 
 def _client() -> httpx.Client:
-    return httpx.Client(base_url=settings.orthanc_url.rstrip("/"), timeout=120.0)
+    return httpx.Client(base_url=settings.orthanc_url.rstrip("/"), timeout=120.0, auth=settings.orthanc_auth)
 
 
 def get_local_aet() -> str:

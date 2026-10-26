@@ -7,8 +7,9 @@ server {
     resolver 127.0.0.11 valid=10s ipv6=off;
     set $lex_upstream_portal portal;
     set $lex_upstream_viewer web-viewer;
-    set $lex_upstream_server server;
-    set $lex_upstream_auth auth;
+    # V1: Orthanc externo só por variável de ambiente (envsubst no start do nginx)
+    set $lex_orthanc_url "${LEX_ORTHANC_URL}";
+    set $lex_orthanc_auth "${LEX_ORTHANC_AUTH_HEADER}";
 
     add_header X-Content-Type-Options "nosniff" always;
     add_header X-Frame-Options "SAMEORIGIN" always;
@@ -16,19 +17,6 @@ server {
     add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
     add_header Strict-Transport-Security $lex_hsts_header always;
     add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' blob:; worker-src 'self' blob:; frame-ancestors 'self'; base-uri 'self'; form-action 'self'" always;
-
-    # Auth OIDC — rede interna, exposto só via gateway (um domínio no Coolify)
-    location /auth/ {
-        proxy_pass http://$lex_upstream_auth:8080$request_uri;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header X-Forwarded-Host $host;
-        proxy_buffer_size 128k;
-        proxy_buffers 4 256k;
-        proxy_busy_buffers_size 256k;
-    }
 
     # Assets compartilhados (portal + login clínico)
     location /static/ {
@@ -55,11 +43,25 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
-    location /paciente-api/ {
+    # Portal do paciente: SÓ as rotas do paciente (allowlist). Qualquer outra /paciente-api/* => 404.
+    location = /paciente-api/studies {
         rewrite ^/paciente-api/(.*)$ /api/$1 break;
         proxy_pass http://$lex_upstream_portal:8080;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header Authorization $http_authorization;
+    }
+
+    location ~ "^/paciente-api/studies/[0-9.]{1,64}/(?:report|report/pdf|viewer-session)$" {
+        rewrite ^/paciente-api/(.*)$ /api/$1 break;
+        proxy_pass http://$lex_upstream_portal:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header Authorization $http_authorization;
+    }
+
+    location /paciente-api/ {
+        return 404;
     }
 
     location = /paciente-api/auth/login {
@@ -105,19 +107,23 @@ server {
         proxy_set_header Cookie $http_cookie;
     }
 
-    location = /clinica-api/auth/clinical/oidc/login {
+    # Troca de senha obrigatória (U5): sessão validada no portal, mesmo com troca pendente
+    location = /clinica-api/auth/clinical/change-password {
+        limit_req zone=lex_login burst=5 nodelay;
         rewrite ^/clinica-api/(.*)$ /api/$1 break;
         proxy_pass http://$lex_upstream_portal:8080;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header Cookie $http_cookie;
     }
 
-    location = /clinica-api/auth/clinical/oidc/callback {
+    location = /clinica-api/auth/clinical/me {
         rewrite ^/clinica-api/(.*)$ /api/$1 break;
         proxy_pass http://$lex_upstream_portal:8080;
         proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header Cookie $http_cookie;
+        proxy_set_header Authorization $http_authorization;
     }
 
     # API clínica — sessão via cookie
@@ -181,31 +187,38 @@ server {
 
     # ── DICOMweb / WADO ──
     location /dicom-web {
+        # V2: somente leitura (QIDO/WADO). POST/PUT/DELETE (STOW etc.) => 403
+        limit_except GET {
+            deny all;
+        }
+        # V3: exige sessão clínica ou cookie de visualização do paciente
         auth_request /internal/auth/dicom-access;
-        error_page 401 = @clinica_login;
 
-        proxy_pass http://$lex_upstream_server:8042$request_uri;
-        proxy_set_header Host $host;
+        proxy_pass $lex_orthanc_url$request_uri;
+        # Credenciais do Orthanc vêm do env do gateway; nunca as do navegador
+        proxy_set_header Authorization $lex_orthanc_auth;
+        proxy_set_header Cookie "";
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header Cookie $http_cookie;
-        proxy_set_header Authorization $http_authorization;
         proxy_http_version 1.1;
-        client_max_body_size 2048M;
+        client_max_body_size 1m;
         proxy_read_timeout 300s;
-        proxy_send_timeout 300s;
     }
 
     location /wado {
+        # V2: somente leitura (QIDO/WADO). POST/PUT/DELETE (STOW etc.) => 403
+        limit_except GET {
+            deny all;
+        }
+        # V3: exige sessão clínica ou cookie de visualização do paciente
         auth_request /internal/auth/dicom-access;
-        error_page 401 = @clinica_login;
 
-        proxy_pass http://$lex_upstream_server:8042$request_uri;
-        proxy_set_header Host $host;
+        proxy_pass $lex_orthanc_url$request_uri;
+        # Credenciais do Orthanc vêm do env do gateway; nunca as do navegador
+        proxy_set_header Authorization $lex_orthanc_auth;
+        proxy_set_header Cookie "";
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header Cookie $http_cookie;
-        proxy_set_header Authorization $http_authorization;
         proxy_http_version 1.1;
-        client_max_body_size 2048M;
+        client_max_body_size 1m;
         proxy_read_timeout 300s;
     }
 

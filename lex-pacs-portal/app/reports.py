@@ -53,7 +53,7 @@ class SignReportRequest(BaseModel):
 
 async def _ensure_study_exists(study_uid: str) -> None:
     validate_study_uid(study_uid)
-    async with httpx.AsyncClient(timeout=15.0) as client:
+    async with httpx.AsyncClient(timeout=15.0, auth=settings.orthanc_auth) as client:
         response = await client.post(
             f"{settings.orthanc_url}/tools/find",
             json={"Level": "Study", "Query": {"StudyInstanceUID": study_uid}},

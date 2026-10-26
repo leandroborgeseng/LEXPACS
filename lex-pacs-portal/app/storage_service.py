@@ -80,7 +80,7 @@ def _discover_queue_items() -> list[dict[str, Any]]:
 
     today = datetime.now(timezone.utc).date()
     items: list[dict[str, Any]] = []
-    with httpx.Client(timeout=120.0) as client:
+    with httpx.Client(timeout=120.0, auth=settings.orthanc_auth) as client:
         base = settings.orthanc_url.rstrip("/")
         response = client.post(
             f"{base}/tools/find",
@@ -196,7 +196,7 @@ def process_storage_batch() -> dict[str, Any]:
     processed = 0
     base = settings.orthanc_url.rstrip("/")
 
-    with httpx.Client(timeout=300.0) as client:
+    with httpx.Client(timeout=300.0, auth=settings.orthanc_auth) as client:
         end = min(len(queue), cursor + batch_size)
         for index in range(cursor, end):
             item = queue[index]

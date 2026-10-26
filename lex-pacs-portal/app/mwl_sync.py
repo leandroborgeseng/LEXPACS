@@ -150,7 +150,7 @@ def list_mwl_entries(station_aet: str = "") -> list[dict[str, Any]]:
 
 async def orthanc_mwl_plugin_enabled() -> bool:
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
+        async with httpx.AsyncClient(timeout=5.0, auth=settings.orthanc_auth) as client:
             response = await client.get(f"{settings.orthanc_url}/plugins")
             response.raise_for_status()
             plugins = response.json()

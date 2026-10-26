@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 from pathlib import Path
-from urllib.parse import quote
 
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -23,18 +22,20 @@ from .audit import log_event
 from .clinical_session import ClinicalUser
 from .clinical_session import (
     authenticate_clinical,
+    clinical_permissions,
     clinical_user_from_session_token,
     create_clinical_session,
+    end_session,
     session_cookie_kwargs,
     CLINICAL_COOKIE_NAME,
 )
 from .clinical_auth import (
+    auth_public_config,
     clinical_user_from_request,
-    oidc_status,
-    require_clinical_user,
-    clinical_permissions,
+    require_clinical_user_allow_pending,
 )
-from .clinical_oidc import exchange_oidc_code, oidc_authorize_url, parse_oidc_state
+from . import local_users
+from .users import router as users_router
 from .config import settings
 from .reports import router as reports_router
 from .bootstrap import bootstrap_runtime_files
@@ -63,12 +64,19 @@ app = FastAPI(
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 app.include_router(admin_router)
 app.include_router(reports_router)
+app.include_router(users_router)
 
 orthanc = OrthancClient()
 
 
 @app.on_event("startup")
 async def on_startup() -> None:
+    local_users.init_db()
+    if local_users.bootstrap_admin():
+        log_event("user_bootstrap_admin", "bootstrap", target=settings.lex_admin_user.strip().lower())
+    if settings.orthanc_external_readonly:
+        # V2/V4: Orthanc externo (prefeitura) — nada que grave config, plugins ou dados nele.
+        return
     bootstrap_runtime_files()
     ensure_portal_ops_env()
     start_mwl_scheduler()
@@ -123,6 +131,7 @@ class ClinicalLoginResponse(BaseModel):
     username: str
     groups: list[str]
     access_token: str
+    must_change_password: bool = False
 
 
 async def _patient_owns_study(patient_id: str, study_instance_uid: str) -> None:
@@ -135,13 +144,20 @@ async def _patient_owns_study(patient_id: str, study_instance_uid: str) -> None:
 @app.get("/api/health")
 async def health() -> dict:
     storage_ok = False
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.get(f"{settings.orthanc_url}/system")
-            storage_ok = response.status_code == 200
-    except httpx.HTTPError:
-        storage_ok = False
-    return {"status": "ok", "storage": storage_ok, "version": settings.lex_pacs_version}
+    configured = bool(settings.orthanc_url)
+    if configured:
+        try:
+            async with httpx.AsyncClient(timeout=5.0, auth=settings.orthanc_auth) as client:
+                response = await client.get(f"{settings.orthanc_url.rstrip('/')}/system")
+                storage_ok = response.status_code == 200
+        except httpx.HTTPError:
+            storage_ok = False
+    return {
+        "status": "ok",
+        "storage": storage_ok,
+        "orthanc_configured": configured,
+        "version": settings.lex_pacs_version,
+    }
 
 
 @app.get("/api/auth/validate-viewer-cookie")
@@ -158,7 +174,7 @@ async def validate_viewer_cookie(request: Request) -> Response:
 async def validate_dicom_access(request: Request) -> Response:
     """Viewer/DICOMweb: sessão clínica, cookie do paciente ou Bearer."""
     user = clinical_user_from_request(request)
-    if user:
+    if user and user.can_view_images and not user.must_change_password:
         return Response(
             status_code=200,
             headers={
@@ -177,9 +193,9 @@ async def validate_dicom_access(request: Request) -> Response:
 
 @app.get("/api/auth/validate-clinical")
 async def validate_clinical_auth(request: Request) -> Response:
-    """Usado pelo gateway: sessão clínica ou Bearer OIDC."""
+    """Usado pelo gateway: sessão clínica (cookie ou Bearer local)."""
     user = clinical_user_from_request(request)
-    if user:
+    if user and not user.must_change_password:
         return Response(
             status_code=200,
             headers={
@@ -190,19 +206,36 @@ async def validate_clinical_auth(request: Request) -> Response:
     return Response(status_code=401)
 
 
+def _client_ip(request: Request) -> str:
+    fwd = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+    return fwd or (request.client.host if request.client else "")
+
+
 @app.post("/api/auth/clinical/login", response_model=ClinicalLoginResponse)
 async def clinical_login(body: ClinicalLoginRequest, request: Request) -> JSONResponse:
     enforce_login_rate_limit(request)
-    user = await authenticate_clinical(body.username, body.password)
-    token = create_clinical_session(user.username, user.groups, user.auth_method)
+    try:
+        user = await authenticate_clinical(body.username, body.password)
+    except HTTPException as exc:
+        log_event(
+            "clinical_login_failed",
+            body.username.strip().lower()[:64],
+            status=exc.status_code,
+            ip=_client_ip(request),
+        )
+        raise
+    token = create_clinical_session(user)
     redirect = body.next.strip() if body.next.startswith("/") and not body.next.startswith("//") else "/viewer/"
-    log_event("clinical_login", user.username, auth_method=user.auth_method)
+    if user.must_change_password:
+        redirect = "/clinica/senha"
+    log_event("clinical_login", user.username, auth_method=user.auth_method, ip=_client_ip(request))
     response = JSONResponse(
         content=ClinicalLoginResponse(
             redirect_url=redirect,
             username=user.username,
             groups=user.groups,
             access_token=token,
+            must_change_password=user.must_change_password,
         ).model_dump()
     )
     response.set_cookie(key=CLINICAL_COOKIE_NAME, value=token, **session_cookie_kwargs())
@@ -210,10 +243,32 @@ async def clinical_login(body: ClinicalLoginRequest, request: Request) -> JSONRe
 
 
 @app.post("/api/auth/clinical/logout")
-async def clinical_logout() -> JSONResponse:
+async def clinical_logout(request: Request) -> JSONResponse:
+    token = request.cookies.get(CLINICAL_COOKIE_NAME, "").strip()
+    if token:
+        end_session(token)
     response = JSONResponse(content={"ok": True})
     response.delete_cookie(key=CLINICAL_COOKIE_NAME, path="/")
     return response
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(min_length=1, max_length=256)
+    new_password: str = Field(min_length=1, max_length=256)
+
+
+@app.post("/api/auth/clinical/change-password")
+async def clinical_change_password(
+    body: ChangePasswordRequest,
+    request: Request,
+    clinical_user: ClinicalUser = Depends(require_clinical_user_allow_pending),
+) -> dict:
+    try:
+        local_users.change_password(clinical_user.username, body.current_password, body.new_password)
+    except local_users.UserError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    log_event("clinical_password_changed", clinical_user.username, ip=_client_ip(request))
+    return {"ok": True}
 
 
 @app.get("/clinica/login")
@@ -222,41 +277,28 @@ async def clinica_login_page() -> FileResponse:
     return FileResponse(STATIC_DIR / "clinica.html")
 
 
+@app.get("/clinica/senha")
+async def clinica_password_page() -> FileResponse:
+    return FileResponse(STATIC_DIR / "senha.html")
+
+
+@app.get("/clinica/usuarios")
+async def clinica_users_page() -> FileResponse:
+    return FileResponse(STATIC_DIR / "usuarios.html")
+
+
 @app.get("/api/auth/clinical/config")
 async def clinical_auth_config() -> dict:
-    return oidc_status()
-
-
-@app.get("/api/auth/clinical/oidc/login")
-async def clinical_oidc_login(next: str = "/viewer/") -> RedirectResponse:
-    return RedirectResponse(url=oidc_authorize_url(next), status_code=302)
-
-
-@app.get("/api/auth/clinical/oidc/callback")
-async def clinical_oidc_callback(code: str = "", state: str = "", error: str = "") -> RedirectResponse:
-    if error:
-        return RedirectResponse(
-            url=f"/clinica/login?error={error}",
-            status_code=302,
-        )
-    if not code or not state:
-        return RedirectResponse(url="/clinica/login?error=missing_code", status_code=302)
-    next_path = parse_oidc_state(state)
-    user = await exchange_oidc_code(code)
-    token = create_clinical_session(user.username, user.groups, user.auth_method)
-    log_event("clinical_login", user.username, auth_method="oidc_redirect")
-    sep = "&" if "?" in next_path else "?"
-    redirect_url = f"{next_path}{sep}token={quote(token, safe='')}"
-    response = RedirectResponse(url=redirect_url, status_code=302)
-    response.set_cookie(key=CLINICAL_COOKIE_NAME, value=token, **session_cookie_kwargs())
-    return response
+    return auth_public_config()
 
 
 @app.get("/api/auth/clinical/me")
-async def clinical_me(clinical_user: ClinicalUser = Depends(require_clinical_user)) -> dict:
+async def clinical_me(clinical_user: ClinicalUser = Depends(require_clinical_user_allow_pending)) -> dict:
     return {
         "username": clinical_user.username,
         "groups": clinical_user.groups,
+        "profile": clinical_user.profile,
+        "must_change_password": clinical_user.must_change_password,
         "auth_method": clinical_user.auth_method,
         "permissions": clinical_permissions(clinical_user),
     }
@@ -269,7 +311,7 @@ async def clinical_session_bearer(request: Request) -> JSONResponse:
     if not token:
         return JSONResponse(status_code=401, content={"detail": "Sessão ausente."})
     user = clinical_user_from_session_token(token)
-    if not user:
+    if not user or user.must_change_password:
         return JSONResponse(status_code=401, content={"detail": "Sessão inválida ou expirada."})
     return JSONResponse(content={"access_token": token, "username": user.username})
 
