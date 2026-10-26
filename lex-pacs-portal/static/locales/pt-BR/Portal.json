@@ -5,7 +5,7 @@
   },
   "login": {
     "title": "Acesse seus exames",
-    "hint": "Informe os dados cadastrados na clínica. O ID do paciente é o mesmo informado na recepção ou no laudo.",
+    "hint": "Informe os dados cadastrados na clínica. O ID do paciente é o mesmo informado na recepção.",
     "patientId": "ID do paciente",
     "patientIdPlaceholder": "Ex.: 98890234",
     "birthDate": "Data de nascimento",

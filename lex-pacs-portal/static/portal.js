@@ -16,6 +16,18 @@ const reportPdfLink = document.getElementById('report-pdf-link');
 const reportPdfAnchor = document.getElementById('report-pdf-anchor');
 const reportError = document.getElementById('report-error');
 const reportBackBtn = document.getElementById('report-back-btn');
+// LD5: a seção de laudo só existe no DOM se o portal informar laudos_habilitado === true.
+const reportViewParent = reportView.parentNode;
+const reportViewNext = reportView.nextSibling;
+reportView.remove();
+let laudosHabilitado = false;
+function syncLaudosSection() {
+  if (laudosHabilitado && !reportView.isConnected) {
+    reportViewParent.insertBefore(reportView, reportViewNext);
+  } else if (!laudosHabilitado && reportView.isConnected) {
+    reportView.remove();
+  }
+}
 
 function t(key, params) {
   return LexI18n.t(key, 'Portal', params);
@@ -132,6 +144,8 @@ async function loadStudies() {
     id: data.patient_id,
   });
   studiesList.innerHTML = '';
+  laudosHabilitado = data.laudos_habilitado === true;
+  syncLaudosSection();
 
   if (!data.studies?.length) {
     studiesEmpty.classList.remove('hidden');
@@ -166,7 +180,7 @@ async function loadStudies() {
       });
       actions.appendChild(viewBtn);
 
-      if (study.report_available) {
+      if (laudosHabilitado && study.report_available) {
         const reportBtn = document.createElement('button');
         reportBtn.type = 'button';
         reportBtn.className = 'secondary';

@@ -38,6 +38,7 @@ from . import local_users
 from .users import router as users_router
 from .config import settings
 from .reports import router as reports_router
+from .laudos_feature import is_laudo_path, laudos_habilitados, laudos_visiveis_para
 from .bootstrap import bootstrap_runtime_files
 from .hl7_mllp import start_hl7_mllp_server
 from .mpps_server import start_mpps_server
@@ -64,6 +65,14 @@ app = FastAPI(
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 app.include_router(admin_router)
 app.include_router(reports_router)
+
+
+@app.middleware("http")
+async def lex_laudos_gate(request: Request, call_next):
+    # LD2/LD5: com LEX_LAUDOS_HABILITADO=false, qualquer rota de laudo => 404 (antes de auth).
+    if not laudos_habilitados() and is_laudo_path(request.url.path):
+        return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content={"detail": "Not Found"})
+    return await call_next(request)
 app.include_router(users_router)
 
 orthanc = OrthancClient()
@@ -301,6 +310,7 @@ async def clinical_me(clinical_user: ClinicalUser = Depends(require_clinical_use
         "must_change_password": clinical_user.must_change_password,
         "auth_method": clinical_user.auth_method,
         "permissions": clinical_permissions(clinical_user),
+        "laudos_visivel": laudos_visiveis_para(clinical_user),
     }
 
 
@@ -358,8 +368,12 @@ async def login(body: LoginRequest, request: Request) -> LoginResponse:
 @app.get("/api/studies")
 async def list_studies(patient: dict = Depends(get_current_patient)) -> dict:
     studies = await orthanc.find_studies_for_patient(patient["sub"])
+    habilitado = laudos_habilitados()
     enriched = []
     for study in studies:
+        if not habilitado:  # LD5: nenhuma menção a laudo para o paciente
+            enriched.append({k: v for k, v in study.items() if "report" not in k.lower()})
+            continue
         uid = study.get("study_instance_uid", "")
         report = load_report(uid) if uid else {}
         enriched.append(
@@ -368,7 +382,12 @@ async def list_studies(patient: dict = Depends(get_current_patient)) -> dict:
                 "report_available": is_visible_to_patient(report),
             }
         )
-    return {"patient_id": patient["sub"], "patient_name": patient.get("name", ""), "studies": enriched}
+    return {
+        "patient_id": patient["sub"],
+        "patient_name": patient.get("name", ""),
+        "laudos_habilitado": habilitado,
+        "studies": enriched,
+    }
 
 
 @app.get("/api/studies/{study_instance_uid}/report", response_model=PatientReportResponse)

@@ -5,7 +5,7 @@
   },
   "login": {
     "title": "Acceda a sus estudios",
-    "hint": "Ingrese los datos registrados en la clínica. El ID del paciente es el mismo proporcionado en recepción o en el informe.",
+    "hint": "Ingrese los datos registrados en la clínica. El ID del paciente es el mismo proporcionado en recepción.",
     "patientId": "ID del paciente",
     "patientIdPlaceholder": "Ej.: 98890234",
     "birthDate": "Fecha de nacimiento",

@@ -38,6 +38,8 @@ class Settings(BaseSettings):
     # V2/V4: Orthanc externo (prefeitura) — o portal não altera config/plugins/dados dele
     orthanc_external_readonly: bool = True
     hl7_orm_enabled: bool | None = None
+    # LD1–LD5: aba/API de laudos. Ausente => False (oculto para todos; nenhum dado é apagado).
+    lex_laudos_habilitado: bool = False
     hl7_orm_port: int = 2575
     hl7_orm_auto_sync: bool | None = None
 
