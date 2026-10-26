@@ -3,10 +3,26 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script>
+    (function () {
+      try {
+        var s = localStorage.getItem('lex-theme');
+        document.documentElement.setAttribute('data-theme', s === 'light' || s === 'dark' ? s : 'light');
+      } catch (e) {
+        document.documentElement.setAttribute('data-theme', 'light');
+      }
+    })();
+  </script>
   <link rel="stylesheet" href="/static/portal.css" />
+  <link rel="stylesheet" href="/static/fonts/plex.css" />
   <title>LEX PACS — Trocar senha</title>
 </head>
-<body>
+<body class="lex-auth">
+    <aside class="pmf-brand-panel" hidden aria-label="Prefeitura de Franca">
+      <img src="/static/pmf-catavento.png" alt="" width="96" height="96" />
+      <p class="pmf-brand-title">LEX PACS · Prefeitura de Franca</p>
+      <p class="pmf-brand-sub">Imagens médicas da rede municipal de saúde</p>
+    </aside>
   <div class="page">
     <main class="card">
       <h1>Trocar senha</h1>
@@ -21,5 +37,7 @@
     </main>
   </div>
   <script src="/static/senha.js"></script>
+  <script src="/static/theme.js"></script>
+  <script>window.LexTheme && LexTheme.init();</script>
 </body>
 </html>

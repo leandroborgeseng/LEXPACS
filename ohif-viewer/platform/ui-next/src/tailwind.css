@@ -32,31 +32,53 @@
     --neutral-dark: 0 0% 12%;
   }
 
+  /* Identidade visual PMF (Prefeitura de Franca) — SÓ tema claro. O escuro acima não muda. */
   [data-theme='light'] {
-    --background: 0 0% 97%;
-    --foreground: 0 0% 12%;
+    --background: 216 50% 97%;
+    --foreground: 215 50% 12%;
     --card: 0 0% 100%;
-    --card-foreground: 0 0% 12%;
+    --card-foreground: 215 50% 12%;
     --popover: 0 0% 100%;
-    --popover-foreground: 0 0% 12%;
-    --primary: 0 85% 40%;
+    --popover-foreground: 215 50% 12%;
+    --primary: 210 100% 40%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 0 0% 94%;
-    --secondary-foreground: 0 0% 28%;
-    --muted: 0 0% 94%;
-    --muted-foreground: 0 0% 42%;
-    --accent: 0 0% 92%;
-    --accent-foreground: 0 0% 12%;
-    --destructive: 0 72% 46%;
+    --secondary: 214 79% 95%;
+    --secondary-foreground: 214 26% 28%;
+    --muted: 214 32% 95%;
+    --muted-foreground: 215 15% 47%;
+    --accent: 214 79% 95%;
+    --accent-foreground: 215 50% 12%;
+    --destructive: 0 67% 50%;
     --destructive-foreground: 0 0% 100%;
-    --border: 0 0% 86%;
-    --input: 0 0% 90%;
-    --ring: 0 85% 40%;
-    --radius: 0.5rem;
-    --highlight: 0 85% 44%;
-    --neutral: 0 0% 50%;
-    --neutral-light: 0 0% 72%;
-    --neutral-dark: 0 0% 22%;
+    --border: 215 30% 92%;
+    --input: 215 30% 92%;
+    --ring: 210 100% 40%;
+    --radius: 0.625rem;
+    --highlight: 210 76% 48%;
+    --neutral: 216 19% 65%;
+    --neutral-light: 216 45% 95%;
+    --neutral-dark: 214 26% 28%;
+    --pmf-brand: #0066cc;
+    --pmf-brand-hover: #005bb5;
+    --pmf-surface-2: #fafbfd;
+    font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  }
+
+  [data-theme='light'] body {
+    font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  }
+
+  /* LX5: área da imagem DICOM continua preta no claro. */
+  [data-theme='light'] .cornerstone-viewport-element {
+    background-color: #000;
+  }
+
+  /* LX11: logo PMF no claro, LEX PACS no escuro (img.lex-logo-pmf tem o atributo hidden). */
+  [data-theme='light'] .lex-logo-lex {
+    display: none;
+  }
+  [data-theme='light'] .lex-logo-pmf {
+    display: inline-block;
   }
 }
 

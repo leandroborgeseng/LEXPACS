@@ -11,16 +11,22 @@
   --btn-ghost-border: #2a2a2a;
 }
 
+/* Identidade visual PMF (Prefeitura de Franca) — SÓ tema claro. O escuro acima não muda. */
 [data-theme='light'] {
-  --bg: #f4f4f5;
+  --bg: #f3f6fb;
   --card: #ffffff;
-  --text: #18181b;
-  --muted: #52525b;
-  --red: #b80000;
-  --border: #d4d4d8;
-  --input-bg: #fafafa;
+  --text: #0f1b2d;
+  --muted: #5b6b82;
+  --red: #0066cc; /* cor de ação no claro = brand PMF (erros usam --danger) */
+  --border: #e5eaf1;
+  --input-bg: #fafbfd;
   --btn-ghost-bg: transparent;
-  --btn-ghost-border: #d4d4d8;
+  --btn-ghost-border: #e5eaf1;
+  --brand: #0066cc;
+  --brand-hover: #005bb5;
+  --brand-soft: #e8f1fc;
+  --danger: #d62b2b;
+  --danger-soft: #fbe9e9;
 }
 
 * { box-sizing: border-box; }
@@ -187,4 +193,62 @@ button:disabled { opacity: 0.6; cursor: not-allowed; }
   padding: 1rem;
   min-height: 120px;
   line-height: 1.55;
+}
+
+/* ── Tema claro PMF: regras escopadas (nada abaixo afeta o escuro) ── */
+[data-theme='light'] body { font-family: 'IBM Plex Sans', system-ui, sans-serif; }
+[data-theme='light'] .card { border-radius: 14px; box-shadow: 0 1px 2px rgba(15, 27, 45, 0.06); }
+[data-theme='light'] input,
+[data-theme='light'] button { border-radius: 10px; font-family: inherit; }
+[data-theme='light'] input { min-height: 44px; }
+[data-theme='light'] button:not(.theme-toggle):not(.ghost):not(.secondary):not(.secondary-btn) { min-height: 44px; }
+[data-theme='light'] button:hover:not(:disabled):not(.theme-toggle):not(.ghost):not(.secondary):not(.secondary-btn) { background: var(--brand-hover); }
+[data-theme='light'] .theme-toggle:hover { border-color: var(--brand); background: var(--brand-soft); }
+[data-theme='light'] :is(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+[data-theme='light'] .error { color: var(--danger); }
+[data-theme='light'] .hint a { color: var(--brand) !important; }
+[data-theme='light'] .logo-lex { color: var(--brand); }
+[data-theme='light'] .study-item { border-radius: 14px; background: var(--card); }
+[data-theme='light'] .study-meta { font-variant-numeric: tabular-nums; }
+
+/* Login / troca de senha: painel PMF à direita (≥1024px) ou faixa no topo (<1024px). */
+[data-theme='light'] body.lex-auth .pmf-brand-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  background: var(--brand);
+  color: #fff;
+  text-align: center;
+  padding: 1rem;
+}
+[data-theme='light'] body.lex-auth .pmf-brand-panel img {
+  width: 96px;
+  height: 96px;
+  object-fit: contain;
+  border-radius: 14px;
+  background: #fff;
+  padding: 8px;
+}
+[data-theme='light'] .pmf-brand-title { margin: 0; font-size: 1.25rem; font-weight: 700; }
+[data-theme='light'] .pmf-brand-sub { margin: 0; opacity: 0.9; }
+@media (min-width: 1024px) {
+  [data-theme='light'] body.lex-auth {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  [data-theme='light'] body.lex-auth .page { order: 1; align-self: center; width: 100%; max-width: 440px; }
+  [data-theme='light'] body.lex-auth .pmf-brand-panel { order: 2; min-height: 100vh; }
+}
+@media (max-width: 1023.98px) {
+  [data-theme='light'] body.lex-auth .pmf-brand-panel {
+    flex-direction: row;
+    min-height: 120px;
+  }
+  [data-theme='light'] body.lex-auth .pmf-brand-panel img { width: 64px; height: 64px; }
+  [data-theme='light'] body.lex-auth .pmf-brand-sub { display: none; }
 }

@@ -13,10 +13,8 @@
     } catch {
       /* ignore */
     }
-    if (window.matchMedia('(prefers-color-scheme: light)').matches) {
-      return 'light';
-    }
-    return 'dark';
+    // Sem escolha salva: claro (padrão PMF). O escuro segue no alternador.
+    return 'light';
   }
 
   function applyTheme(theme) {
@@ -38,7 +36,7 @@
   }
 
   function toggleTheme() {
-    const current = document.documentElement.getAttribute('data-theme') || 'dark';
+    const current = document.documentElement.getAttribute('data-theme') || 'light';
     applyTheme(current === 'light' ? 'dark' : 'light');
   }
 
