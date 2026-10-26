@@ -26,7 +26,7 @@ for i in $(seq 1 30); do curl -fs -u "leitor:$OPW" http://127.0.0.1:18142/system
 echo "Orthanc: $(curl -fs -u "leitor:$OPW" http://127.0.0.1:18142/system | python3 -c 'import json,sys;d=json.load(sys.stdin);print(d["Version"], "DicomWeb" , "ok")')"
 
 T0=$(date +%s)
-python3 "$ROOT/lex-pacs-portal/tests/integration/gerar_sinteticos.py" --url http://127.0.0.1:18142 --user leitor --password "$OPW" --n "$N"
+ORTHANC_USERNAME=leitor ORTHANC_PASSWORD="$OPW" python3 "$ROOT/lex-pacs-portal/tests/integration/gerar_sinteticos.py" --url http://127.0.0.1:18142 --n "$N"
 echo "Carga de $N estudos sintéticos: $(( $(date +%s) - T0 )) s"
 
 cd "$ROOT/lex-pacs-portal"

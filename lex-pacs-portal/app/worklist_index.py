@@ -255,8 +255,27 @@ _sync_lock = threading.Lock()
 _bg_thread: threading.Thread | None = None
 
 
+async def _empty_index_but_orthanc_has_studies(client: httpx.AsyncClient) -> bool:
+    """Índice pronto com 0 estudos e Orthanc com estudos (ex.: seed de homologação depois da
+    primeira carga, /changes podado): reconstrói sozinho, sem ninguém apagar o arquivo."""
+    conn = connect()
+    try:
+        n = conn.execute("SELECT COUNT(*) FROM worklist_study").fetchone()[0]
+    finally:
+        conn.close()
+    if n:
+        return False
+    r = await client.get(f"{_base()}/statistics")
+    r.raise_for_status()
+    return int(r.json().get("CountStudies", 0) or 0) > 0
+
+
 async def _run_sync(full: bool) -> None:
     async with httpx.AsyncClient(timeout=120.0, auth=settings.orthanc_auth) as client:
+        if not full and await _empty_index_but_orthanc_has_studies(client):
+            _clear_index()
+            _set_state(status="indexing", indexed=0, total=None)
+            full = True
         if full:
             await full_load(client)
         await incremental(client)

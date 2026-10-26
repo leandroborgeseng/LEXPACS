@@ -59,3 +59,4 @@ Carga inicial do índice: 0,9 s (log do portal).
   não reaparece.
 - A sincronização síncrona antiga virou `_sync_now_for_tests()` (só testes); nenhuma rota a chama
   (há teste garantindo).
+- Índice pronto com 0 estudos e Orthanc com exames (ex.: seed de homologação depois da 1ª carga, `/changes` podado): o startup reconstrói sozinho.

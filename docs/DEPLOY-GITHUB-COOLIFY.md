@@ -55,6 +55,9 @@ gh auth login
 git push origin main
 ```
 
+## Homologação: seed sintético
+Ver "Homologação: seed de estudos sintéticos" no README: `HOMOLOG_SEED=N` só no ambiente de homologação; em produção deixe vazia (o serviço `seed-homolog` sai 0).
+
 ## Referências
 
 - [COOLIFY.md](./COOLIFY.md) — stack e domínio

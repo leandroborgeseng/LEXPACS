@@ -104,6 +104,19 @@ jobs:
             docker compose -f $files --env-file /tmp/lex-ci.env config --services
             echo "::endgroup::"
           done
+          # seed-homolog: portal espera o seed terminar com sucesso; seed não reinicia; sem
+          # HOMOLOG_SEED a variável fica vazia (o seed sai 0 e a produção sobe normalmente).
+          docker compose -f docker-compose.coolify.yml --env-file /tmp/lex-ci.env config --format json > /tmp/lex-compose.json
+          python3 - <<'PY'
+          import json
+          c = json.load(open("/tmp/lex-compose.json"))["services"]
+          assert c["portal"]["depends_on"]["seed-homolog"]["condition"] == "service_completed_successfully"
+          s = c["seed-homolog"]
+          assert s["restart"] == "no" and s["image"] == c["portal"]["image"]
+          assert s["depends_on"]["server"]["condition"] == "service_healthy"
+          assert s["environment"]["HOMOLOG_SEED"] == "" and s["environment"]["ORTHANC_URL"] == "http://server:8042"
+          print("seed-homolog ok")
+          PY
 
   ohif-build:
     name: OHIF viewer build (Node 24, Dockerfile)

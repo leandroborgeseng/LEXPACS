@@ -77,6 +77,8 @@ class FakeOrthanc:
             chunk = [c for c in self.changes if c["Seq"] > since][:lim]
             last = chunk[-1]["Seq"] if chunk else since
             return httpx.Response(200, json={"Changes": chunk, "Done": last >= len(self.changes), "Last": last})
+        if path == "/statistics":
+            return httpx.Response(200, json={"CountStudies": len(self.studies)})
         if path.startswith("/studies/"):
             oid = path.rsplit("/", 1)[1]
             for s in self.studies:
@@ -369,3 +371,17 @@ def test_tentar_de_novo_respeita_intervalo_no_backend(raw_orthanc, monkeypatch, 
     worklist_index._bg_thread.join(10)
     # a rota exige sessão clínica
     assert client.post("/api/worklist/index/retry").status_code == 401
+
+
+def test_indice_vazio_com_orthanc_cheio_reconstroi_sozinho(raw_orthanc):
+    """Índice criado com 0 estudos (antes do seed) e /changes sem eventos: o startup reconstrói."""
+    estudos = raw_orthanc.studies
+    raw_orthanc.studies = []
+    asyncio.run(worklist_index._sync_now_for_tests())
+    conn = worklist_index.connect()
+    assert conn.execute("SELECT COUNT(*) FROM worklist_study").fetchone()[0] == 0
+    conn.close()
+    raw_orthanc.studies = estudos  # chegaram sem evento no /changes (ex.: podado)
+    worklist_index.start_background().join(10)
+    r = _run()
+    assert r["index"]["status"] == "ready" and r["total"] == len(estudos)
