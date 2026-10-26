@@ -10,5 +10,5 @@ pymysql==1.1.1
 pymssql==2.3.2
 oracledb==2.5.1
 cryptography==44.0.0
-passlib==1.7.4
+argon2-cffi==23.1.0
 pynetdicom==3.0.4

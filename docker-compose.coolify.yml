@@ -4,7 +4,7 @@
 #   - Tipo: Docker Compose (GitHub)
 #   - Compose file: docker-compose.coolify.yml
 #   - Um único domínio público → serviço `gateway` (Traefik :80/:443 + Let's Encrypt)
-#   - Auth OIDC na rede interna; exposto em /auth/ via gateway
+#   - Login com usuários locais do portal (sem Keycloak)
 #   - Variáveis: ver .env.coolify.example e docs/COOLIFY.md
 #
 # VPS standalone (80/443 + Let's Encrypt via Caddy):
@@ -18,21 +18,6 @@
 name: lex-pacs
 
 services:
-  auth-realm-init:
-    image: "lex-pacs/auth-realm-init:${LEX_PACS_VERSION:-0.7.0}"
-    build:
-      context: ./ohif-viewer/keycloak
-      dockerfile: Dockerfile.realm-init
-    environment:
-      OHIF_VIEWER_URL: ${OHIF_VIEWER_URL:-http://localhost:3000}
-      KEYCLOAK_PUBLIC_URL: ${KEYCLOAK_PUBLIC_URL:-}
-      KEYCLOAK_HTTP_RELATIVE_PATH: ${KEYCLOAK_HTTP_RELATIVE_PATH:-/auth}
-      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-lex-clinical-dev-secret}
-      KEYCLOAK_SSL_REQUIRED: ${KEYCLOAK_SSL_REQUIRED:-none}
-    volumes:
-      - auth-realm-import:/output
-    restart: "no"
-
   database:
     image: "lex-pacs/database:${LEX_PACS_VERSION:-0.7.0}"
     build:
@@ -53,41 +38,6 @@ services:
       timeout: 5s
       retries: 10
       start_period: 10s
-    restart: unless-stopped
-
-  auth:
-    image: quay.io/keycloak/keycloak:26.0
-    container_name: auth
-    command: start-dev --import-realm --http-port=8080 --http-relative-path=${KEYCLOAK_HTTP_RELATIVE_PATH:-/auth}
-    environment:
-      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
-      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?defina KEYCLOAK_ADMIN_PASSWORD}
-      KC_HEALTH_ENABLED: "true"
-      KC_HTTP_ENABLED: "true"
-      KC_HTTP_RELATIVE_PATH: ${KEYCLOAK_HTTP_RELATIVE_PATH:-/auth}
-      KC_PROXY: ${KEYCLOAK_PROXY:-edge}
-      KC_HOSTNAME: ${KEYCLOAK_PUBLIC_HOSTNAME:-${LEX_PACS_DOMAIN:-}}
-      KC_HOSTNAME_STRICT: ${KEYCLOAK_HOSTNAME_STRICT:-false}
-    volumes:
-      - auth-realm-import:/opt/keycloak/data/import
-    expose:
-      - "8080"
-    depends_on:
-      auth-realm-init:
-        condition: service_completed_successfully
-    healthcheck:
-      test:
-        - CMD-SHELL
-        - |
-          path="$${KC_HTTP_RELATIVE_PATH:-/auth}"
-          path="$${path%/}"
-          exec 3<>/dev/tcp/127.0.0.1/8080 && \
-          printf "GET $${path}/realms/lex-pacs HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n" >&3 && \
-          head -1 <&3 | grep -q '200'
-      interval: 15s
-      timeout: 10s
-      retries: 20
-      start_period: 90s
     restart: unless-stopped
 
   server:
@@ -153,7 +103,10 @@ services:
       - "8080"
       - "2575"
     environment:
-      ORTHANC_URL: http://server:8042
+      # Orthanc embarcado desta stack (para Orthanc externo use docker-compose.externo.yml)
+      ORTHANC_URL: ${ORTHANC_URL:-http://server:8042}
+      ORTHANC_USERNAME: ${ORTHANC_USERNAME:-}
+      ORTHANC_PASSWORD: ${ORTHANC_PASSWORD:-}
       OHIF_VIEWER_URL: ${OHIF_VIEWER_URL:?defina OHIF_VIEWER_URL}
       HL7_ORM_ENABLED: ${HL7_ORM_ENABLED:-true}
       HL7_ORM_PORT: ${HL7_ORM_PORT:-2575}
@@ -169,16 +122,12 @@ services:
       ORTHANC_WORKLIST_PATH: /var/lib/orthanc/worklists
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD}
       LEX_PACS_VERSION: ${LEX_PACS_VERSION:-0.7.0}
-      OIDC_ENABLED: ${OIDC_ENABLED:-true}
-      OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:-http://auth:8080/auth/realms/lex-pacs}
-      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-lex-clinical}
-      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:?defina OIDC_CLIENT_SECRET}
-      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
-      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?defina KEYCLOAK_ADMIN_PASSWORD}
-      AD_BIND_PASSWORD: ${AD_BIND_PASSWORD:-}
-      CLINICAL_LOCAL_AUTH_ENABLED: ${CLINICAL_LOCAL_AUTH_ENABLED:-false}
-      CLINICAL_BOOTSTRAP_USER: ${CLINICAL_BOOTSTRAP_USER:-}
-      CLINICAL_BOOTSTRAP_PASSWORD: ${CLINICAL_BOOTSTRAP_PASSWORD:-}
+      # Usuários locais (sem Keycloak). Admin inicial troca a senha no 1º acesso.
+      LEX_ADMIN_USER: ${LEX_ADMIN_USER:-}
+      LEX_ADMIN_PASSWORD: ${LEX_ADMIN_PASSWORD:-}
+      LOCAL_USERS_DB_PATH: /lex-data/users.db
+      SESSION_IDLE_MINUTES: ${SESSION_IDLE_MINUTES:-30}
+      ORTHANC_EXTERNAL_READONLY: "false"
       BACKUP_RETENTION_DAILY: ${BACKUP_RETENTION_DAILY:-7}
       BACKUP_RETENTION_WEEKLY: ${BACKUP_RETENTION_WEEKLY:-4}
       BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
@@ -191,15 +140,10 @@ services:
       - lex-reports:/lex-reports
       - lex-audit:/lex-audit
       - server-worklists:/var/lib/orthanc/worklists
-      - clinical-htpasswd:/etc/lex-pacs
+      - lex-data:/lex-data
       - lex-backups:/lex-backups:ro
     depends_on:
-      server:
-        condition: service_healthy
-      auth:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
+X, "-f", "http://localhost:8080/api/health"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -212,6 +156,10 @@ services:
     build:
       context: ./ohif-viewer/nginx
       dockerfile: Dockerfile
+    environment:
+      LEX_ORTHANC_URL: ${ORTHANC_URL:-http://server:8042}
+      LEX_ORTHANC_USERNAME: ${ORTHANC_USERNAME:-}
+      LEX_ORTHANC_PASSWORD: ${ORTHANC_PASSWORD:-}
     expose:
       - "80"
     depends_on:
@@ -220,8 +168,6 @@ services:
       portal:
         condition: service_healthy
       server:
-        condition: service_healthy
-      auth:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1/clinica/login"]
@@ -278,6 +224,5 @@ volumes:
   server-worklists:
   lex-reports:
   lex-audit:
-  clinical-htpasswd:
-  auth-realm-import:
+  lex-data:
   lex-backups:

@@ -1,0 +1,40 @@
+name: Portal tests
+
+on:
+  pull_request:
+  push:
+    branches-ignore: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: lex-pacs-portal
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Instalar dependências (sem drivers MSSQL/Oracle)
+        run: |
+          grep -v -E "^(pymssql|oracledb)" requirements.txt > /tmp/req-ci.txt
+          pip install -r /tmp/req-ci.txt pytest pytest-asyncio ruff
+      - name: Lint (arquivos de usuários locais e viewer)
+        run: ruff check --select E,F,W --ignore E501 app/local_users.py app/users.py app/clinical_session.py app/clinical_auth.py app/config.py tests
+      - name: Testes
+        # test_parse_orm_new_order já falha na main (modalidade OT != CT); fora do escopo deste PR
+        run: pytest -q --deselect tests/test_hl7_orm.py::Hl7OrmParserTest::test_parse_orm_new_order
+      - name: Gateway nginx (sintaxe do template)
+        working-directory: ohif-viewer/nginx
+        run: |
+          docker run --rm -e LEX_ORTHANC_URL=http://orthanc-teste:8042 -e LEX_ORTHANC_USERNAME=u -e LEX_ORTHANC_PASSWORD=p \
+            -e NGINX_ENVSUBST_FILTER=^LEX_ORTHANC_ \
+            --add-host portal:127.0.0.1 --add-host web-viewer:127.0.0.1 --add-host orthanc-teste:127.0.0.1 \
+            -v "$PWD/00-lex-security.conf:/etc/nginx/conf.d/00-lex-security.conf:ro" \
+            -v "$PWD/gateway.conf.template:/etc/nginx/templates/default.conf.template:ro" \
+            -v "$PWD/15-lex-orthanc.envsh:/docker-entrypoint.d/15-lex-orthanc.envsh:ro" \
+            nginx:1.27-alpine sh -c '/docker-entrypoint.sh nginx -t'

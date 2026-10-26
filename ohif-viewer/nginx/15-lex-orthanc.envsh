@@ -1,0 +1,18 @@
+#!/bin/sh
+# V1: Orthanc somente por variáveis de ambiente.
+#   LEX_ORTHANC_URL       ex.: http://10.0.0.10:8042 (rede interna; nunca IP público)
+#   LEX_ORTHANC_USERNAME  opcional (Basic Auth do Orthanc)
+#   LEX_ORTHANC_PASSWORD  opcional
+if [ -z "${LEX_ORTHANC_URL:-}" ]; then
+  echo "lex-gateway: defina LEX_ORTHANC_URL" >&2
+  exit 1
+fi
+LEX_ORTHANC_URL="${LEX_ORTHANC_URL%/}"
+export LEX_ORTHANC_URL
+if [ -n "${LEX_ORTHANC_USERNAME:-}" ]; then
+  LEX_ORTHANC_AUTH_HEADER="Basic $(printf '%s:%s' "$LEX_ORTHANC_USERNAME" "${LEX_ORTHANC_PASSWORD:-}" | base64 | tr -d '\n')"
+else
+  LEX_ORTHANC_AUTH_HEADER=""
+fi
+export LEX_ORTHANC_AUTH_HEADER
+unset LEX_ORTHANC_PASSWORD

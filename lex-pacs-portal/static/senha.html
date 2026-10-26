@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="/static/portal.css" />
+  <title>LEX PACS — Trocar senha</title>
+</head>
+<body>
+  <div class="page">
+    <main class="card">
+      <h1>Trocar senha</h1>
+      <p class="hint" id="pending-hint">Defina uma nova senha para continuar. Mínimo de 10 caracteres.</p>
+      <form id="pw-form">
+        <label><span>Senha atual</span><input id="current" type="password" required autocomplete="current-password" /></label>
+        <label><span>Nova senha</span><input id="new1" type="password" required minlength="10" autocomplete="new-password" /></label>
+        <label><span>Confirmar nova senha</span><input id="new2" type="password" required minlength="10" autocomplete="new-password" /></label>
+        <p id="pw-error" class="error hidden" role="alert"></p>
+        <button type="submit">Salvar nova senha</button>
+      </form>
+    </main>
+  </div>
+  <script src="/static/senha.js"></script>
+</body>
+</html>

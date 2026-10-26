@@ -86,7 +86,7 @@ async def collect_pacs_stats() -> dict[str, Any]:
     received_age = _empty_age_counts()
     modality_studies: dict[str, set[str]] = defaultdict(set)
 
-    async with httpx.AsyncClient(timeout=120.0) as client:
+    async with httpx.AsyncClient(timeout=120.0, auth=settings.orthanc_auth) as client:
         base = settings.orthanc_url.rstrip("/")
         stats_resp = await client.get(f"{base}/statistics")
         stats_resp.raise_for_status()

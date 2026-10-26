@@ -4,7 +4,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    orthanc_url: str = "http://server:8042"
+    # V1: Orthanc somente por variável de ambiente (ORTHANC_URL, ORTHANC_USERNAME, ORTHANC_PASSWORD)
+    orthanc_url: str = ""
+    orthanc_username: str = ""
+    orthanc_password: str = ""
     ohif_viewer_url: str = "http://localhost:3000"
     jwt_secret: str = "change-me-in-production"
     jwt_expire_hours: int = 8
@@ -15,8 +18,7 @@ class Settings(BaseSettings):
     reports_data_path: str = "/lex-reports"
     audit_data_path: str = "/lex-audit"
     orthanc_worklist_path: str = "/var/lib/orthanc/worklists"
-    clinical_htpasswd_path: str = "/etc/lex-pacs/htpasswd"
-    clinical_session_hours: int = 12
+    clinical_session_hours: int = 12  # teto absoluto; inatividade em session_idle_minutes
     lex_pacs_version: str = "0.7.0"
     backup_status_path: str = "/lex-backups/latest-status.json"
     backup_retention_days: int = 14
@@ -25,41 +27,25 @@ class Settings(BaseSettings):
     backup_interval_hours: int = 24
     login_rate_limit_attempts: int = 20
     login_rate_limit_window_seconds: int = 60
-    oidc_enabled: bool = False
-    oidc_issuer_url: str = "http://auth:8080/auth/realms/lex-pacs"
-    oidc_public_issuer_url: str = "http://localhost:3000/auth/realms/lex-pacs"
-    oidc_client_id: str = "lex-clinical"
-    oidc_client_secret: str = "lex-clinical-dev-secret"
-    clinical_local_auth_enabled: bool = True
-    clinical_bootstrap_user: str = ""
-    clinical_bootstrap_password: str = ""
+    # Usuários locais (U1–U5) — sem Keycloak
+    local_users_db_path: str = "/lex-data/users.db"
+    lex_admin_user: str = ""
+    lex_admin_password: str = ""
+    password_min_length: int = 10
+    login_max_failures: int = 5
+    login_lockout_minutes: int = 15
+    session_idle_minutes: int = 30
+    # V2/V4: Orthanc externo (prefeitura) — o portal não altera config/plugins/dados dele
+    orthanc_external_readonly: bool = True
     hl7_orm_enabled: bool | None = None
     hl7_orm_port: int = 2575
     hl7_orm_auto_sync: bool | None = None
-    keycloak_admin_base_url: str = "http://auth:8080/auth"
-    keycloak_admin: str = ""
-    keycloak_admin_password: str = ""
-    keycloak_realm: str = "lex-pacs"
 
     @property
-    def keycloak_admin_user(self) -> str:
-        return self.keycloak_admin
-
-    @property
-    def resolved_oidc_public_issuer_url(self) -> str:
-        """Issuer OIDC para o browser; deriva de OHIF_VIEWER_URL se vazio ou interno."""
-        custom = (self.oidc_public_issuer_url or "").strip().rstrip("/")
-        if custom and not custom.startswith("http://auth"):
-            return custom
-        base = (self.ohif_viewer_url or "").strip().rstrip("/")
-        if base:
-            return f"{base}/auth/realms/lex-pacs"
-        return ""
-
-    @property
-    def oidc_redirect_uri(self) -> str:
-        base = self.ohif_viewer_url.rstrip("/")
-        return f"{base}/clinica-api/auth/clinical/oidc/callback"
+    def orthanc_auth(self) -> tuple[str, str] | None:
+        if self.orthanc_username:
+            return (self.orthanc_username, self.orthanc_password)
+        return None
 
 
 settings = Settings()

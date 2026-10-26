@@ -1,8 +1,6 @@
 const form = document.getElementById('login-form');
 const errorEl = document.getElementById('login-error');
 const submitBtn = document.getElementById('login-btn');
-const oidcSection = document.getElementById('oidc-section');
-const oidcBtn = document.getElementById('oidc-btn');
 const localDevHint = document.getElementById('local-dev-hint');
 const loginHint = document.getElementById('login-hint');
 
@@ -25,31 +23,9 @@ function showError(message) {
 }
 
 async function loadAuthConfig() {
-  const params = new URLSearchParams(window.location.search);
-  const urlError = params.get('error');
-  if (urlError) {
-    showError(t('errors.keycloakFailed'));
-  }
-
-  try {
-    const response = await fetch('/clinica-api/auth/clinical/config');
-    const cfg = await response.json().catch(() => ({}));
-    if (cfg.enabled) {
-      oidcSection.classList.remove('hidden');
-      oidcBtn.addEventListener('click', () => {
-        const next = encodeURIComponent(safeNextPath());
-        window.location.href = `/clinica-api/auth/clinical/oidc/login?next=${next}`;
-      });
-      loginHint.textContent = t('login.hintKeycloak');
-    }
-    if (cfg.local_auth_enabled) {
-      localDevHint.classList.remove('hidden');
-    } else {
-      loginHint.textContent = t('login.hintPasswordOnly');
-    }
-  } catch {
-    /* config opcional */
-  }
+  // Login somente com usuários locais (sem SSO/Keycloak).
+  loginHint.textContent = t('login.hintPasswordOnly');
+  localDevHint.classList.add('hidden');
 }
 
 form.addEventListener('submit', async event => {

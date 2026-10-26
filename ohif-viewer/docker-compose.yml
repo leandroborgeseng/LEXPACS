@@ -93,15 +93,10 @@ services:
       ORTHANC_WORKLIST_PATH: /var/lib/orthanc/worklists
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-orthanc}
       LEX_PACS_VERSION: ${LEX_PACS_VERSION:-0.7.0}
-      OIDC_ENABLED: ${OIDC_ENABLED:-true}
-      OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:-http://auth:8080/auth/realms/lex-pacs}
-      OIDC_PUBLIC_ISSUER_URL: ${OIDC_PUBLIC_ISSUER_URL:-http://localhost:3000/auth/realms/lex-pacs}
-      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-lex-clinical}
-      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-lex-clinical-dev-secret}
-      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
-      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
-      AD_BIND_PASSWORD: ${AD_BIND_PASSWORD:-}
-      CLINICAL_LOCAL_AUTH_ENABLED: ${CLINICAL_LOCAL_AUTH_ENABLED:-true}
+      LEX_ADMIN_USER: ${LEX_ADMIN_USER:-}
+      LEX_ADMIN_PASSWORD: ${LEX_ADMIN_PASSWORD:-}
+      LOCAL_USERS_DB_PATH: /lex-data/users.db
+      ORTHANC_EXTERNAL_READONLY: "false"
       BACKUP_RETENTION_DAILY: ${BACKUP_RETENTION_DAILY:-7}
       BACKUP_RETENTION_WEEKLY: ${BACKUP_RETENTION_WEEKLY:-4}
       LOGIN_RATE_LIMIT_ATTEMPTS: ${LOGIN_RATE_LIMIT_ATTEMPTS:-20}
@@ -114,29 +109,11 @@ services:
       - lex-reports:/lex-reports
       - lex-audit:/lex-audit
       - server-worklists:/var/lib/orthanc/worklists
-      - ./nginx/.htpasswd:/etc/lex-pacs/htpasswd:ro
+      - lex-data:/lex-data
       - ./backups:/lex-backups:ro
     depends_on:
       server:
         condition: service_healthy
-      auth:
-        condition: service_started
-    restart: unless-stopped
-
-  auth:
-    image: quay.io/keycloak/keycloak:26.0
-    container_name: auth
-    command: start-dev --import-realm --http-port=8080 --http-relative-path=/auth
-    environment:
-      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
-      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
-      KC_HEALTH_ENABLED: "true"
-      KC_HTTP_RELATIVE_PATH: /auth
-      KC_PROXY: edge
-    volumes:
-      - ./keycloak/lex-pacs-realm.json:/opt/keycloak/data/import/lex-pacs-realm.json:ro
-    expose:
-      - "8080"
     restart: unless-stopped
 
   backup:
@@ -169,14 +146,16 @@ services:
     restart: unless-stopped
 
   gateway:
-    image: nginx:1.27-alpine
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
     container_name: gateway
+    environment:
+      LEX_ORTHANC_URL: ${ORTHANC_URL:-http://server:8042}
+      LEX_ORTHANC_USERNAME: ${ORTHANC_USERNAME:-}
+      LEX_ORTHANC_PASSWORD: ${ORTHANC_PASSWORD:-}
     ports:
       - "3000:80"
-    volumes:
-      - ./nginx/00-lex-security.conf:/etc/nginx/conf.d/00-lex-security.conf:ro
-      - ./nginx/gateway.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./nginx/.htpasswd:/etc/nginx/.htpasswd:ro
     depends_on:
       - web-viewer
       - portal
@@ -190,3 +169,4 @@ volumes:
   lex-reports:
   lex-audit:
   database-data:
+  lex-data:
