@@ -9,16 +9,22 @@
     (function () {
       try {
         var s = localStorage.getItem('lex-theme');
-        var t = s === 'light' || s === 'dark' ? s : (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+        var t = s === 'light' || s === 'dark' ? s : 'light';
         document.documentElement.setAttribute('data-theme', t);
       } catch (e) {
-        document.documentElement.setAttribute('data-theme', 'dark');
+        document.documentElement.setAttribute('data-theme', 'light');
       }
     })();
   </script>
   <link rel="stylesheet" href="/static/portal.css" />
+  <link rel="stylesheet" href="/static/fonts/plex.css" />
 </head>
-<body>
+<body class="lex-auth">
+    <aside class="pmf-brand-panel" hidden aria-label="Prefeitura de Franca">
+      <img src="/static/pmf-catavento.png" alt="" width="96" height="96" />
+      <p class="pmf-brand-title">LEX PACS · Prefeitura de Franca</p>
+      <p class="pmf-brand-sub">Imagens médicas da rede municipal de saúde</p>
+    </aside>
   <div class="page">
     <header class="header">
       <div class="header-main">

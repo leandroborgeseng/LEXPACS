@@ -4,7 +4,7 @@ export const LEX_THEME_STORAGE_KEY = 'lex-theme';
 
 export function readStoredTheme(): LexTheme {
   if (typeof window === 'undefined') {
-    return 'dark';
+    return 'light';
   }
   try {
     const stored = localStorage.getItem(LEX_THEME_STORAGE_KEY);
@@ -14,10 +14,8 @@ export function readStoredTheme(): LexTheme {
   } catch {
     /* ignore */
   }
-  if (window.matchMedia('(prefers-color-scheme: light)').matches) {
-    return 'light';
-  }
-  return 'dark';
+  // Decisão do Leandro (26/10): sem escolha salva, abre no claro (PMF). O escuro segue no alternador.
+  return 'light';
 }
 
 export function applyLexTheme(theme: LexTheme): void {

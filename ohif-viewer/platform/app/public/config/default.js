@@ -52,11 +52,22 @@ window.config = {
     createLogoComponentFn: function (React) {
       const base = (window.config && window.config.routerBasename) || '/viewer';
       const root = base.endsWith('/') ? base : `${base}/`;
-      return React.createElement('img', {
-        src: `${root}lex-pacs-logo.svg`,
-        alt: 'LEX PACS',
-        className: 'h-[28px] w-auto',
-      });
+      // LX11: LEX PACS no escuro; logo PMF (temporário, do SIGPMF) no claro, via CSS [data-theme='light'].
+      return React.createElement(
+        React.Fragment,
+        null,
+        React.createElement('img', {
+          src: `${root}lex-pacs-logo.svg`,
+          alt: 'LEX PACS',
+          className: 'lex-logo-lex h-[28px] w-auto',
+        }),
+        React.createElement('img', {
+          src: `${root}pmf-catavento.png`,
+          alt: 'Prefeitura de Franca',
+          hidden: true,
+          className: 'lex-logo-pmf h-[28px] w-auto',
+        })
+      );
     },
   },
 };
