@@ -77,13 +77,14 @@ def test_plano_homolog_tem_alvo_2023_maria_ana_jose():
     assert all(n.startswith("ZZTESTE") for n in nomes if not n.startswith(("CONCEICAO", "ÁVILA")))
 
 
-def test_compose_portal_espera_seed_e_seed_nao_reinicia():
+def test_compose_producao_sem_seed_homolog():
+    """Produção não roda o seed: sem serviço seed-homolog, sem depends_on nele e todo serviço sem build tem imagem pública."""
     yaml = pytest.importorskip("yaml")
     from pathlib import Path
     c = yaml.safe_load((Path(__file__).resolve().parents[2] / "docker-compose.coolify.yml").read_text())["services"]
-    assert c["portal"]["depends_on"]["seed-homolog"] == {"condition": "service_completed_successfully"}
-    s = c["seed-homolog"]
-    assert s["restart"] == "no" and s["image"] == c["portal"]["image"]
-    assert s["command"] == ["python", "-m", "app.homolog_seed"]
-    assert s["environment"]["HOMOLOG_SEED"] == "${HOMOLOG_SEED:-}"
-    assert s["environment"]["ORTHANC_URL"] == "http://server:8042"
+    assert "seed-homolog" not in c
+    assert "seed-homolog" not in (c["portal"].get("depends_on") or {})
+    assert all("HOMOLOG_SEED" not in str(s.get("environment", {})) for s in c.values())
+    for nome, s in c.items():
+        if "build" not in s:
+            assert not str(s.get("image", "")).startswith("lex-pacs/"), nome
