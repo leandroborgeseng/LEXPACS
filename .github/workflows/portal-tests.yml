@@ -39,6 +39,44 @@ jobs:
             -v "$PWD/15-lex-orthanc.envsh:/docker-entrypoint.d/15-lex-orthanc.envsh:ro" \
             nginx:1.27-alpine sh -c '/docker-entrypoint.sh nginx -t'
 
+  lex-js-tests:
+    name: Filtros QIDO (node --test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: node --test lex-tests/*.test.mjs
+
+  busca-curinga-it:
+    name: Busca com curinga (Orthanc local sintético + gateway)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Orthanc + DicomWeb + nginx (descartáveis, só no runner)
+        run: |
+          sudo apt-get update -q
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q orthanc orthanc-dicomweb nginx gettext-base
+          sudo systemctl stop orthanc nginx || true
+      - name: Dependências do portal
+        working-directory: lex-pacs-portal
+        run: |
+          grep -v -E "^(pymssql|oracledb)" requirements.txt > /tmp/req-ci.txt
+          pip install -r /tmp/req-ci.txt pytest
+      - name: Integração (3000 estudos sintéticos)
+        run: N_STUDIES=3000 IT_DIR=/tmp/lex-it ./scripts/it-busca-curinga.sh
+      - name: Access log do gateway (evidência)
+        if: always()
+        run: tail -n 20 /tmp/lex-it/nginx/access.log || true
+
   compose-config:
     name: Compose config (YAML válido)
     runs-on: ubuntu-latest

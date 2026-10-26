@@ -28,7 +28,8 @@ window.config = {
         thumbnailRendering: 'wadors',
         enableStudyLazyLoad: true,
         supportsFuzzyMatching: false,
-        supportsWildcard: false,
+        // LEX PACS: curinga no nome (mín. 3 letras, sem acento) — ver lexQidoFilters.js
+        supportsWildcard: true,
         staticWado: false,
         singlepart: 'bulkdata,video,pdf',
         acceptHeader: [
