@@ -32,6 +32,8 @@ class Settings(BaseSettings):
     # Índice de busca da lista de exames (só metadados, sem pixel). Vazio = ao lado do users.db.
     worklist_index_path: str = ""
     worklist_index_autostart: bool = True
+    # Intervalo mínimo entre tentativas de carga do índice depois de uma falha (s).
+    worklist_index_retry_seconds: int = 60
     lex_admin_user: str = ""
     lex_admin_password: str = ""
     password_min_length: int = 10

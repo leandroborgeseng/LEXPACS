@@ -46,3 +46,16 @@ Carga inicial do índice: 0,9 s (log do portal).
   evento de estudo no `/changes` só entra numa recarga (apagar o arquivo do índice).
 - Se o `/changes` do Orthanc for podado antes do checkpoint, é preciso recarregar o índice.
 - O tempo na rede da prefeitura com ~35 mil estudos (LP7) ainda precisa ser medido.
+
+## Falha na carga, "Tentar de novo" e rebuild
+
+- Se a carga inicial falhar (Orthanc indisponível), o índice fica em `status: "error"` e a resposta
+  vem com `partial: false`: a tela mostra "Busca no acervo indisponível no momento. Tente novamente
+  em alguns minutos." e **não** re-consulta a cada 3 s.
+- Intervalo mínimo entre tentativas de carga: `WORKLIST_INDEX_RETRY_SECONDS` (padrão 60). O botão
+  "Tentar de novo" fica desabilitado com contagem ("Tentar de novo em N s"); o backend aplica o mesmo
+  intervalo em `POST /api/worklist/index/retry` (429 + `Retry-After` antes do prazo). Exige sessão clínica.
+- `rebuild` apaga as linhas do índice numa transação antes de recarregar: estudo removido do Orthanc
+  não reaparece.
+- A sincronização síncrona antiga virou `_sync_now_for_tests()` (só testes); nenhuma rota a chama
+  (há teste garantindo).

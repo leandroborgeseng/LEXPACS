@@ -89,9 +89,20 @@ _state_lock = threading.Lock()
 _state = {"status": "idle", "indexed": 0, "total": None}
 
 
+def retry_in_seconds() -> int:
+    """Quanto falta para poder tentar a carga de novo (0 = já pode). Só vale em erro."""
+    with _state_lock:
+        if _state["status"] != "error" or _last_attempt is None:
+            return 0
+        left = settings.worklist_index_retry_seconds - (time.monotonic() - _last_attempt)
+    return max(0, int(left + 0.999))
+
+
 def state() -> dict:
     with _state_lock:
-        return dict(_state)
+        st = dict(_state)
+    st["retryInSeconds"] = retry_in_seconds() if st["status"] == "error" else 0
+    return st
 
 
 def _set_state(**kw) -> None:
@@ -251,9 +262,23 @@ async def _run_sync(full: bool) -> None:
         await incremental(client)
 
 
-def _background_full() -> None:
+def _clear_index() -> None:
+    """Reconstrução: o índice é só cache (a origem é o Orthanc), então limpa linhas e checkpoint
+    numa transação única antes de recarregar. Estudo removido do Orthanc não volta."""
+    conn = connect()
+    try:
+        with conn:
+            conn.execute("DELETE FROM worklist_study")
+            conn.execute("DELETE FROM worklist_meta WHERE key IN ('full_load_done', 'changes_seq')")
+    finally:
+        conn.close()
+
+
+def _background_full(rebuild: bool = False) -> None:
     with _sync_lock:
         try:
+            if rebuild:
+                _clear_index()
             if is_ready():
                 _set_state(status="ready")
                 asyncio.run(_run_sync(full=False))
@@ -268,19 +293,25 @@ def _background_full() -> None:
             print(f"worklist_index: sincronização falhou ({type(exc).__name__})")
 
 
-def start_background(rebuild: bool = False) -> threading.Thread:
-    """Carga inicial (ou reconstrução) numa thread em segundo plano; idempotente."""
-    global _bg_thread
+_last_attempt: float | None = None
+
+
+def start_background(rebuild: bool = False) -> threading.Thread | None:
+    """Carga inicial (ou reconstrução) numa thread em segundo plano; idempotente. Depois de uma
+    falha, nova tentativa automática só após WORKLIST_INDEX_RETRY_SECONDS (padrão 60 s); a
+    reconstrução explícita (rebuild=True) não espera. Devolve None quando não inicia."""
+    global _bg_thread, _last_attempt
     with _state_lock:
         if _bg_thread and _bg_thread.is_alive():
             return _bg_thread
-        if rebuild:
-            conn = connect()
-            conn.execute("DELETE FROM worklist_meta WHERE key IN ('full_load_done', 'changes_seq')")
-            conn.commit()
-            conn.close()
+        now = time.monotonic()
+        if (not rebuild and _state["status"] == "error" and _last_attempt is not None
+                and now - _last_attempt < settings.worklist_index_retry_seconds):
+            return None
+        _last_attempt = now
         _state.update(status="indexing")
-        _bg_thread = threading.Thread(target=_background_full, name="worklist-index", daemon=True)
+        _bg_thread = threading.Thread(target=_background_full, args=(rebuild,), name="worklist-index",
+                                      daemon=True)
         _bg_thread.start()
         return _bg_thread
 
@@ -302,8 +333,8 @@ async def sync_on_request() -> dict:
     return state()
 
 
-async def sync() -> None:
-    """Compatibilidade (testes): sincroniza já, sob o mesmo lock."""
+async def _sync_now_for_tests() -> None:
+    """SÓ PARA TESTES: sincroniza já, sob o mesmo lock. Nenhuma rota chama isto (há teste)."""
     with _sync_lock:
         await _run_sync(full=not is_ready())
         _set_state(status="ready")

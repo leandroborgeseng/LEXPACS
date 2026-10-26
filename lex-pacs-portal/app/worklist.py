@@ -105,8 +105,25 @@ async def worklist_studies(q: WorklistQuery) -> dict:
         "truncated": False,
         "sortScope": "global",
         # Enquanto a carga inicial não termina, o resultado é parcial (só o que já foi indexado).
-        "index": {"status": index["status"], "indexed": index.get("indexed") or 0, "total": index.get("total")},
-        "partial": index["status"] != "ready",
+        "index": {"status": index["status"], "indexed": index.get("indexed") or 0, "total": index.get("total"),
+                  "retryInSeconds": index.get("retryInSeconds", 0)},
+        # error: carga falhou (Orthanc fora/timeout) => não é "parcial" e a tela não reconsulta.
+        "partial": index["status"] in ("indexing", "idle"),
         "offset": q.offset,
         "limit": q.limit,
     }
+
+
+@router.post("/index/retry")
+async def worklist_index_retry() -> dict:
+    """Botão "Tentar de novo": reinicia a carga do índice, respeitando o mesmo intervalo mínimo
+    (WORKLIST_INDEX_RETRY_SECONDS) depois de uma falha. 429 enquanto não passou."""
+    if worklist_index.state()["status"] == "ready":
+        return {"started": False, "index": worklist_index.state()}
+    left = worklist_index.retry_in_seconds()
+    if left > 0:
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS,
+                            detail={"message": f"Tente de novo em {left} s.", "retryInSeconds": left},
+                            headers={"Retry-After": str(left)})
+    started = worklist_index.start_background() is not None
+    return {"started": started, "index": worklist_index.state()}

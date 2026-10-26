@@ -56,8 +56,9 @@ export function parseWorklistResponse(payload) {
           status: String(payload.index.status ?? 'ready'),
           indexed: Number(payload.index.indexed) || 0,
           total: Number.isFinite(payload.index.total) ? payload.index.total : null,
+          retryInSeconds: Number(payload.index.retryInSeconds) || 0,
         }
-      : { status: 'ready', indexed: 0, total: null },
+      : { status: 'ready', indexed: 0, total: null, retryInSeconds: 0 },
   };
 }
 

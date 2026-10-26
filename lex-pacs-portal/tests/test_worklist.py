@@ -108,7 +108,7 @@ def raw_orthanc(monkeypatch, tmp_path):
 @pytest.fixture
 def orthanc(raw_orthanc):
     """Índice já carregado (o caso comum depois do startup)."""
-    asyncio.run(worklist_index.sync())
+    asyncio.run(worklist_index._sync_now_for_tests())
     return raw_orthanc
 
 
@@ -295,3 +295,77 @@ def test_arquivo_do_indice_0600(orthanc):
     os.chmod(path, 0o644)
     worklist_index.connect().close()
     assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
+
+
+
+def test_orthanc_indisponivel_status_error_sem_parcial_e_intervalo(raw_orthanc, monkeypatch):
+    import time as _t
+
+    def down(request):
+        raise httpx.ConnectError("orthanc fora do ar")
+
+    raw_orthanc.__class__ = type("Down", (FakeOrthanc,), {"__call__": lambda self, req: down(req)})
+    monkeypatch.setattr(worklist_index, "_last_attempt", None)
+    monkeypatch.setattr(worklist.settings, "worklist_index_retry_seconds", 60)
+    t = worklist_index.start_background()
+    t.join(10)
+    r = _run(patientName="zzteste")
+    assert r["index"]["status"] == "error" and r["partial"] is False
+    # dentro dos 60 s, a busca não dispara nova carga
+    assert worklist_index.start_background() is None
+    _run()
+    assert worklist_index._bg_thread is t
+    # passado o intervalo (configurável), tenta de novo
+    monkeypatch.setattr(worklist_index, "_last_attempt", _t.monotonic() - 61)
+    t2 = worklist_index.start_background()
+    assert t2 is not None and t2 is not t
+    t2.join(10)
+    assert worklist_index.state()["status"] == "error"
+
+
+def test_rebuild_limpa_linhas_e_removido_nao_volta(orthanc):
+    uid = "1.2.826.0.1.3680043.8.498.4"
+    assert _pids(_run(patientId="SINT-SILVA")) == ["SINT-SILVA"]
+    # removido do Orthanc SEM evento no /changes (ex.: /changes podado): só o rebuild resolve
+    orthanc.studies = [x for x in orthanc.studies if x["uid"] != uid]
+    t = worklist_index.start_background(rebuild=True)
+    t.join(10)
+    conn = worklist_index.connect()
+    assert conn.execute("SELECT COUNT(*) FROM worklist_study WHERE study_uid=?", (uid,)).fetchone()[0] == 0
+    conn.close()
+    r = _run(patientId="SINT-SILVA")
+    assert r["total"] == 0 and r["index"]["status"] == "ready"
+
+
+def test_sync_de_teste_nao_e_usado_por_rotas():
+    from pathlib import Path
+    app_dir = Path(worklist_index.__file__).parent
+    for f in app_dir.glob("*.py"):
+        src = f.read_text(encoding="utf-8")
+        if f.name != "worklist_index.py":
+            assert "_sync_now_for_tests" not in src, f.name
+        assert "worklist_index.sync(" not in src, f.name
+    assert not hasattr(worklist_index, "sync")
+
+
+
+def test_tentar_de_novo_respeita_intervalo_no_backend(raw_orthanc, monkeypatch, client):
+    import time as _t
+    from fastapi import HTTPException
+
+    raw_orthanc.__class__ = type("Down2", (FakeOrthanc,), {
+        "__call__": lambda self, req: (_ for _ in ()).throw(httpx.ConnectError("fora"))})
+    monkeypatch.setattr(worklist_index, "_last_attempt", None)
+    monkeypatch.setattr(worklist.settings, "worklist_index_retry_seconds", 60)
+    worklist_index.start_background().join(10)
+    r = _run()
+    assert r["index"]["status"] == "error" and 55 <= r["index"]["retryInSeconds"] <= 60
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(worklist.worklist_index_retry())
+    assert exc.value.status_code == 429 and exc.value.headers["Retry-After"]
+    monkeypatch.setattr(worklist_index, "_last_attempt", _t.monotonic() - 61)
+    out = asyncio.run(worklist.worklist_index_retry())
+    assert out["started"] is True
+    worklist_index._bg_thread.join(10)
+    # a rota exige sessão clínica
+    assert client.post("/api/worklist/index/retry").status_code == 401
