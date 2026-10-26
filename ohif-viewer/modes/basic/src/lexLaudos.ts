@@ -22,7 +22,9 @@ export function filterLexReportPanel(panels: string[] = [], visivel: boolean): s
   return visivel ? panels : panels.filter(p => p !== LEX_REPORT_PANEL_ID);
 }
 
-export async function applyLaudosVisibility<T extends { props?: { rightPanels?: string[] } }>(
+export async function applyLaudosVisibility<
+  T extends { props?: { rightPanels?: string[]; rightPanelClosed?: boolean } },
+>(
   layout: T
 ): Promise<T> {
   if (!layout?.props?.rightPanels?.includes(LEX_REPORT_PANEL_ID)) {
@@ -30,5 +32,9 @@ export async function applyLaudosVisibility<T extends { props?: { rightPanels?: 
   }
   const visivel = await fetchLaudosVisivel();
   layout.props.rightPanels = filterLexReportPanel(layout.props.rightPanels, visivel);
+  if (layout.props.rightPanels.length === 0) {
+    // lexReport era o único painel: sem painel direito (ViewerLayout não renderiza SidePanel/seta).
+    layout.props.rightPanelClosed = true;
+  }
   return layout;
 }
