@@ -127,3 +127,66 @@ def test_v3_medico_ve_imagens(client):
 def test_v3_orthanc_sem_porta_publicada_no_compose_externo():
     text = (ROOT / "docker-compose.externo.yml").read_text(encoding="utf-8")
     assert "8042:" not in text
+
+
+# ── Revisão QA (ciclo 1): rotas admin e allowlist do portal do paciente ──
+def _admin_routes():
+    from fastapi.routing import APIRoute
+
+    from app.main import app
+
+    routes = []
+    for r in app.routes:
+        if isinstance(r, APIRoute) and r.path.startswith("/api/admin"):
+            for m in r.methods - {"HEAD", "OPTIONS"}:
+                routes.append((m, r.path.replace("{username}", "alguem.teste")))
+    return routes
+
+
+def test_todas_rotas_admin_existem():
+    paths = {p for _, p in _admin_routes()}
+    for p in ("/api/admin/pacs/settings", "/api/admin/pacs/settings/aet", "/api/admin/pacs/equipment",
+              "/api/admin/pacs/worklist-views", "/api/admin/users"):
+        assert p in paths
+    assert len(_admin_routes()) > 40
+
+
+def test_todas_rotas_admin_401_sem_sessao(client):
+    for method, path in _admin_routes():
+        r = client.request(method, path, json={})
+        assert r.status_code == 401, (method, path, r.status_code)
+
+
+@pytest.mark.parametrize("profile", ["medico", "tecnico", "recepcao"])
+def test_todas_rotas_admin_403_nao_admin(client, profile):
+    local_users.create_user(f"{profile}.qa", "Senha-QA-12345", profile, must_change_password=False)
+    assert client.post("/api/auth/clinical/login", json={"username": f"{profile}.qa", "password": "Senha-QA-12345"}).status_code == 200
+    for method, path in _admin_routes():
+        r = client.request(method, path, json={})
+        assert r.status_code == 403, (profile, method, path, r.status_code)
+
+
+def _paciente_locations():
+    return re.findall(r"    location (=|~|) ?\"?(\^?/paciente-api/[^\s\"]*)\"? \{\n(.*?)\n    \}\n", GATEWAY, re.S)
+
+
+def test_gateway_paciente_api_so_allowlist():
+    allow = re.compile(r"^/paciente-api/(auth/login|studies|studies/[0-9.]+/(report|report/pdf|viewer-session))$")
+    proxied = []
+    for kind, path, body in _paciente_locations():
+        if "proxy_pass" in body:
+            assert kind in ("=", "~"), path  # sem prefixo genérico
+            proxied.append((kind, path))
+        else:
+            assert "return 404" in body, path
+    assert ("", "/paciente-api/") not in proxied
+    regexes = [re.compile(p) for k, p in proxied if k == "~"]
+    exacts = {p for k, p in proxied if k == "="}
+    def is_proxied(uri):
+        return uri in exacts or any(rx.match(uri) for rx in regexes)
+    for uri in ("/paciente-api/admin/pacs/settings", "/paciente-api/admin/users", "/paciente-api/reports/1.2.3",
+                "/paciente-api/auth/clinical/me", "/paciente-api/health", "/paciente-api/studies/1.2/../../admin"):
+        assert not is_proxied(uri), uri
+    for uri in ("/paciente-api/auth/login", "/paciente-api/studies", "/paciente-api/studies/1.2.3/report",
+                "/paciente-api/studies/1.2.3/report/pdf", "/paciente-api/studies/1.2.3/viewer-session"):
+        assert is_proxied(uri) and allow.match(uri), uri

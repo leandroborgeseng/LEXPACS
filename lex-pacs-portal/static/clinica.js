@@ -1,7 +1,7 @@
 const form = document.getElementById('login-form');
 const errorEl = document.getElementById('login-error');
 const submitBtn = document.getElementById('login-btn');
-const localDevHint = document.getElementById('local-dev-hint');
+
 const loginHint = document.getElementById('login-hint');
 
 function t(key) {
@@ -25,7 +25,7 @@ function showError(message) {
 async function loadAuthConfig() {
   // Login somente com usuários locais (sem SSO/Keycloak).
   loginHint.textContent = t('login.hintPasswordOnly');
-  localDevHint.classList.add('hidden');
+
 }
 
 form.addEventListener('submit', async event => {

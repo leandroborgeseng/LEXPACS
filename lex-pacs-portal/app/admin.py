@@ -56,7 +56,7 @@ from .storage_service import (
 from .storage_store import get_storage_status, save_storage_config
 from .storage_worker import kick_storage_worker
 
-router = APIRouter(prefix="/api/admin/pacs", tags=["admin"])
+router = APIRouter(prefix="/api/admin/pacs", tags=["admin"], dependencies=[Depends(require_admin)])
 
 
 class EquipmentItem(BaseModel):

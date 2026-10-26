@@ -206,3 +206,14 @@ def test_auditoria_login_e_cadastro(client):
     audit = Path(settings.audit_data_path) / "audit.jsonl"
     events = [json.loads(line)["event"] for line in audit.read_text(encoding="utf-8").splitlines() if line]
     assert "clinical_login" in events and "user_create" in events and "clinical_password_changed" in events
+
+
+def test_locales_sem_keycloak_ad():
+    root = Path(__file__).resolve().parents[2]
+    files = list((root / "locales").glob("*/*.json")) + list((root / "lex-pacs-portal/static/locales").glob("*/*.json"))
+    assert files
+    for f in files:
+        text = f.read_text(encoding="utf-8").lower()
+        json.loads(text)
+        for word in ("keycloak", "active directory", "ldap"):
+            assert word not in text, (f.name, word)

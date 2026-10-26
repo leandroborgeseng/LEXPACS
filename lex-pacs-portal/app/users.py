@@ -9,7 +9,7 @@ from .audit import log_event
 from .clinical_auth import require_admin
 from .clinical_session import ClinicalUser
 
-router = APIRouter(prefix="/api/admin/users", tags=["users"])
+router = APIRouter(prefix="/api/admin/users", tags=["users"], dependencies=[Depends(require_admin)])
 
 
 class UserOut(BaseModel):

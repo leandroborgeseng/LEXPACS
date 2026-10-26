@@ -43,11 +43,25 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
-    location /paciente-api/ {
+    # Portal do paciente: SÓ as rotas do paciente (allowlist). Qualquer outra /paciente-api/* => 404.
+    location = /paciente-api/studies {
         rewrite ^/paciente-api/(.*)$ /api/$1 break;
         proxy_pass http://$lex_upstream_portal:8080;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header Authorization $http_authorization;
+    }
+
+    location ~ "^/paciente-api/studies/[0-9.]{1,64}/(?:report|report/pdf|viewer-session)$" {
+        rewrite ^/paciente-api/(.*)$ /api/$1 break;
+        proxy_pass http://$lex_upstream_portal:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header Authorization $http_authorization;
+    }
+
+    location /paciente-api/ {
+        return 404;
     }
 
     location = /paciente-api/auth/login {
