@@ -9,5 +9,7 @@
   "Previous Month": "Mês anterior",
   "Next Month": "Próximo mês",
   "Select Month": "Selecionar mês",
-  "Select Year": "Selecionar ano"
+  "Select Year": "Selecionar ano",
+  "Start": "Data inicial",
+  "End": "Data final"
 }

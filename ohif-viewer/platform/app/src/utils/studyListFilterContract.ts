@@ -67,3 +67,34 @@ const TEXT_FILTER_URL_KEYS: Record<string, string> = {
 export function urlKeyForTextFilter(columnId: string): string {
   return TEXT_FILTER_URL_KEYS[columnId] ?? columnId.toLowerCase();
 }
+
+/**
+ * LEX PACS (LP9): nome, prontuário, nº de acesso e descrição NUNCA vão para a URL do navegador
+ * (nem para histórico, Referer ou access log). Ficam na sessionStorage da aba e seguem no corpo
+ * do POST da lista paginada. Período, modalidade e página continuam na URL.
+ */
+export const LEX_TEXT_FILTERS_KEY = 'lex.worklist.textFilters';
+export const LEX_TEXT_FILTERS_EVENT = 'lex-worklist-text-filters';
+
+export function readLexTextFilters(): Record<string, string> {
+  try {
+    const raw = window.sessionStorage.getItem(LEX_TEXT_FILTERS_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+export function writeLexTextFilters(values: Record<string, string>): void {
+  try {
+    const next = JSON.stringify(values);
+    if (window.sessionStorage.getItem(LEX_TEXT_FILTERS_KEY) === next) {
+      return;
+    }
+    window.sessionStorage.setItem(LEX_TEXT_FILTERS_KEY, next);
+    window.dispatchEvent(new Event(LEX_TEXT_FILTERS_EVENT));
+  } catch {
+    /* sessionStorage indisponível: a busca por texto fica só no estado da tela */
+  }
+}

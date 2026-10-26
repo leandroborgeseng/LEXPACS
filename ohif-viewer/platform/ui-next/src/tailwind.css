@@ -90,6 +90,31 @@
     font-family: 'IBM Plex Mono', ui-monospace, monospace;
     font-variant-numeric: tabular-nums;
   }
+
+  /* VW1–VW8 (viewer-worklist-pmf.md): lista de exames no claro, sem vermelho de marca. */
+  [data-theme='light'] tr[data-state='selected'],
+  [data-theme='light'] tr[data-state='selected']:hover {
+    background-color: #e6f0fa;
+    box-shadow: inset 3px 0 0 #0066cc;
+  }
+  [data-theme='light'] tr[data-state='selected'] > td,
+  [data-theme='light'] tr[data-state='selected']:hover > td {
+    color: #003f7d;
+  }
+  [data-theme='light'] tbody tr:not([data-state='selected']):hover {
+    background-color: #f3f6fa;
+  }
+  [data-theme='light'] .text-muted-foreground\/40 {
+    color: #6b7785;
+  }
+  [data-theme='light'] input,
+  [data-theme='light'] [role='combobox'] {
+    border-color: #c9d3de;
+  }
+  [data-theme='light'] .lex-brand-name {
+    color: #003f7d;
+    font-weight: 700;
+  }
 }
 
 @layer base {

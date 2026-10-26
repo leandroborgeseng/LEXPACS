@@ -17,6 +17,10 @@ type Props = withAppTypes & {
   isLoadingData: boolean;
   hasFetchedOnce?: boolean;
   dataPath?: string;
+  /** LEX PACS: paginação no servidor (total null = desconhecido). */
+  serverPaging?: boolean;
+  dataTotal?: number | null;
+  dataHasMore?: boolean;
   onRefresh: () => void;
 };
 
@@ -26,6 +30,9 @@ export default function WorkList({
   isLoadingData,
   hasFetchedOnce = false,
   dataPath,
+  serverPaging = false,
+  dataTotal = null,
+  dataHasMore = false,
   onRefresh,
   servicesManager,
   extensionManager,
@@ -59,11 +66,30 @@ export default function WorkList({
     return StudyList.createDefaultColumns();
   }, [customizationService, i18n.language]);
 
+  // VW2: no claro, logo PMF + "PACS PMF"; no escuro continua o LEX PACS (VW10).
+  const publicRoot = `${(window as any).PUBLIC_URL ?? '/viewer/'}`.replace(/\/?$/, '/');
   const logoComponent = (
-    <Icons.LexPacsLogo
-      aria-label="LEX PACS logo"
-      className="h-[28px] w-auto shrink-0"
-    />
+    <>
+      <span className="lex-logo-lex">
+        <Icons.LexPacsLogo
+          aria-label="LEX PACS logo"
+          className="h-[28px] w-auto shrink-0"
+        />
+      </span>
+      <span
+        className="lex-logo-pmf"
+        hidden
+      >
+        <span className="flex items-center gap-2">
+        <img
+          src={`${publicRoot}pmf-catavento.png`}
+          alt="Prefeitura de Franca"
+          className="h-[28px] w-auto shrink-0"
+        />
+        <span className="lex-brand-name text-base">PACS PMF</span>
+        </span>
+      </span>
+    </>
   );
 
   const toolbarActions = useWorkListToolbarActions(servicesManager, dataSource, onRefresh);
@@ -138,6 +164,10 @@ export default function WorkList({
               filters={filters}
               onSortingChange={setSorting}
               onPaginationChange={setPagination}
+              manualPagination={serverPaging}
+              manualFiltering={serverPaging}
+              rowCount={serverPaging ? dataTotal : undefined}
+              hasMore={dataHasMore}
               onFiltersChange={updater => {
                 setIsFilterPending(true);
                 setFilters(updater);

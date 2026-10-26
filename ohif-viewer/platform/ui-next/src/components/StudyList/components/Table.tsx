@@ -44,6 +44,9 @@ export function Table({
   isLoading,
   loadingComponent,
   manualFiltering,
+  manualPagination,
+  rowCount,
+  hasMore,
 }: TableProps) {
   return (
     <DataTable<StudyRow>
@@ -58,6 +61,9 @@ export function Table({
       onPaginationChange={onPaginationChange}
       onFiltersChange={onFiltersChange}
       manualFiltering={manualFiltering}
+      manualPagination={manualPagination}
+      rowCount={rowCount}
+      hasMore={hasMore}
       enforceSingleSelection={enforceSingleSelection}
       onSelectionChange={onSelectionChange}
     >
@@ -140,7 +146,7 @@ function TableContent({
                     onClick={() => table.setColumnFilters([])}
                     aria-label="Reset filters"
                   >
-                    Reset
+                    {t('ClearFilters', 'Clear filters')}
                   </Button>
                 </div>
               );

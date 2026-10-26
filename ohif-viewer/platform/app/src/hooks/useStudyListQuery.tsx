@@ -3,11 +3,18 @@ import { useLocation, useParams } from 'react-router';
 import { Enums, log } from '@ohif/core';
 import { Button } from '@ohif/ui-next';
 import { shallowEqualIgnoringArrayOrder } from '../utils/shallowEqualIgnoringArrayOrder';
-import { URL_KEYS, getUrlParam } from '../utils/studyListFilterContract';
+import {
+  URL_KEYS,
+  getUrlParam,
+  readLexTextFilters,
+  LEX_TEXT_FILTERS_EVENT,
+} from '../utils/studyListFilterContract';
 
 const DEFAULT_DATA = {
   studies: [],
   queryFilterValues: null,
+  total: null as number | null,
+  hasMore: false,
 };
 
 /**
@@ -30,6 +37,10 @@ export function useStudyListQuery({
   servicesManager: AppTypes.ServicesManager;
 }): {
   studies: any[];
+  /** LEX PACS: paginação no servidor (dataSource com lexWorklistApi). */
+  serverPaging: boolean;
+  total: number | null;
+  hasMore: boolean;
   isLoading: boolean;
   hasFetchedOnce: boolean;
   refresh: () => void;
@@ -40,6 +51,13 @@ export function useStudyListQuery({
   const [data, setData] = useState(DEFAULT_DATA);
   const [isLoading, setIsLoading] = useState(false);
   const [hasFetchedOnce, setHasFetchedOnce] = useState(false);
+  // LP9: filtros de texto vêm da sessionStorage; o evento força nova consulta.
+  const [lexTextVersion, setLexTextVersion] = useState(0);
+  useEffect(() => {
+    const bump = () => setLexTextVersion(v => v + 1);
+    window.addEventListener(LEX_TEXT_FILTERS_EVENT, bump);
+    return () => window.removeEventListener(LEX_TEXT_FILTERS_EVENT, bump);
+  }, []);
 
   const refresh = useCallback(() => {
     setIsLoading(false);
@@ -55,7 +73,8 @@ export function useStudyListQuery({
     // Per-data-source result cap, passed to servers that honor the `limit`
     // query parameter. Defaults to 101 when the data source doesn't set it.
     const studiesLimit = dataSource.getConfig?.()?.queryLimit ?? 101;
-    const queryFilterValues = _getQueryFilterValues(location.search, studiesLimit);
+    const serverPaging = Boolean(dataSource.getConfig?.()?.lexWorklistApi);
+    const queryFilterValues = _getQueryFilterValues(location.search, studiesLimit, serverPaging);
 
     // 204: no content
     async function getData() {
@@ -66,6 +85,8 @@ export function useStudyListQuery({
         setData({
           studies: studies || [],
           queryFilterValues,
+          total: Number.isFinite(studies?.lexTotal) ? studies.lexTotal : null,
+          hasMore: Boolean(studies?.lexHasMore),
         });
         log.timeEnd(Enums.TimingEnum.SCRIPT_TO_VIEW);
         log.timeEnd(Enums.TimingEnum.SEARCH_TO_LIST);
@@ -129,10 +150,13 @@ export function useStudyListQuery({
       getData();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, location, params, isLoading, dataSource, isDataSourceInitialized]);
+  }, [data, location, params, isLoading, dataSource, isDataSourceInitialized, lexTextVersion]);
 
   return {
     studies: data.studies,
+    serverPaging: Boolean(dataSource?.getConfig?.()?.lexWorklistApi),
+    total: data.total,
+    hasMore: data.hasMore,
     isLoading,
     hasFetchedOnce,
     refresh,
@@ -149,8 +173,22 @@ export function useStudyListQuery({
  *
  * @param {*} query - URL search string or `URLSearchParams`
  */
-function _getQueryFilterValues(query, queryLimit) {
+function _getQueryFilterValues(query, queryLimit, serverPaging = false) {
   const params = new URLSearchParams(query);
+  // LP9: texto da sessionStorage tem precedência; a URL só vale para links antigos.
+  const lexText = readLexTextFilters();
+  Object.entries(lexText).forEach(([k, v]) => {
+    if (v && !getUrlParam(params, k)) {
+      params.set(k, v);
+    }
+  });
+  // LEX PACS: com paginação no servidor, a página e o tamanho da URL viram offset/limit
+  // (só a página atual é carregada, nunca os ~35 mil).
+  const pageSize = Math.min(
+    Math.max(parseInt(getUrlParam(params, URL_KEYS.resultsPerPage) ?? '', 10) || 50, 1),
+    200
+  );
+  const pageIndex = Math.max((parseInt(getUrlParam(params, URL_KEYS.pageNumber) ?? '', 10) || 1) - 1, 0);
   const modalities = getUrlParam(params, URL_KEYS.modalities);
 
   const queryFilterValues = {
@@ -169,8 +207,8 @@ function _getQueryFilterValues(query, queryLimit) {
     // So many different servers out there that we can't rely on them to support offset/limit.
     // So we just query for everything up to the queryLimit for those that support it.
     // For those that don't we will just assume we get everything back.
-    offset: 0,
-    limit: queryLimit,
+    offset: serverPaging ? pageIndex * pageSize : 0,
+    limit: serverPaging ? pageSize : queryLimit,
   };
 
   // Delete null/undefined keys

@@ -16,6 +16,7 @@ import {
   URL_KEYS,
   getUrlParam,
   urlKeyForTextFilter,
+  writeLexTextFilters,
 } from '../utils/studyListFilterContract';
 
 export type StudyListState = {
@@ -199,6 +200,7 @@ function buildQueryFromState(state: StudyListState): string {
   }
 
   // Filters
+  const lexText: Record<string, string> = {};
   state.filters.forEach(filter => {
     if (filter.id === COLUMN_IDS.MODALITIES && Array.isArray(filter.value)) {
       query[URL_KEYS.modalities] = filter.value.join(',');
@@ -211,9 +213,11 @@ function buildQueryFromState(state: StudyListState): string {
         query[URL_KEYS.endDate] = dateRange.endDate;
       }
     } else if (typeof filter.value === 'string' && filter.value) {
-      query[urlKeyForTextFilter(filter.id)] = filter.value;
+      // LP9: texto (nome, ID, acesso) só na sessionStorage, nunca na URL.
+      lexText[urlKeyForTextFilter(filter.id)] = filter.value;
     }
   });
+  writeLexTextFilters(lexText);
 
   if (state.dataSources) {
     query[URL_KEYS.dataSources] = state.dataSources;

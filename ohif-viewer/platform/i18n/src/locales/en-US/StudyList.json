@@ -19,5 +19,7 @@
   "Studies": "Studies",
   "StudyDate": "Study Date",
   "StudyList": "Study List",
-  "Upload": "Upload"
+  "Upload": "Upload",
+  "SelectStudy": "Select a study",
+  "LaunchWorkflow": "Launch workflow"
 }

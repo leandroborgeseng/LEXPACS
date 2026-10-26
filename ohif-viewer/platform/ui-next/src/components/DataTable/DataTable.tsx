@@ -31,6 +31,7 @@ import { DataTableContext, DataTableContextValue, useDataTable } from './context
 import { Toolbar } from './Toolbar';
 import { Title } from './Title';
 import { Pagination } from './Pagination';
+import { lexPageCount } from './lexPaginationLabel';
 import { ViewOptions } from './ViewOptions';
 import { ActionOverlayCell } from './ActionOverlayCell';
 import { FilterRow } from './FilterRow';
@@ -64,6 +65,12 @@ export type DataTableProps<TData> = {
   onPaginationChange?: OnChangeFn<PaginationState>;
   onFiltersChange?: OnChangeFn<ColumnFiltersState>;
   manualFiltering?: boolean;
+  /** LEX PACS: paginação no servidor; `data` já é a página atual. */
+  manualPagination?: boolean;
+  /** Total de linhas no servidor (null = desconhecido). */
+  rowCount?: number | null;
+  /** Sem total: se há próxima página no servidor. */
+  hasMore?: boolean;
   enforceSingleSelection?: boolean;
   onSelectionChange?: (rows: TData[]) => void;
   children: ReactNode;
@@ -85,6 +92,9 @@ function DataTableRoot<TData>({
   onPaginationChange,
   onFiltersChange,
   manualFiltering = false,
+  manualPagination = false,
+  rowCount = null,
+  hasMore = false,
   enforceSingleSelection = true,
   onSelectionChange,
   children,
@@ -106,6 +116,18 @@ function DataTableRoot<TData>({
     getFilteredRowModel: manualFiltering ? undefined : getFilteredRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
     manualFiltering,
+    manualPagination,
+    ...(manualPagination
+      ? {
+          pageCount: lexPageCount({
+            pageIndex: pagination.pageIndex,
+            pageSize: pagination.pageSize,
+            total: rowCount,
+            hasMore,
+          }),
+          meta: { lexServerPaging: { total: rowCount, hasMore } },
+        }
+      : {}),
     enableRowSelection: true,
     enableMultiRowSelection: !enforceSingleSelection,
     getRowId,

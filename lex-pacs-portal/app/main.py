@@ -38,6 +38,7 @@ from . import local_users
 from .users import router as users_router
 from .config import settings
 from .reports import router as reports_router
+from .worklist import router as worklist_router
 from .laudos_feature import is_laudo_path, laudos_habilitados, laudos_visiveis_para
 from .bootstrap import bootstrap_runtime_files
 from .hl7_mllp import start_hl7_mllp_server
@@ -65,6 +66,7 @@ app = FastAPI(
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 app.include_router(admin_router)
 app.include_router(reports_router)
+app.include_router(worklist_router)
 
 
 @app.middleware("http")

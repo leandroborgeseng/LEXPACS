@@ -1,0 +1,100 @@
+// Paginação no servidor (LP1–LP4) e LX6 — node --test lex-tests/
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import {
+  buildWorklistBody,
+  parseWorklistResponse,
+  fetchWorklistPage,
+} from '../ohif-viewer/extensions/default/src/DicomWebDataSource/lexWorklistApi.js';
+import {
+  lexPageRange,
+  lexPageCount,
+  lexPageOf,
+} from '../ohif-viewer/platform/ui-next/src/components/DataTable/lexPaginationLabel.js';
+
+const read = p => readFileSync(new URL(`../ohif-viewer/${p}`, import.meta.url), 'utf8');
+
+test('corpo da busca: limit/offset no servidor, nada de lista fixa de 100', () => {
+  const b = buildWorklistBody({ patientName: ' josé ', limit: 50, offset: 100, modalitiesInStudy: ['CT', ''] });
+  assert.deepEqual(b, { patientName: 'josé', modalitiesInStudy: ['CT'], disableWildcard: false, limit: 50, offset: 100 });
+  assert.equal(buildWorklistBody({ limit: 5000 }).limit, 200);
+  assert.equal(buildWorklistBody({}).limit, 50);
+  assert.equal(buildWorklistBody({ offset: -3 }).offset, 0);
+});
+
+test('LP9: nome e ID vão no corpo do POST, nunca na URL', async () => {
+  let seen;
+  const fake = async (url, init) => {
+    seen = { url, init };
+    return { ok: true, json: async () => ({ studies: [{}], total: 35214, hasMore: true }) };
+  };
+  const r = await fetchWorklistPage('/clinica-api/worklist/studies', { patientName: 'Conceição', patientId: 'SINT-1' }, fake);
+  assert.equal(seen.url, '/clinica-api/worklist/studies');
+  assert.equal(seen.init.method, 'POST');
+  assert.match(seen.init.body, /Concei/);
+  assert.doesNotMatch(seen.url, /Concei|SINT/);
+  assert.deepEqual(r, { rows: [{}], total: 35214, hasMore: true, truncated: false });
+});
+
+test('erro do PACS vira mensagem com código HTTP', async () => {
+  const fake = async () => ({ ok: false, status: 502 });
+  await assert.rejects(fetchWorklistPage('/x', {}, fake), /HTTP 502/);
+});
+
+test('resposta sem total: total null', () => {
+  assert.deepEqual(parseWorklistResponse({ studies: [], hasMore: true }), { rows: [], total: null, hasMore: true, truncated: false });
+});
+
+test('textos da paginação (esboço do Designer)', () => {
+  assert.equal(lexPageRange({ pageIndex: 0, pageSize: 50, count: 50, total: 35214 }), 'Exibindo 1–50 de 35.214 exames');
+  assert.equal(lexPageRange({ pageIndex: 2, pageSize: 50, count: 50, total: null }), 'Exibindo 101–150');
+  assert.equal(lexPageOf({ pageIndex: 2, pageSize: 50, total: 35214 }), 'Página 3 de 705');
+  assert.equal(lexPageOf({ pageIndex: 2, pageSize: 50, total: null }), null);
+  assert.equal(lexPageCount({ pageIndex: 2, pageSize: 50, total: null, hasMore: true }), 4);
+  assert.equal(lexPageCount({ pageIndex: 2, pageSize: 50, total: null, hasMore: false }), 3);
+  assert.equal(lexPageCount({ pageSize: 50, total: 35214 }), 705);
+  assert.equal(lexPageRange({ count: 0, total: 0 }), 'Nenhum exame');
+});
+
+test('LX6: números da lista com .lex-num (Plex Mono tnum no claro)', () => {
+  const cols = read('platform/ui-next/src/components/StudyList/columns/defaultColumns.tsx');
+  for (const id of ['MRN', 'STUDY_DATE_TIME', 'ACCESSION', 'INSTANCES']) {
+    const block = cols.slice(cols.indexOf(`id: COLUMN_IDS.${id}`));
+    const cell = block.slice(block.indexOf('cell:'), block.indexOf('cell:') + 400);
+    assert.match(cell, /lex-num/, id);
+  }
+  assert.match(read('platform/ui-next/src/components/DataTable/Pagination.tsx'), /lex-num/);
+  const css = read('platform/ui-next/src/tailwind.css');
+  assert.match(css, /\[data-theme='light'\] \.lex-num \{\s*font-family: 'IBM Plex Mono'[^}]*tabular-nums/);
+});
+
+test('config: lista usa a API paginada e mantém curinga e queryLimit', () => {
+  const cfg = read('platform/app/public/config/default.js');
+  assert.match(cfg, /lexWorklistApi: '\/clinica-api\/worklist\/studies'/);
+  assert.match(cfg, /supportsWildcard: true/);
+});
+
+test('VW5: nome sem ^ nem vírgula sobrando', async () => {
+  const { lexFormatPN } = await import('../ohif-viewer/extensions/default/src/DicomWebDataSource/lexWorklistApi.js');
+  assert.equal(lexFormatPN({ Alphabetic: 'CONCEIÇÃO^JOSÉ^^' }), 'CONCEIÇÃO JOSÉ');
+  assert.equal(lexFormatPN('SILVA^ANA'), 'SILVA ANA');
+  assert.equal(lexFormatPN(undefined), '');
+});
+
+test('VW3/VW4: data dd/mm/aaaa HH:mm e textos pt-BR', () => {
+  const j = p => JSON.parse(read(`platform/i18n/src/locales/pt-BR/${p}`));
+  assert.equal(j('Common.json').localDateFormat, 'DD/MM/YYYY');
+  assert.equal(j('Common.json').localTimeFormat, 'HH:mm');
+  assert.equal(j('StudyList.json').SelectStudy, 'Selecione um exame');
+  assert.equal(j('StudyList.json').LaunchWorkflow, 'Abrir no visualizador');
+  assert.equal(j('DatePicker.json').Start, 'Data inicial');
+  assert.equal(j('DataTable.json').View, 'Exibição');
+  assert.match(read('platform/app/public/html-templates/index.html'), /<title>PACS PMF<\/title>/);
+});
+
+test('LP9: texto da busca fora da URL do navegador', () => {
+  const sync = read('platform/app/src/hooks/useStudyListStateSync.ts');
+  assert.match(sync, /lexText\[urlKeyForTextFilter\(filter\.id\)\] = filter\.value/);
+  assert.doesNotMatch(sync, /query\[urlKeyForTextFilter/);
+});

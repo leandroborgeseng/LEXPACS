@@ -20,6 +20,7 @@
  * - platform/ui-next/src/components/StudyList/components/PreviewContent.tsx (in-context example, including empty state handling)
  */
 import * as React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Cross2Icon } from '@radix-ui/react-icons';
 import { cn } from '../../../lib/utils';
 import { Icons } from '../../Icons/Icons';
@@ -65,7 +66,8 @@ function Patient({ className }: { className?: string } = {}) {
   const patientName = data?.patientName;
   const mrn = data?.mrn;
 
-  const nameContent = patientName ?? 'Select a study';
+  const { t } = useTranslation('StudyList');
+  const nameContent = patientName ?? t('SelectStudy', 'Select a study');
   const nameTitle =
     typeof patientName === 'string' || typeof patientName === 'number'
       ? String(patientName)
@@ -113,6 +115,7 @@ function Patient({ className }: { className?: string } = {}) {
  *   remaining applicable workflows as buttons below.
  */
 function Workflows({ className }: { className?: string } = {}) {
+  const { t } = useTranslation('StudyList');
   const { data: studyRow } = useSummaryContext();
   const { workflows, getWorkflowsForStudy, getDefaultWorkflowForStudy, setDefaultWorkflowId } =
     useWorkflows();
@@ -158,7 +161,7 @@ function Workflows({ className }: { className?: string } = {}) {
       )}
     >
       <div className="flex w-full items-center justify-between">
-        <span className="text-foreground text-base font-medium leading-tight">Launch workflow</span>
+        <span className="text-foreground text-base font-medium leading-tight">{t('LaunchWorkflow', 'Launch workflow')}</span>
         <span
           className="text-primary shrink-0 -translate-y-0.5"
           aria-hidden

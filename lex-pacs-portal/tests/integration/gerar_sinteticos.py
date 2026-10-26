@@ -15,6 +15,8 @@ MODS = ["CT", "MR", "CR", "DX", "US", "MG"]
 # Alvo bem depois dos 101 primeiros; nome gravado SEM acento (padrão RIS) e outro COM acento.
 ALVO = ("CONCEICAO^MARIA HELENA", "SINT-ALVO", "20180315")
 ALVO_ACENTO = ("ÁVILA^JOÃO", "SINT-ALVO-ACENTO", "20190610")
+# Paginação/LP9: nome com acento, de 2023 (fora dos 7 dias e dos 101), marcador ZZTESTE para grep nos logs.
+ALVO_2023 = ("ZZTESTE^JOSÉ CONCEIÇÃO", "SINT-ZZ-2023", "20230505")
 
 
 def dataset(i: int, name: str, pid: str, study_date: str, modality: str) -> bytes:
@@ -58,6 +60,8 @@ def main() -> None:
             return dataset(i, *ALVO, "CT")
         if i == alvo_idx + 1:
             return dataset(i, *ALVO_ACENTO, "MR")
+        if i == alvo_idx + 2:
+            return dataset(i, *ALVO_2023, "CT")
         name = f"{SOBRENOMES[i % 10]}^{NOMES[(i // 10) % 10]} {i:05d}"
         d = (base - timedelta(days=i % 3650)).strftime("%Y%m%d")
         return dataset(i, name, f"SINT-{i:06d}", d, MODS[i % len(MODS)])
@@ -73,13 +77,14 @@ def main() -> None:
                 time.sleep(0.2 * (attempt + 1))  # SQLite do Orthanc local pode recusar escrita concorrente
             raise RuntimeError(f"estudo {i}: HTTP {r.status_code} {r.text[:300]}")
 
-        total = max(a.n, alvo_idx + 2)
-        outros = [i for i in range(total) if i not in (alvo_idx, alvo_idx + 1)]
+        total = max(a.n, alvo_idx + 3)
+        outros = [i for i in range(total) if i not in (alvo_idx, alvo_idx + 1, alvo_idx + 2)]
         with ThreadPoolExecutor(4) as pool:
             list(pool.map(send, outros))
         # alvos por último: ficam fora dos 101 primeiros que o Orthanc devolve sem filtro
         send(alvo_idx)
         send(alvo_idx + 1)
+        send(alvo_idx + 2)
 
 
 if __name__ == "__main__":

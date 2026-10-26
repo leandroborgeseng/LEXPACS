@@ -9,6 +9,7 @@ import {
   processSeriesResults,
 } from './qido.js';
 import dcm4cheeReject from './dcm4cheeReject.js';
+import { fetchWorklistPage } from './lexWorklistApi.js';
 
 import getImageId from './utils/getImageId.js';
 import dcmjs from 'dcmjs';
@@ -227,6 +228,16 @@ function createDicomWebApi(dicomWebConfig: DicomWebConfig, servicesManager) {
       studies: {
         mapParams: mapParams.bind(),
         search: async function (origParams) {
+          // LEX PACS: lista paginada no servidor e busca sem acento pelo portal (filtros no corpo).
+          if (dicomWebConfig.lexWorklistApi && origParams && !origParams.studyInstanceUid) {
+            const page = await fetchWorklistPage(dicomWebConfig.lexWorklistApi, origParams);
+            const studies = processResults(page.rows);
+            return Object.assign(studies, {
+              lexTotal: page.total,
+              lexHasMore: page.hasMore,
+              lexTruncated: page.truncated,
+            });
+          }
           qidoDicomWebClient.headers = getAuthorizationHeader();
           const { studyInstanceUid, seriesInstanceUid, ...mappedParams } =
             mapParams(origParams, {

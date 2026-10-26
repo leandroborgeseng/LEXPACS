@@ -18,7 +18,7 @@ type ViewOptionsProps = {
   buttonText?: string;
 };
 
-export function ViewOptions<TData>({ buttonText = 'View' }: ViewOptionsProps) {
+export function ViewOptions<TData>({ buttonText }: ViewOptionsProps) {
   const { t } = useTranslation('DataTable');
   const { table } = useDataTable<TData>();
   const unfitColumnIds = useUnfitColumnIds();
@@ -32,7 +32,7 @@ export function ViewOptions<TData>({ buttonText = 'View' }: ViewOptionsProps) {
           size="sm"
           className="gap-1 text-sm"
         >
-          {buttonText}
+          {buttonText ?? t('View', 'View')}
           <Icons.ChevronDown className="h-2 w-2" />
         </Button>
       </DropdownMenuTrigger>
