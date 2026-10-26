@@ -39,6 +39,34 @@ jobs:
             -v "$PWD/15-lex-orthanc.envsh:/docker-entrypoint.d/15-lex-orthanc.envsh:ro" \
             nginx:1.27-alpine sh -c '/docker-entrypoint.sh nginx -t'
 
+  compose-config:
+    name: Compose config (YAML válido)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: docker compose config (valores fictícios, não versionados)
+        run: |
+          cat > /tmp/lex-ci.env <<'ENV'
+          OHIF_VIEWER_URL=http://localhost:3000
+          PORTAL_JWT_SECRET=ficticio-ci-0123456789abcdef0123456789
+          POSTGRES_PASSWORD=ficticio-ci
+          ORTHANC_URL=http://orthanc-ficticio:8042
+          LEX_ADMIN_USER=admin
+          LEX_ADMIN_PASSWORD=ficticio-ci-123
+          LEX_PACS_DOMAIN=pacs.exemplo.invalid
+          LETSENCRYPT_EMAIL=ci@exemplo.invalid
+          ENV
+          set -e
+          for files in "docker-compose.coolify.yml" \
+                       "docker-compose.coolify.yml -f docker-compose.coolify.local.yml" \
+                       "docker-compose.coolify.yml -f docker-compose.tls.yml" \
+                       "docker-compose.externo.yml"; do
+            echo "::group::$files"
+            docker compose -f $files --env-file /tmp/lex-ci.env config -q
+            docker compose -f $files --env-file /tmp/lex-ci.env config --services
+            echo "::endgroup::"
+          done
+
   ohif-build:
     name: OHIF viewer build (Node 24, Dockerfile)
     runs-on: ubuntu-latest
