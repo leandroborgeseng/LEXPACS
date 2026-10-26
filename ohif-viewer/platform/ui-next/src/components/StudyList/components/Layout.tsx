@@ -136,6 +136,13 @@ function Table({
   isLoading,
   loadingComponent,
   children,
+  // LEX PACS: paginação no servidor, aviso de ordenação, banners e mensagem de vazio.
+  manualPagination,
+  rowCount,
+  hasMore,
+  sortNote,
+  emptyMessage,
+  toolbarBelowComponent,
 }: TableProps) {
   const { defaultPreviewSizePercent } = useLayout();
 
@@ -168,6 +175,12 @@ function Table({
             filters={filters}
             isLoading={isLoading}
             loadingComponent={loadingComponent}
+            manualPagination={manualPagination}
+            rowCount={rowCount}
+            hasMore={hasMore}
+            sortNote={sortNote}
+            emptyMessage={emptyMessage}
+            toolbarBelowComponent={toolbarBelowComponent}
           />
         </div>
       </div>

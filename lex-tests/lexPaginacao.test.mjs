@@ -164,3 +164,10 @@ test('carga falhou: mensagem do Designer, botão com intervalo de 60 s, "Busca n
   // a reconsulta só existe para resultado parcial; error chega com partial false
   assert.match(read('platform/app/src/hooks/useStudyListQuery.tsx'), /if \(!data\.partial \|\| isLoading\)/);
 });
+
+test('StudyList.Table (Layout) repassa paginação no servidor, banners e mensagem de vazio', () => {
+  const src = read('platform/ui-next/src/components/StudyList/components/Layout.tsx');
+  for (const prop of ['manualPagination', 'rowCount', 'hasMore', 'sortNote', 'emptyMessage', 'toolbarBelowComponent']) {
+    assert.match(src, new RegExp(`${prop}=\\{${prop}\\}`), prop);
+  }
+});
