@@ -38,6 +38,8 @@ function PanelLexReport() {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [permissions, setPermissions] = useState<ClinicalPermissions | null>(null);
+  // LD1/LD4 (defesa extra): sem laudos_visivel === true do portal, o painel não renderiza nada.
+  const [laudosVisivel, setLaudosVisivel] = useState(false);
 
   const isSigned = status === 'signed';
   const canSign = permissions?.can_sign ?? true;
@@ -87,6 +89,7 @@ function PanelLexReport() {
       if (profile?.permissions) {
         setPermissions(profile.permissions);
       }
+      setLaudosVisivel((profile as { laudos_visivel?: boolean } | null)?.laudos_visivel === true);
     });
   }, []);
 
@@ -208,6 +211,10 @@ function PanelLexReport() {
       setLoading(false);
     }
   };
+
+  if (!laudosVisivel) {
+    return null;
+  }
 
   if (!studyUid) {
     return (

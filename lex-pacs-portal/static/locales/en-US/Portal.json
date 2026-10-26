@@ -5,7 +5,7 @@
   },
   "login": {
     "title": "Access your studies",
-    "hint": "Enter the details registered at the clinic. The patient ID is the same provided at reception or on your report.",
+    "hint": "Enter the details registered at the clinic. The patient ID is the same provided at reception.",
     "patientId": "Patient ID",
     "patientIdPlaceholder": "e.g. 98890234",
     "birthDate": "Date of birth",

@@ -4,6 +4,7 @@ import { ToolbarService, utils } from '@ohif/core';
 import initToolGroups from './initToolGroups';
 import toolbarButtons from './toolbarButtons';
 import { id } from './id';
+import { applyLaudosVisibility } from './lexLaudos';
 
 const { TOOLBAR_SECTIONS } = ToolbarService;
 const { structuredCloneWithFunctions } = utils;
@@ -324,8 +325,9 @@ export const basicLayout = {
   },
 };
 
-export function layoutTemplate() {
-  return structuredCloneWithFunctions(this.layoutInstance);
+export async function layoutTemplate() {
+  // LD1/LD4: remove a aba Laudos salvo se o portal liberar (flag + perfil laudador).
+  return applyLaudosVisibility(structuredCloneWithFunctions(this.layoutInstance));
 }
 
 export const basicRoute = {

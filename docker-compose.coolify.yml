@@ -165,6 +165,26 @@ services:
       LEX_ORTHANC_PASSWORD: ${ORTHANC_PASSWORD:-}
     expose:
       - "80"
+    labels:
+      # Coolify/Traefik v3.7: o proxy NÃO grava access log (a URL pode ter query string com
+      # nome/ID de paciente). Routers explícitos, com prioridade acima dos gerados pelo Coolify.
+      # Regra de teste: todo router traefik.http.routers.<nome> precisa de observability.accesslogs=false.
+      - "traefik.enable=true"
+      - "traefik.http.services.lexpacs-gateway.loadbalancer.server.port=80"
+      - "traefik.http.middlewares.lexpacs-redirect-https.redirectscheme.scheme=https"
+      - "traefik.http.routers.lexpacs-http.rule=Host(`${LEX_PACS_DOMAIN:-localhost}`)"
+      - "traefik.http.routers.lexpacs-http.entrypoints=http"
+      - "traefik.http.routers.lexpacs-http.priority=10000"
+      - "traefik.http.routers.lexpacs-http.middlewares=lexpacs-redirect-https"
+      - "traefik.http.routers.lexpacs-http.service=lexpacs-gateway"
+      - "traefik.http.routers.lexpacs-http.observability.accesslogs=false"
+      - "traefik.http.routers.lexpacs-https.rule=Host(`${LEX_PACS_DOMAIN:-localhost}`)"
+      - "traefik.http.routers.lexpacs-https.entrypoints=https"
+      - "traefik.http.routers.lexpacs-https.priority=10000"
+      - "traefik.http.routers.lexpacs-https.tls=true"
+      - "traefik.http.routers.lexpacs-https.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.lexpacs-https.service=lexpacs-gateway"
+      - "traefik.http.routers.lexpacs-https.observability.accesslogs=false"
     depends_on:
       web-viewer:
         condition: service_healthy

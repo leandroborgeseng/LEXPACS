@@ -9,6 +9,7 @@ from .audit import log_event
 from .clinical_auth import get_optional_clinical_user, require_can_sign, require_clinical_user
 from .clinical_session import ClinicalUser
 from .config import settings
+from .laudos_feature import require_laudador
 from .orthanc_client import OrthancClient
 from .report_storage import (
     get_patient_report,
@@ -22,7 +23,7 @@ from .report_storage import (
     validate_study_uid,
 )
 
-router = APIRouter(prefix="/api/reports", tags=["reports"])
+router = APIRouter(prefix="/api/reports", tags=["reports"], dependencies=[Depends(require_laudador)])
 orthanc = OrthancClient()
 
 
