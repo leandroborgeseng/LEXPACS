@@ -145,7 +145,8 @@ def test_lx7_ibm_plex_local_so_no_claro():
         (STATIC / "fonts/plex.css", None),
         (
             ROOT / "ohif-viewer/platform/ui-next/src/assets/fonts.css",
-            ROOT / "ohif-viewer/platform/ui-next/src/assets",
+            ROOT
+            / "ohif-viewer/platform/ui-next/src",  # fonts.css é @import inline em src/tailwind.css
         ),
     ):
         txt = fonts_css.read_text(encoding="utf-8")
