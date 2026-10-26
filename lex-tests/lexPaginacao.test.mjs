@@ -98,3 +98,24 @@ test('LP9: texto da busca fora da URL do navegador', () => {
   assert.match(sync, /lexText\[urlKeyForTextFilter\(filter\.id\)\] = filter\.value/);
   assert.doesNotMatch(sync, /query\[urlKeyForTextFilter/);
 });
+
+test('duplo clique abre o visualizador básico, sem seletor de workflow', async () => {
+  const { lexDoubleClickWorkflow } = await import('../ohif-viewer/platform/ui-next/src/components/StudyList/components/lexDoubleClick.js');
+  const seg = { id: '@ohif/mode-segmentation' };
+  const basic = { id: '@ohif/mode-longitudinal' };
+  assert.equal(lexDoubleClickWorkflow([seg, basic]), basic);
+  assert.equal(lexDoubleClickWorkflow([seg]), undefined);
+  const fixo = { id: '@ohif/mode-tmtv', isDefault: true };
+  assert.equal(lexDoubleClickWorkflow([basic, fixo]), fixo);
+  const table = read('platform/ui-next/src/components/StudyList/components/Table.tsx');
+  assert.match(table, /lexDoubleClickWorkflow\(getWorkflowsForStudy\(original\)\)/);
+  assert.match(table, /onDoubleClick: row => openRow\(row\)/);
+});
+
+test('VW11b/d: Enter abre; segundo duplo clique ignorado; "Abrindo exame…"', () => {
+  const table = read('platform/ui-next/src/components/StudyList/components/Table.tsx');
+  assert.match(table, /event\.key === 'Enter'[\s\S]{0,80}openRow\(row\)/);
+  assert.match(table, /if \(openingId\) \{\s*return;/);
+  assert.match(table, /Abrindo exame…/);
+  assert.match(read('platform/ui-next/src/components/DataTable/DataTable.tsx'), /tabIndex: 0,\s*onKeyDown/);
+});

@@ -352,6 +352,8 @@ type RowProps<TData> = {
   render?: (row: Row<TData>) => ReactNode;
   onClick?: (row: Row<TData>) => void;
   onDoubleClick?: (row: Row<TData>) => void;
+  /** LEX PACS: teclado na linha (Enter abre). */
+  onKeyDown?: (row: Row<TData>, event: React.KeyboardEvent) => void;
   className?: string | ((row: Row<TData>) => string);
 };
 
@@ -439,6 +441,10 @@ function Body<TData>({
             {...(rowProps?.onClick && { onClick: () => rowProps.onClick(row) })}
             {...(rowProps?.onDoubleClick && {
               onDoubleClick: () => rowProps.onDoubleClick(row),
+            })}
+            {...(rowProps?.onKeyDown && {
+              tabIndex: 0,
+              onKeyDown: (event: React.KeyboardEvent) => rowProps.onKeyDown(row, event),
             })}
             aria-selected={row.getIsSelected()}
           >

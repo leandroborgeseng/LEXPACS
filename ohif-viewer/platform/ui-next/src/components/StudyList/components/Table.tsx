@@ -8,6 +8,7 @@ import { InputMultiSelect } from '../../InputMultiSelect';
 import type { StudyDateRangeFilter, StudyRow } from '../types/types';
 import { tokenizeModalities } from '../utils/tokenizeModalities';
 import { useWorkflows } from './WorkflowsProvider';
+import { lexDoubleClickWorkflow } from './lexDoubleClick';
 import { COLUMN_IDS } from '../columns/defaultColumns';
 
 export type TableProps = Omit<DataTableProps<StudyRow>, 'children' | 'getRowId'> & {
@@ -113,7 +114,23 @@ function TableContent({
     return Array.from(new Set(tokens)).sort();
   }, [table.options?.data]);
   // Access workflow provider for default workflow + launch
-  const { getDefaultWorkflowForStudy } = useWorkflows();
+  const { getDefaultWorkflowForStudy, getWorkflowsForStudy } = useWorkflows();
+  const [openingId, setOpeningId] = React.useState<string | null>(null);
+  const openRow = (row: { original: unknown; getIsSelected: () => boolean; toggleSelected: (v?: boolean) => void; id: string }) => {
+    if (openingId) {
+      return;
+    }
+    const original = row.original as StudyRow;
+    const workflow = lexDoubleClickWorkflow(getWorkflowsForStudy(original));
+    if (!workflow) {
+      return;
+    }
+    if (!row.getIsSelected()) {
+      row.toggleSelected(true);
+    }
+    setOpeningId(row.id);
+    workflow.launchWithStudy(original);
+  };
 
   return (
     <div className="flex h-full flex-col">
@@ -132,6 +149,14 @@ function TableContent({
         </DataTable.Toolbar>
       )}
       {toolbarBelowComponent}
+      {openingId ? (
+        <div
+          role="status"
+          className="text-primary px-3 py-1 text-sm"
+        >
+          Abrindo exame…
+        </div>
+      ) : null}
       <DataTable.Table<StudyRow> tableClassName={tableClassName}>
         <DataTable.Header<StudyRow> />
         <DataTable.FilterRow<StudyRow>
@@ -221,17 +246,14 @@ function TableContent({
                 row.toggleSelected();
               }
             },
-            onDoubleClick: row => {
-              const original = row.original as StudyRow;
-              const defaultWorkflow = getDefaultWorkflowForStudy(original);
-              if (!defaultWorkflow) {
-                return;
+            // LEX PACS VW11a/d: duplo clique abre o visualizador básico; um segundo duplo
+            // clique enquanto abre é ignorado. VW11b: Enter na linha selecionada faz o mesmo.
+            onDoubleClick: row => openRow(row),
+            onKeyDown: (row, event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                openRow(row);
               }
-              // Ensure the row is selected, then launch with the default workflow
-              if (!row.getIsSelected()) {
-                row.toggleSelected(true);
-              }
-              defaultWorkflow.launchWithStudy(original);
             },
           }}
         />

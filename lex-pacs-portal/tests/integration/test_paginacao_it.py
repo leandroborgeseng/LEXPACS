@@ -43,7 +43,8 @@ def ids(res):
 
 def test_paginacao_alem_dos_101_sem_repetir(s):
     pages = [post(s, limit=50, offset=o) for o in (0, 50, 100, 150)]
-    assert pages[0]["total"] >= N > 150
+    assert pages[0]["total"] is None or pages[0]["total"] >= N > 150
+    assert all(p["hasMore"] for p in pages[:3])
     all_ids = [i for p in pages for i in ids(p)]
     assert len(all_ids) == 200 and len(set(all_ids)) == 200
 
@@ -79,3 +80,10 @@ def test_lp9_zzteste_fora_dos_logs(s):
         text = p.read_text(encoding="utf-8", errors="replace")
         assert "ZZTESTE" not in text.upper(), p.name
         assert "SINT-ZZ-2023" not in text, p.name
+
+
+def test_lpt_c_nome_comum_alem_da_pagina_1(s):
+    p1 = post(s, patientName="oliveira", limit=10, offset=0)
+    p2 = post(s, patientName="oliveira", limit=10, offset=10)
+    assert p1["total"] and p1["total"] > 20 and p1["hasMore"]
+    assert len(p2["studies"]) == 10 and not set(ids(p1)) & set(ids(p2))

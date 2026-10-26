@@ -204,3 +204,30 @@ def test_validacao():
 def test_exige_sessao_clinica(client):
     r = client.post("/api/worklist/studies", json={"patientName": "conceicao"})
     assert r.status_code == 401
+
+
+def test_total_sem_count_resources_usa_find(orthanc, monkeypatch):
+    real = orthanc.__call__
+
+    class Velho(FakeOrthanc):
+        def __call__(self, request):
+            if request.url.path == "/tools/count-resources":
+                return httpx.Response(404)
+            if request.url.path == "/tools/find":
+                body = json.loads(request.content)
+                if body.get("Expand") is False:
+                    return httpx.Response(200, json=[s["uid"] for s in _filter(STUDIES, body["Query"])])
+            return real(request)
+
+    velho = Velho()
+    orig = httpx.AsyncClient
+
+    def factory(*a, **kw):
+        kw["transport"] = httpx.MockTransport(velho)
+        return orig.__wrapped__(*a, **kw) if hasattr(orig, "__wrapped__") else _REAL_CLIENT(*a, **kw)
+
+    monkeypatch.setattr(worklist.httpx, "AsyncClient", factory)
+    assert _run(limit=50)["total"] == len(STUDIES)
+
+
+_REAL_CLIENT = httpx.AsyncClient

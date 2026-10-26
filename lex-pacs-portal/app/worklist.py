@@ -7,7 +7,8 @@ Duas rotas de consulta ao Orthanc (somente leitura: QIDO GET, /tools/find e /too
 que não alteram nada):
 
 1. Sem nome: QIDO com limit/offset (o Orthanc pagina) e total por /tools/count-resources
-   (Orthanc >= 1.12.5). Sem esse endpoint, o total fica desconhecido e só se sabe se há próxima.
+   (Orthanc >= 1.12.5; antes disso, pelo número de IDs do /tools/find). Se nada responder,
+   o total fica desconhecido e só se sabe se há próxima.
 2. Com nome: o Orthanc compara sem diferenciar maiúsculas, mas NÃO ignora acentos, e o "?" dele
    casa um byte, não uma letra (falha em "É", que tem 2 bytes em UTF-8). Por isso cada letra que
    pode ter acento (A E I O U C) vira "*" no padrão enviado ao Orthanc, que devolve um
@@ -179,9 +180,16 @@ async def _count(client: httpx.AsyncClient, query: dict) -> int | None:
             f"{settings.orthanc_url.rstrip('/')}/tools/count-resources",
             json={"Level": "Study", "Query": query, "CaseSensitive": False},
         )
+        if r.status_code == 200:
+            return int(r.json().get("Count"))
+        # Orthanc < 1.12.5 não tem count-resources: conta pelos IDs do /tools/find (sem Expand).
+        r = await client.post(
+            f"{settings.orthanc_url.rstrip('/')}/tools/find",
+            json={"Level": "Study", "Query": query, "CaseSensitive": False, "Expand": False},
+        )
         if r.status_code != 200:
             return None
-        return int(r.json().get("Count"))
+        return len(r.json())
     except (httpx.HTTPError, ValueError, TypeError):
         return None
 
