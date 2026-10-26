@@ -143,7 +143,10 @@ services:
       - lex-data:/lex-data
       - lex-backups:/lex-backups:ro
     depends_on:
-X, "-f", "http://localhost:8080/api/health"]
+      server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
       interval: 30s
       timeout: 5s
       retries: 3
