@@ -8,6 +8,7 @@ import { useStudyListStateSync, useWorkListToolbarActions } from '../../hooks';
 import {
   lexShowSearching,
   lexSortNote,
+  lexIndexingMessage,
   LEX_SEARCHING_DELAY_MS,
   StudyList,
   Icons, InvestigationalUseDialog, LexThemeToggle, type StudyRow } from '@ohif/ui-next';
@@ -27,6 +28,8 @@ type Props = withAppTypes & {
   dataTotal?: number | null;
   dataHasMore?: boolean;
   dataSortScope?: string;
+  dataPartial?: boolean;
+  dataIndex?: null | { status: string; indexed: number; total: number | null };
   onRefresh: () => void;
 };
 
@@ -40,6 +43,8 @@ export default function WorkList({
   dataTotal = null,
   dataHasMore = false,
   dataSortScope = 'global',
+  dataPartial = false,
+  dataIndex = null,
   onRefresh,
   servicesManager,
   extensionManager,
@@ -191,6 +196,7 @@ export default function WorkList({
               rowCount={serverPaging ? dataTotal : undefined}
               hasMore={dataHasMore}
               sortNote={serverPaging ? lexSortNote(dataSortScope) : null}
+              emptyMessage={serverPaging && dataPartial ? lexIndexingMessage(dataIndex) : undefined}
               onFiltersChange={updater => {
                 setIsFilterPending(true);
                 setFilters(updater);
@@ -213,6 +219,16 @@ export default function WorkList({
                     activeView={activeView}
                     onViewChange={handleViewChange}
                   />
+                  {serverPaging && dataPartial ? (
+                    <div
+                      role="status"
+                      aria-live="polite"
+                      className="text-primary px-3 py-1 text-sm"
+                    >
+                      {lexIndexingMessage(dataIndex)}
+                      <span className="text-muted-foreground ml-2">(resultados parciais)</span>
+                    </div>
+                  ) : null}
                   {searchingSlow ? (
                     <div
                       role="status"

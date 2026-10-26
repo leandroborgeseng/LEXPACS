@@ -14,7 +14,14 @@ sobre esses 101 ("1-50 of 101").
   nº de acesso e descrição normalizada. Sem pixel e sem o nome original. Migração só aditiva.
 - Sincronização só por GET no Orthanc: carga inicial por QIDO paginado (3.000 estudos em ~1 s
   no box) e depois incremental pelo `/changes` (NewStudy/StableStudy entram, Deleted sai), com
-  checkpoint em `worklist_meta.changes_seq`. Roda no startup e antes de cada busca.
+  checkpoint em `worklist_meta.changes_seq`. A carga inicial (e a reconstrução) roda numa thread
+  em segundo plano no startup, sob um lock único: buscas simultâneas nunca disparam duas
+  sincronizações. A busca não espera a carga: enquanto ela roda, a API devolve
+  `index: {status, indexed, total}` e `partial: true`, e a lista mostra "Preparando a busca no
+  acervo… X de N exames indexados" (resultados parciais), consultando de novo a cada 3 s. Depois
+  da carga, o incremental roda antes da busca só se o lock estiver livre (não bloqueia).
+- O arquivo do índice nasce com permissão 0600 e fica no volume `lex-data` do portal, que o
+  gateway nginx não monta; nenhuma rota do gateway o serve (teste de integração).
 - Busca, total e ordem "mais recente primeiro" valem para o resultado todo (SQL no índice).
   O Orthanc só recebe um QIDO com os UIDs da página.
 - Nome: cada parte digitada (≥3 letras) precisa aparecer no nome, em qualquer ordem, sem
@@ -24,6 +31,8 @@ sobre esses 101 ("1-50 of 101").
   `lex.worklist.textFilters`) nem para a URL do gateway (corpo do POST). Logs: só contagem e tempo.
 
 ## Tempos (box, 3.000 estudos sintéticos ZZTESTE, via gateway, 3 medições)
+Carga inicial do índice: 0,9 s (log do portal).
+
 | Caso | Total | Tempo (s) |
 |---|---|---|
 | nome "ana" | 300 | 0,037 / 0,036 / 0,038 |

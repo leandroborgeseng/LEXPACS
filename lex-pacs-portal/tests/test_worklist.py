@@ -90,7 +90,7 @@ _REAL = httpx.AsyncClient
 
 
 @pytest.fixture
-def orthanc(monkeypatch, tmp_path):
+def raw_orthanc(monkeypatch, tmp_path):
     fake = FakeOrthanc(BASE)
 
     def factory(*a, **kw):
@@ -101,7 +101,15 @@ def orthanc(monkeypatch, tmp_path):
         monkeypatch.setattr(mod.httpx, "AsyncClient", factory)
     monkeypatch.setattr(worklist.settings, "orthanc_url", "http://orthanc-sintetico.invalid:8042")
     monkeypatch.setattr(worklist.settings, "worklist_index_path", str(tmp_path / "idx.db"))
+    worklist_index._set_state(status="idle", indexed=0, total=None)
     return fake
+
+
+@pytest.fixture
+def orthanc(raw_orthanc):
+    """Índice já carregado (o caso comum depois do startup)."""
+    asyncio.run(worklist_index.sync())
+    return raw_orthanc
 
 
 def _run(**kw):
@@ -199,3 +207,91 @@ def test_validacao(orthanc):
 
 def test_exige_sessao_clinica(client):
     assert client.post("/api/worklist/studies", json={"patientName": "zzteste"}).status_code == 401
+
+
+class SlowOrthanc(FakeOrthanc):
+    """Segura a carga inicial depois do 1º lote, para observar o estado de preparação."""
+
+    def __init__(self, studies):
+        super().__init__(studies)
+        self.gate = __import__("threading").Event()
+        self.first_batch = __import__("threading").Event()
+        self.loads = 0
+
+    def __call__(self, request):
+        qs = parse_qs(urlparse(str(request.url)).query, keep_blank_values=True)
+        if request.url.path == "/changes" and "last" in qs:
+            self.loads += 1
+        if request.url.path == "/statistics":
+            return httpx.Response(200, json={"CountStudies": len(self.studies)})
+        if request.url.path == "/dicom-web/studies" and qs.get("offset", ["0"])[0] != "0" and "StudyInstanceUID" not in qs:
+            self.first_batch.set()
+            self.gate.wait(10)
+        return super().__call__(request)
+
+
+@pytest.fixture
+def slow(monkeypatch, tmp_path):
+    many = BASE + [_mk(5000 + i, f"ZZTESTE^JOAO {i:05d}", f"SINT-J{i:05d}", "20240101") for i in range(1100)]
+    fake = SlowOrthanc(many)
+
+    def factory(*a, **kw):
+        kw["transport"] = httpx.MockTransport(fake)
+        return _REAL(*a, **kw)
+
+    monkeypatch.setattr(worklist.httpx, "AsyncClient", factory)
+    monkeypatch.setattr(worklist.settings, "orthanc_url", "http://orthanc-sintetico.invalid:8042")
+    monkeypatch.setattr(worklist.settings, "worklist_index_path", str(tmp_path / "idx.db"))
+    worklist_index._set_state(status="idle", indexed=0, total=None)
+    yield fake
+    fake.gate.set()
+    if worklist_index._bg_thread:
+        worklist_index._bg_thread.join(10)
+
+
+def test_preparacao_nao_bloqueia_e_resultado_parcial(slow):
+    import time as _t
+    t = worklist_index.start_background()
+    assert slow.first_batch.wait(10)
+    t0 = _t.perf_counter()
+    r = _run(patientName="zzteste joao")
+    assert _t.perf_counter() - t0 < 1.0  # a busca não espera a carga completa
+    assert r["partial"] is True and r["index"]["status"] == "indexing"
+    assert r["index"]["indexed"] == 1000 and r["index"]["total"] == len(slow.studies)
+    assert 0 < r["total"] < 1101  # só o que já foi indexado
+    slow.gate.set()
+    t.join(10)
+    r = _run(patientName="zzteste joao")
+    assert r["partial"] is False and r["index"]["status"] == "ready" and r["total"] == 1101
+
+
+def test_sincronizacoes_simultaneas_uma_carga_so(slow):
+    import threading as _th
+    threads = [_th.Thread(target=lambda: _run(patientName="zzteste")) for _ in range(5)]
+    first = worklist_index.start_background()
+    for th in threads:
+        th.start()
+    assert worklist_index.start_background() is first  # idempotente enquanto roda
+    assert slow.first_batch.wait(10)
+    slow.gate.set()
+    for th in threads:
+        th.join(10)
+    first.join(10)
+    assert slow.loads == 1  # uma única carga inicial
+    assert _run()["index"]["status"] == "ready"
+
+
+def test_reconstrucao_em_background(orthanc):
+    t = worklist_index.start_background(rebuild=True)
+    t.join(10)
+    assert worklist_index.is_ready() and _run()["total"] == len(BASE)
+
+
+def test_arquivo_do_indice_0600(orthanc):
+    import os
+    import stat
+    path = worklist_index.index_path()
+    assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
+    os.chmod(path, 0o644)
+    worklist_index.connect().close()
+    assert stat.S_IMODE(os.stat(path).st_mode) == 0o600

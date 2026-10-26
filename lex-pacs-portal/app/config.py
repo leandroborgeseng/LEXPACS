@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     local_users_db_path: str = "/lex-data/users.db"
     # Índice de busca da lista de exames (só metadados, sem pixel). Vazio = ao lado do users.db.
     worklist_index_path: str = ""
+    worklist_index_autostart: bool = True
     lex_admin_user: str = ""
     lex_admin_password: str = ""
     password_min_length: int = 10

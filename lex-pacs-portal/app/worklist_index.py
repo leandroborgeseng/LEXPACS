@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import os
+import threading
 import time
 import re
 import sqlite3
@@ -70,11 +72,39 @@ def index_path() -> Path:
 
 
 def connect() -> sqlite3.Connection:
+    """Abre o índice. O arquivo nasce 0600 (só o usuário do portal) e fica no volume do portal,
+    que o gateway nginx não monta: não há como servi-lo por HTTP."""
     path = index_path()
     path.parent.mkdir(parents=True, exist_ok=True)
+    if not path.exists():
+        os.close(os.open(path, os.O_CREAT | os.O_WRONLY, 0o600))
+    os.chmod(path, 0o600)
     conn = sqlite3.connect(path, timeout=30)
     conn.executescript(SCHEMA)
     return conn
+
+
+# Estado da indexação (sem PII): status idle|indexing|ready|error, indexados e total do Orthanc.
+_state_lock = threading.Lock()
+_state = {"status": "idle", "indexed": 0, "total": None}
+
+
+def state() -> dict:
+    with _state_lock:
+        return dict(_state)
+
+
+def _set_state(**kw) -> None:
+    with _state_lock:
+        _state.update(kw)
+
+
+def is_ready() -> bool:
+    conn = connect()
+    try:
+        return _meta_get(conn, "full_load_done") == "1"
+    finally:
+        conn.close()
 
 
 def _tag(study: dict, tag: str) -> str:
@@ -140,6 +170,14 @@ async def full_load(client: httpx.AsyncClient) -> int:
     r.raise_for_status()
     checkpoint = int(r.json().get("Last", 0))
     t0 = time.perf_counter()
+    total = None
+    try:
+        st = await client.get(f"{_base()}/statistics")
+        if st.status_code == 200:
+            total = int(st.json().get("CountStudies"))
+    except (httpx.HTTPError, ValueError, TypeError):
+        total = None
+    _set_state(status="indexing", indexed=0, total=total)
     conn = connect()
     try:
         offset = n = 0
@@ -147,13 +185,16 @@ async def full_load(client: httpx.AsyncClient) -> int:
             rows = await _qido(client, {"limit": BATCH, "offset": offset, "includefield": QIDO_FIELDS})
             vals = [v for v in (row_from_qido(s) for s in rows) if v]
             conn.executemany(UPSERT, vals)
+            conn.commit()  # cada lote já fica visível para busca parcial
             n += len(vals)
+            _set_state(indexed=n)
             if len(rows) < BATCH:
                 break
             offset += BATCH
         _meta_set(conn, "changes_seq", checkpoint)
         _meta_set(conn, "full_load_done", 1)
         conn.commit()
+        _set_state(status="ready", indexed=n, total=max(n, total or 0))
         print(f"worklist_index: carga inicial de {n} estudos em {time.perf_counter() - t0:.1f} s")
         return n
     finally:
@@ -198,19 +239,74 @@ async def incremental(client: httpx.AsyncClient) -> int:
         conn.close()
 
 
-_lock = asyncio.Lock()
+# Um único lock (entre threads e requisições): nunca há duas sincronizações ao mesmo tempo.
+_sync_lock = threading.Lock()
+_bg_thread: threading.Thread | None = None
+
+
+async def _run_sync(full: bool) -> None:
+    async with httpx.AsyncClient(timeout=120.0, auth=settings.orthanc_auth) as client:
+        if full:
+            await full_load(client)
+        await incremental(client)
+
+
+def _background_full() -> None:
+    with _sync_lock:
+        try:
+            if is_ready():
+                _set_state(status="ready")
+                asyncio.run(_run_sync(full=False))
+            else:
+                asyncio.run(_run_sync(full=True))
+            conn = connect()
+            n = conn.execute("SELECT COUNT(*) FROM worklist_study").fetchone()[0]
+            conn.close()
+            _set_state(status="ready", indexed=n, total=n)
+        except Exception as exc:  # sem PII: só o tipo
+            _set_state(status="error")
+            print(f"worklist_index: sincronização falhou ({type(exc).__name__})")
+
+
+def start_background(rebuild: bool = False) -> threading.Thread:
+    """Carga inicial (ou reconstrução) numa thread em segundo plano; idempotente."""
+    global _bg_thread
+    with _state_lock:
+        if _bg_thread and _bg_thread.is_alive():
+            return _bg_thread
+        if rebuild:
+            conn = connect()
+            conn.execute("DELETE FROM worklist_meta WHERE key IN ('full_load_done', 'changes_seq')")
+            conn.commit()
+            conn.close()
+        _state.update(status="indexing")
+        _bg_thread = threading.Thread(target=_background_full, name="worklist-index", daemon=True)
+        _bg_thread.start()
+        return _bg_thread
+
+
+async def sync_on_request() -> dict:
+    """Na busca: nunca espera a carga inicial. Pronto => incremental, só se o lock estiver livre."""
+    if not is_ready():
+        start_background()
+        return state()
+    if _sync_lock.acquire(blocking=False):
+        try:
+            await _run_sync(full=False)
+        finally:
+            _sync_lock.release()
+    conn = connect()
+    n = conn.execute("SELECT COUNT(*) FROM worklist_study").fetchone()[0]
+    conn.close()
+    _set_state(status="ready", indexed=n, total=n)
+    return state()
 
 
 async def sync() -> None:
-    """Carga inicial se ainda não houve; depois só o incremental do /changes."""
-    async with _lock:
-        async with httpx.AsyncClient(timeout=120.0, auth=settings.orthanc_auth) as client:
-            conn = connect()
-            done = _meta_get(conn, "full_load_done")
-            conn.close()
-            if not done:
-                await full_load(client)
-            await incremental(client)
+    """Compatibilidade (testes): sincroniza já, sob o mesmo lock."""
+    with _sync_lock:
+        await _run_sync(full=not is_ready())
+        _set_state(status="ready")
 
 
 def search(*, name: str | None, wildcard: bool, patient_id: str | None, accession: str | None,

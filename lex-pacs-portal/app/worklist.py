@@ -76,7 +76,7 @@ async def worklist_studies(q: WorklistQuery) -> dict:
     mods = _modalities(q)
     name = normalize_text(q.patientName)
     try:
-        await worklist_index.sync()
+        index = await worklist_index.sync_on_request()
         uids, total = worklist_index.search(
             name=name or None, wildcard=uses_wildcard(name, q.disableWildcard),
             patient_id=_exact(q.patientId), accession=_exact(q.accessionNumber),
@@ -104,6 +104,9 @@ async def worklist_studies(q: WorklistQuery) -> dict:
         "hasMore": q.offset + len(uids) < total,
         "truncated": False,
         "sortScope": "global",
+        # Enquanto a carga inicial não termina, o resultado é parcial (só o que já foi indexado).
+        "index": {"status": index["status"], "indexed": index.get("indexed") or 0, "total": index.get("total")},
+        "partial": index["status"] != "ready",
         "offset": q.offset,
         "limit": q.limit,
     }

@@ -50,6 +50,14 @@ export function parseWorklistResponse(payload) {
     hasMore: Boolean(payload?.hasMore),
     truncated: Boolean(payload?.truncated),
     sortScope: payload?.sortScope === 'page' ? 'page' : 'global',
+    partial: Boolean(payload?.partial),
+    index: payload?.index && typeof payload.index === 'object'
+      ? {
+          status: String(payload.index.status ?? 'ready'),
+          indexed: Number(payload.index.indexed) || 0,
+          total: Number.isFinite(payload.index.total) ? payload.index.total : null,
+        }
+      : { status: 'ready', indexed: 0, total: null },
   };
 }
 

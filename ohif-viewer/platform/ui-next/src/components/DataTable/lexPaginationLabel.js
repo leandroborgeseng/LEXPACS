@@ -39,3 +39,11 @@ export function lexShowSearching(isLoading, elapsedMs) {
 export function lexSortNote(sortScope) {
   return sortScope === 'page' ? 'Ordenado por data dentro da página' : null;
 }
+
+/** Índice do portal carregando: "Preparando a busca no acervo… X de N exames indexados". */
+export function lexIndexingMessage(index) {
+  const indexed = Number(index?.indexed) || 0;
+  const total = Number.isFinite(index?.total) ? index.total : null;
+  const of = total === null ? '' : ` de ${fmt(total)}`;
+  return `Preparando a busca no acervo… ${fmt(indexed)}${of} exames indexados`;
+}

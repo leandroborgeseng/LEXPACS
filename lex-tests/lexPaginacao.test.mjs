@@ -34,7 +34,7 @@ test('LP9: nome e ID vão no corpo do POST, nunca na URL', async () => {
   assert.equal(seen.init.method, 'POST');
   assert.match(seen.init.body, /Concei/);
   assert.doesNotMatch(seen.url, /Concei|SINT/);
-  assert.deepEqual(r, { rows: [{}], total: 35214, hasMore: true, truncated: false, sortScope: 'global' });
+  assert.deepEqual(r, { rows: [{}], total: 35214, hasMore: true, truncated: false, sortScope: 'global', partial: false, index: { status: 'ready', indexed: 0, total: null } });
 });
 
 test('erro do PACS vira mensagem com código HTTP', async () => {
@@ -43,7 +43,7 @@ test('erro do PACS vira mensagem com código HTTP', async () => {
 });
 
 test('resposta sem total: total null', () => {
-  assert.deepEqual(parseWorklistResponse({ studies: [], hasMore: true }), { rows: [], total: null, hasMore: true, truncated: false, sortScope: 'global' });
+  assert.deepEqual(parseWorklistResponse({ studies: [], hasMore: true }), { rows: [], total: null, hasMore: true, truncated: false, sortScope: 'global', partial: false, index: { status: 'ready', indexed: 0, total: null } });
 });
 
 test('textos da paginação (esboço do Designer)', () => {
@@ -129,6 +129,22 @@ test('"Buscando…" só depois de 1 s, com filtros visíveis', async () => {
   const wl = read('platform/app/src/routes/WorkList/WorkList.tsx');
   assert.match(wl, /setTimeout\([\s\S]{0,120}LEX_SEARCHING_DELAY_MS/);
   // o aviso fica junto da barra de filtros (toolbarBelowComponent), que continua renderizada
-  assert.match(wl, /<WorkListViewBar[\s\S]{0,400}searchingSlow \?[\s\S]{0,400}Buscando…/);
+  assert.match(wl, /<WorkListViewBar[\s\S]{0,1200}searchingSlow \?[\s\S]{0,400}Buscando…/);
   assert.equal(m.lexSortNote('global'), null);
+});
+
+test('índice preparando: mensagem com X de N, parcial e nunca "Nenhum exame encontrado"', async () => {
+  const m = await import('../ohif-viewer/platform/ui-next/src/components/DataTable/lexPaginationLabel.js');
+  assert.equal(m.lexIndexingMessage({ indexed: 1000, total: 3000 }), 'Preparando a busca no acervo… 1.000 de 3.000 exames indexados');
+  assert.equal(m.lexIndexingMessage({ indexed: 0, total: null }), 'Preparando a busca no acervo… 0 exames indexados');
+  const { parseWorklistResponse } = await import('../ohif-viewer/extensions/default/src/DicomWebDataSource/lexWorklistApi.js');
+  const r = parseWorklistResponse({ studies: [], total: 0, partial: true, index: { status: 'indexing', indexed: 10, total: 20 } });
+  assert.equal(r.partial, true);
+  assert.deepEqual(r.index, { status: 'indexing', indexed: 10, total: 20 });
+  const wl = read('platform/app/src/routes/WorkList/WorkList.tsx');
+  assert.match(wl, /emptyMessage=\{serverPaging && dataPartial \? lexIndexingMessage\(dataIndex\) : undefined\}/);
+  assert.match(wl, /resultados parciais/);
+  const q = read('platform/app/src/hooks/useStudyListQuery.tsx');
+  assert.match(q, /if \(!data\.partial \|\| isLoading\)/);
+  assert.match(q, /LEX_INDEX_POLL_MS = 3000/);
 });

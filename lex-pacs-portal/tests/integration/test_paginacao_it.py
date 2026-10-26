@@ -24,6 +24,18 @@ def s():
     if r.json().get("must_change_password"):
         c.post("/clinica-api/auth/clinical/change-password",
                json={"current_password": "Admin-Inicial-IT1", "new_password": "Admin-Nova-IT-2026"})
+    # a carga inicial roda em segundo plano: espera o índice ficar pronto (sem bloquear a busca)
+    t0 = time.perf_counter()
+    first = c.post(API, json={"limit": 1}).json()
+    print(f"\n1ª busca durante a carga: status={first['index']['status']} parcial={first['partial']}")
+    for _ in range(600):
+        st = c.post(API, json={"limit": 1}).json()
+        if st["index"]["status"] == "ready":
+            break
+        assert st["partial"] is True
+        time.sleep(0.1)
+    print(f"índice pronto: {st['index']['indexed']} estudos, espera {time.perf_counter() - t0:.2f} s")
+    assert st["index"]["status"] == "ready" and st["partial"] is False
     yield c
 
 
@@ -122,3 +134,15 @@ def test_incremental_changes_orthanc_real(s):
     httpx.post(f"{url}/instances", content=dataset(999999, "ZZTESTE^INCREMENTAL JOÃO", "SINT-INCR", "20261026", "CT"),
                auth=auth).raise_for_status()
     assert ids(post(s, patientName="incremental joao")) == ["SINT-INCR"]
+
+
+
+def test_indice_0600_e_nao_servido_pelo_nginx(s):
+    import stat
+    db = Path(os.environ["LEX_IT_INDEX_PATH"])
+    assert stat.S_IMODE(db.stat().st_mode) == 0o600
+    for path in ("/worklist_index.db", "/static/worklist_index.db", "/static/../worklist_index.db",
+                 "/lex-data/worklist_index.db", "/clinica/worklist_index.db", "/viewer/worklist_index.db",
+                 "/clinica-api/../worklist_index.db"):
+        r = s.get(path)
+        assert not r.content.startswith(b"SQLite format 3"), path

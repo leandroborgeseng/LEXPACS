@@ -10,12 +10,16 @@ import {
   LEX_TEXT_FILTERS_EVENT,
 } from '../utils/studyListFilterContract';
 
+export const LEX_INDEX_POLL_MS = 3000;
+
 const DEFAULT_DATA = {
   studies: [],
   queryFilterValues: null,
   total: null as number | null,
   hasMore: false,
   sortScope: 'global' as string,
+  partial: false,
+  index: null as null | { status: string; indexed: number; total: number | null },
 };
 
 /**
@@ -43,6 +47,9 @@ export function useStudyListQuery({
   total: number | null;
   hasMore: boolean;
   sortScope: string;
+  /** Índice do portal ainda carregando: resultado parcial. */
+  partial: boolean;
+  index: null | { status: string; indexed: number; total: number | null };
   isLoading: boolean;
   hasFetchedOnce: boolean;
   refresh: () => void;
@@ -90,6 +97,8 @@ export function useStudyListQuery({
           total: Number.isFinite(studies?.lexTotal) ? studies.lexTotal : null,
           hasMore: Boolean(studies?.lexHasMore),
           sortScope: studies?.lexSortScope === 'page' ? 'page' : 'global',
+          partial: Boolean(studies?.lexPartial),
+          index: studies?.lexIndex ?? null,
         });
         log.timeEnd(Enums.TimingEnum.SCRIPT_TO_VIEW);
         log.timeEnd(Enums.TimingEnum.SEARCH_TO_LIST);
@@ -155,12 +164,26 @@ export function useStudyListQuery({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, location, params, isLoading, dataSource, isDataSourceInitialized, lexTextVersion]);
 
+  // Enquanto o índice prepara, consulta de novo a cada 3 s (sem limpar a lista atual).
+  useEffect(() => {
+    if (!data.partial || isLoading) {
+      return;
+    }
+    const timer = window.setTimeout(
+      () => setData(prev => ({ ...prev, queryFilterValues: null })),
+      LEX_INDEX_POLL_MS
+    );
+    return () => window.clearTimeout(timer);
+  }, [data, isLoading]);
+
   return {
     studies: data.studies,
     serverPaging: Boolean(dataSource?.getConfig?.()?.lexWorklistApi),
     total: data.total,
     hasMore: data.hasMore,
     sortScope: data.sortScope,
+    partial: data.partial,
+    index: data.index,
     isLoading,
     hasFetchedOnce,
     refresh,

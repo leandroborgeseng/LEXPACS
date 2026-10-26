@@ -55,5 +55,5 @@ NG
 for i in $(seq 1 30); do curl -fs http://127.0.0.1:18180/api/health >/dev/null && break; sleep 1; done
 
 LEX_IT_GATEWAY=http://127.0.0.1:18100 LEX_IT_ACCESS_LOG="$IT/nginx/access.log" LEX_IT_ORTHANC=http://127.0.0.1:18142 \
-LEX_IT_ORTHANC_AUTH="leitor:$OPW" LEX_IT_N="$N" LEX_IT_ROOT="$ROOT" \
+LEX_IT_ORTHANC_AUTH="leitor:$OPW" LEX_IT_N="$N" LEX_IT_ROOT="$ROOT" LEX_IT_INDEX_PATH="$IT/data/worklist_index.db" \
   python3 -m pytest -q -s "$ROOT/lex-pacs-portal/tests/integration" -p no:cacheprovider

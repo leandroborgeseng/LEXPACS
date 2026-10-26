@@ -13,6 +13,7 @@ os.environ.setdefault("JWT_SECRET", "test-secret-nao-usar-em-producao-123456")
 os.environ.setdefault("LEX_ADMIN_USER", "admin")
 os.environ.setdefault("LEX_ADMIN_PASSWORD", "Senha-Inicial-123")
 os.environ.setdefault("LOGIN_RATE_LIMIT_ATTEMPTS", "10000")
+os.environ.setdefault("WORKLIST_INDEX_AUTOSTART", "false")  # sem thread contra o Orthanc fictício
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
