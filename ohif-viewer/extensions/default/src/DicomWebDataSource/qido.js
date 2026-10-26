@@ -25,6 +25,7 @@
 import { DICOMWeb, utils } from '@ohif/core';
 import { sortStudySeries } from '@ohif/core/src/utils/sortStudy';
 import { exactQuery, patientNameQuery, textWildcardQuery } from './lexQidoFilters';
+import { lexFormatPN } from './lexWorklistApi.js';
 
 const { getString, getName, getModalities } = DICOMWeb;
 
@@ -52,7 +53,7 @@ function processResults(qidoStudies) {
       time: getString(qidoStudy['00080030']), // HHmmss.SSS (24-hour, minutes, seconds, fractional seconds)
       accession: getString(qidoStudy['00080050']) || '', // short string, probably a number?
       mrn: getString(qidoStudy['00100020']) || '', // medicalRecordNumber
-      patientName: utils.formatPN(getName(qidoStudy['00100010'])) || '',
+      patientName: lexFormatPN(getName(qidoStudy['00100010'])) || '',
       instances: Number(getString(qidoStudy['00201208'])) || 0, // number
       description: getString(qidoStudy['00081030']) || '',
       modalities: getString(getModalities(qidoStudy['00080060'], qidoStudy['00080061'])) || '',

@@ -72,7 +72,18 @@ export function createDefaultColumns(): ColumnDef<StudyRow, unknown>[] {
         return r.patientName ?? '';
       },
       header: ({ column }) => <DataTable.ColumnHeader column={column} />,
-      cell: ({ row }) => <div className="truncate">{row.getValue(COLUMN_IDS.PATIENT)}</div>,
+      cell: ({ row }) => {
+        // VW5: nome completo no tooltip; cortado com "…" na célula.
+        const name = String(row.getValue(COLUMN_IDS.PATIENT) ?? '');
+        return (
+          <div
+            className="truncate"
+            title={name || undefined}
+          >
+            {name}
+          </div>
+        );
+      },
       meta: {
         label: studyListLabel('PatientName'),
         headerClassName: 'min-w-[165px]',
@@ -88,7 +99,7 @@ export function createDefaultColumns(): ColumnDef<StudyRow, unknown>[] {
         return r.mrn ?? '';
       },
       header: ({ column }) => <DataTable.ColumnHeader column={column} />,
-      cell: ({ row }) => <div className="truncate">{row.getValue(COLUMN_IDS.MRN)}</div>,
+      cell: ({ row }) => <div className="lex-num truncate">{row.getValue(COLUMN_IDS.MRN)}</div>,
       meta: {
         label: studyListLabel('MRN'),
         headerClassName: 'min-w-[120px]',
@@ -136,7 +147,7 @@ export function createDefaultColumns(): ColumnDef<StudyRow, unknown>[] {
       },
       header: ({ column }) => <DataTable.ColumnHeader column={column} />,
       cell: ({ row }) => {
-        return <div className="truncate">{row.getValue(COLUMN_IDS.STUDY_DATE_TIME)}</div>;
+        return <div className="lex-num truncate">{row.getValue(COLUMN_IDS.STUDY_DATE_TIME)}</div>;
       },
       sortingFn: (a, b) => {
         const aRow = a.original as StudyRow;
@@ -208,7 +219,7 @@ export function createDefaultColumns(): ColumnDef<StudyRow, unknown>[] {
         return r.accession ?? '';
       },
       header: ({ column }) => <DataTable.ColumnHeader column={column} />,
-      cell: ({ row }) => <div className="truncate">{row.getValue(COLUMN_IDS.ACCESSION)}</div>,
+      cell: ({ row }) => <div className="lex-num truncate">{row.getValue(COLUMN_IDS.ACCESSION)}</div>,
       meta: {
         label: studyListLabel('AccessionNumber'),
         headerClassName: 'min-w-[140px]',
@@ -226,7 +237,7 @@ export function createDefaultColumns(): ColumnDef<StudyRow, unknown>[] {
       header: ({ column }) => <DataTable.ColumnHeader column={column} />,
       cell: ({ row }) => {
         const value = row.getValue(COLUMN_IDS.INSTANCES) as number;
-        return <div className="text-right">{value}</div>;
+        return <div className="lex-num text-right">{value}</div>;
       },
       sortingFn: (a, b, colId) => (a.getValue(colId) as number) - (b.getValue(colId) as number),
       meta: {

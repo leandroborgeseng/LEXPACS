@@ -319,3 +319,4 @@ export {
   SmartScrollbarEndpoints,
   useByteArray,
 };
+export { lexShowSearching, lexSortNote, lexIndexingMessage, LEX_INDEX_ERROR_MESSAGE, lexRetryLabel, LEX_SEARCHING_DELAY_MS } from './DataTable/lexPaginationLabel';

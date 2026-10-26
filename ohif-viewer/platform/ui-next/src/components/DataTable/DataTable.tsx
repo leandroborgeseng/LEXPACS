@@ -31,6 +31,7 @@ import { DataTableContext, DataTableContextValue, useDataTable } from './context
 import { Toolbar } from './Toolbar';
 import { Title } from './Title';
 import { Pagination } from './Pagination';
+import { lexPageCount } from './lexPaginationLabel';
 import { ViewOptions } from './ViewOptions';
 import { ActionOverlayCell } from './ActionOverlayCell';
 import { FilterRow } from './FilterRow';
@@ -64,6 +65,14 @@ export type DataTableProps<TData> = {
   onPaginationChange?: OnChangeFn<PaginationState>;
   onFiltersChange?: OnChangeFn<ColumnFiltersState>;
   manualFiltering?: boolean;
+  /** LEX PACS: paginação no servidor; `data` já é a página atual. */
+  manualPagination?: boolean;
+  /** Total de linhas no servidor (null = desconhecido). */
+  rowCount?: number | null;
+  /** Sem total: se há próxima página no servidor. */
+  hasMore?: boolean;
+  /** Nota de ordenação no rodapé (ex.: "Ordenado por data dentro da página"). */
+  sortNote?: string | null;
   enforceSingleSelection?: boolean;
   onSelectionChange?: (rows: TData[]) => void;
   children: ReactNode;
@@ -85,6 +94,10 @@ function DataTableRoot<TData>({
   onPaginationChange,
   onFiltersChange,
   manualFiltering = false,
+  manualPagination = false,
+  rowCount = null,
+  hasMore = false,
+  sortNote = null,
   enforceSingleSelection = true,
   onSelectionChange,
   children,
@@ -106,6 +119,18 @@ function DataTableRoot<TData>({
     getFilteredRowModel: manualFiltering ? undefined : getFilteredRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
     manualFiltering,
+    manualPagination,
+    ...(manualPagination
+      ? {
+          pageCount: lexPageCount({
+            pageIndex: pagination.pageIndex,
+            pageSize: pagination.pageSize,
+            total: rowCount,
+            hasMore,
+          }),
+          meta: { lexServerPaging: { total: rowCount, hasMore, sortNote } },
+        }
+      : {}),
     enableRowSelection: true,
     enableMultiRowSelection: !enforceSingleSelection,
     getRowId,
@@ -330,6 +355,8 @@ type RowProps<TData> = {
   render?: (row: Row<TData>) => ReactNode;
   onClick?: (row: Row<TData>) => void;
   onDoubleClick?: (row: Row<TData>) => void;
+  /** LEX PACS: teclado na linha (Enter abre). */
+  onKeyDown?: (row: Row<TData>, event: React.KeyboardEvent) => void;
   className?: string | ((row: Row<TData>) => string);
 };
 
@@ -417,6 +444,10 @@ function Body<TData>({
             {...(rowProps?.onClick && { onClick: () => rowProps.onClick(row) })}
             {...(rowProps?.onDoubleClick && {
               onDoubleClick: () => rowProps.onDoubleClick(row),
+            })}
+            {...(rowProps?.onKeyDown && {
+              tabIndex: 0,
+              onKeyDown: (event: React.KeyboardEvent) => rowProps.onKeyDown(row, event),
             })}
             aria-selected={row.getIsSelected()}
           >

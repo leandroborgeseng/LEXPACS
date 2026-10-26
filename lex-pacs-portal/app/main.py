@@ -38,6 +38,7 @@ from . import local_users
 from .users import router as users_router
 from .config import settings
 from .reports import router as reports_router
+from .worklist import router as worklist_router
 from .laudos_feature import is_laudo_path, laudos_habilitados, laudos_visiveis_para
 from .bootstrap import bootstrap_runtime_files
 from .hl7_mllp import start_hl7_mllp_server
@@ -65,6 +66,7 @@ app = FastAPI(
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 app.include_router(admin_router)
 app.include_router(reports_router)
+app.include_router(worklist_router)
 
 
 @app.middleware("http")
@@ -83,6 +85,12 @@ async def on_startup() -> None:
     local_users.init_db()
     if local_users.bootstrap_admin():
         log_event("user_bootstrap_admin", "bootstrap", target=settings.lex_admin_user.strip().lower())
+    # Índice da lista de exames: carga inicial/incremental numa thread em segundo plano, com lock
+    # (só leitura do Orthanc). A busca nunca espera por ela.
+    if settings.orthanc_url and settings.worklist_index_autostart:
+        from . import worklist_index
+
+        worklist_index.start_background()
     if settings.orthanc_external_readonly:
         # V2/V4: Orthanc externo (prefeitura) — nada que grave config, plugins ou dados nele.
         return

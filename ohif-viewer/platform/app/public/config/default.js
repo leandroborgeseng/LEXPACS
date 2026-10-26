@@ -30,6 +30,8 @@ window.config = {
         supportsFuzzyMatching: false,
         // LEX PACS: curinga no nome (mín. 3 letras, sem acento) — ver lexQidoFilters.js
         supportsWildcard: true,
+        // LEX PACS: lista paginada no servidor + busca sem acento (lex-pacs-portal/app/worklist.py)
+        lexWorklistApi: '/clinica-api/worklist/studies',
         staticWado: false,
         singlepart: 'bulkdata,video,pdf',
         acceptHeader: [
