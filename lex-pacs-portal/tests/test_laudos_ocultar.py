@@ -143,13 +143,13 @@ def test_ld1_ld4_me_informa_laudos_visivel(desligado):
         assert r.status_code == 200 and r.json()["laudos_visivel"] is False, prof
 
 
-def test_ld4_ligado_so_can_draft_ou_can_sign(ligado, laudos_existentes):
-    esperado = {"admin": True, "medico": True, "tecnico": True, "recepcao": False}
+def test_ld4_ligado_so_can_sign(ligado, laudos_existentes):
+    esperado = {"admin": True, "medico": True, "tecnico": False, "recepcao": False}
     for prof, pode in esperado.items():
         c = _session(prof)
         perms = c.get("/api/auth/clinical/me").json()
         assert perms["laudos_visivel"] is pode, prof
-        assert pode == bool(perms["permissions"]["can_draft"] or perms["permissions"]["can_sign"])
+        assert pode == bool(perms["permissions"]["can_sign"])
         r = c.get(f"/api/reports/{UIDS[0]}")
         if pode:
             assert r.status_code == 200, (prof, r.text)
@@ -189,3 +189,10 @@ def test_traefik_todo_router_sem_access_log():
     for r in routers:
         assert f'"traefik.http.routers.{r}.observability.accesslogs=false"' in compose, r
     assert "accesslogs=true" not in compose
+
+
+def test_traefik_entrypoints_e_certresolver():
+    compose = (ROOT / "docker-compose.coolify.yml").read_text(encoding="utf-8")
+    assert '"traefik.http.routers.lexpacs-http.entrypoints=http"' in compose
+    assert '"traefik.http.routers.lexpacs-https.entrypoints=https"' in compose
+    assert '"traefik.http.routers.lexpacs-https.tls.certresolver=letsencrypt"' in compose

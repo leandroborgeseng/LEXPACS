@@ -2,7 +2,7 @@
 
 Desligado: toda rota de laudo responde 404 (clínica e paciente, qualquer método),
 antes de autenticação, sem tocar nos arquivos de laudo (nada é apagado — LD3).
-Ligado: rotas clínicas de laudo exigem can_draft ou can_sign (403 para os demais).
+Ligado: rotas clínicas de laudo exigem can_sign (403 para os demais, inclusive técnico).
 """
 from __future__ import annotations
 
@@ -31,8 +31,8 @@ def is_laudo_path(path: str) -> bool:
 
 
 def pode_laudar(user: ClinicalUser) -> bool:
-    perms = clinical_permissions(user)
-    return bool(perms.get("can_draft") or perms.get("can_sign"))
+    # LD4 (TL 26/10): só quem assina (médico/admin); técnico fica de fora mesmo com can_draft.
+    return bool(clinical_permissions(user).get("can_sign"))
 
 
 def laudos_visiveis_para(user: ClinicalUser) -> bool:

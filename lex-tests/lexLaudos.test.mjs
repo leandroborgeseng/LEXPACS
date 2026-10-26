@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 const src = readFileSync(new URL('../ohif-viewer/modes/basic/src/lexLaudos.ts', import.meta.url), 'utf8');
 // Remove as anotações de tipo (TS mínimo) e carrega como módulo JS.
 const js = src
-  .replace(/applyLaudosVisibility<[^(]*\(/, 'applyLaudosVisibility(')
+  .replace(/applyLaudosVisibility<[\s\S]*?>\(/, 'applyLaudosVisibility(')
   .replace(/\(\s*layout: T\s*\): Promise<T>/, '(layout)')
   .replace(/\): Promise<boolean>/g, ')')
   .replace(/\(panels: string\[\] = \[\], visivel: boolean\): string\[\]/, '(panels = [], visivel)');
@@ -42,4 +42,15 @@ test('LD1: modos com lexReport passam pelo filtro e o painel se esconde sozinho'
   assert.match(longi, /\.\.\.basicRoute/);
   assert.doesNotMatch(longi, /layoutTemplate\s*[:(]/);
   assert.match(read('extensions/default/src/Panels/PanelLexReport.tsx'), /if \(!laudosVisivel\) \{\s*return null;/);
+});
+
+test('LD1: lexReport como único painel => sem painel direito, sem seta (rightPanelClosed)', async () => {
+  globalThis.fetch = async () => ({ ok: true, json: async () => ({ laudos_visivel: false }) });
+  const out = await mod.applyLaudosVisibility({ props: { rightPanels: [PANEL], rightPanelClosed: false } });
+  assert.deepEqual(out.props.rightPanels, []);
+  assert.equal(out.props.rightPanelClosed, true);
+  // ViewerLayout só renderiza o SidePanel direito (botão/ícone/seta/espaço) se houver painéis.
+  const vl = readFileSync(new URL('../ohif-viewer/extensions/default/src/ViewerLayout/index.tsx', import.meta.url), 'utf8');
+  assert.match(vl, /\{hasRightPanels \? \(/);
+  assert.match(vl, /useState\(hasPanels\('right'\)\)/);
 });
