@@ -218,3 +218,14 @@ def test_lx12_cores_de_anotacao_intocadas():
     # As cores de anotação/medidas do Cornerstone vêm da config de ferramentas, não dos tokens CSS.
     tw = TW.read_text(encoding="utf-8")
     assert "annotation" not in tw.lower() and "measurement" not in tw.lower()
+
+
+def test_lx9_lx6_foco_brand_e_mono_tabular_no_claro_do_viewer():
+    css = TW.read_text(encoding="utf-8")
+    assert re.search(
+        r"\[data-theme='light'\] :is\([^)]*\):focus-visible \{\s*outline: 2px solid #0066cc;",
+        css,
+    )
+    assert re.search(
+        r"\[data-theme='light'\] \.lex-num \{[^}]*IBM Plex Mono[^}]*tabular-nums", css
+    )
