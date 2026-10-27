@@ -45,6 +45,8 @@ class FakeOrthanc:
         self.studies = list(studies)
         self.changes = []
         self.calls = []
+        self.limit_find = None  # simula LimitFindResults do Orthanc (corta cada consulta)
+        self.extra_count = 0  # /statistics conta estudos que o QIDO não devolve
 
     def add(self, s):
         self.studies.append(s)
@@ -68,6 +70,8 @@ class FakeOrthanc:
                 rows = [s for s in self.studies if s["uid"] in uids]
             else:
                 off, lim = int(qs.get("offset", 0)), int(qs.get("limit", 101))
+                if self.limit_find:
+                    lim = min(lim, self.limit_find)
                 rows = self.studies[off: off + lim]
             return httpx.Response(200, json=[_dicom(s) for s in rows])
         if path == "/changes":
@@ -78,7 +82,7 @@ class FakeOrthanc:
             last = chunk[-1]["Seq"] if chunk else since
             return httpx.Response(200, json={"Changes": chunk, "Done": last >= len(self.changes), "Last": last})
         if path == "/statistics":
-            return httpx.Response(200, json={"CountStudies": len(self.studies)})
+            return httpx.Response(200, json={"CountStudies": len(self.studies) + self.extra_count})
         if path.startswith("/studies/"):
             oid = path.rsplit("/", 1)[1]
             for s in self.studies:
@@ -225,7 +229,7 @@ class SlowOrthanc(FakeOrthanc):
         if request.url.path == "/changes" and "last" in qs:
             self.loads += 1
         if request.url.path == "/statistics":
-            return httpx.Response(200, json={"CountStudies": len(self.studies)})
+            return httpx.Response(200, json={"CountStudies": len(self.studies) + self.extra_count})
         if request.url.path == "/dicom-web/studies" and qs.get("offset", ["0"])[0] != "0" and "StudyInstanceUID" not in qs:
             self.first_batch.set()
             self.gate.wait(10)
@@ -385,3 +389,70 @@ def test_indice_vazio_com_orthanc_cheio_reconstroi_sozinho(raw_orthanc):
     worklist_index.start_background().join(10)
     r = _run()
     assert r["index"]["status"] == "ready" and r["total"] == len(estudos)
+
+
+MUITOS = [_mk(5000 + i, f"ZZTESTE^MARIA {i:05d}", f"SINT-LIM-{i:05d}", "20240101") for i in range(300)]
+
+
+def _meta(key):
+    conn = worklist_index.connect()
+    try:
+        return worklist_index._meta_get(conn, key)
+    finally:
+        conn.close()
+
+
+@pytest.mark.parametrize("corte", [100, 101])
+def test_carga_aguenta_limitfindresults_do_orthanc(raw_orthanc, corte):
+    """Orthanc corta cada consulta em 100/101 (LimitFindResults): a carga indexa TODOS."""
+    raw_orthanc.studies = list(MUITOS)
+    raw_orthanc.limit_find = corte
+    worklist_index.start_background().join(20)
+    st = worklist_index.state()
+    assert st["status"] == "ready" and st["indexed"] == st["total"] == 300
+    assert worklist_index._count_index() == 300 and _meta("full_load_done") == "1"
+    r = _run(patientName="maria", limit=50, offset=250)
+    assert r["total"] == 300 and len(r["studies"]) == 50
+
+
+def test_carga_incompleta_nao_fica_ready_nem_grava_full_load_done(raw_orthanc, monkeypatch):
+    raw_orthanc.studies = list(MUITOS)
+    raw_orthanc.limit_find = 100
+    raw_orthanc.extra_count = 7  # /statistics diz 307, o QIDO só entrega 300
+    monkeypatch.setattr(worklist_index, "_last_attempt", None)
+    worklist_index.start_background().join(20)
+    st = worklist_index.state()
+    assert st["status"] == "incomplete" and st["indexed"] == 300 and st["total"] == 307
+    assert _meta("full_load_done") is None
+    r = _run()
+    assert r["index"]["status"] == "incomplete" and r["partial"] is False
+    assert r["index"]["indexed"] == 300 and r["index"]["total"] == 307
+
+
+def test_startup_reconstroi_indice_antigo_cortado_em_101(raw_orthanc):
+    """Produção hoje: índice gravado com full_load_done e só 101 estudos; o Orthanc tem 300."""
+    raw_orthanc.studies = list(MUITOS)
+    conn = worklist_index.connect()
+    vals = [worklist_index.row_from_qido(_dicom(x)) for x in MUITOS[:101]]
+    conn.executemany(worklist_index.UPSERT, vals)
+    worklist_index._meta_set(conn, "changes_seq", len(raw_orthanc.changes))
+    worklist_index._meta_set(conn, "full_load_done", 1)
+    conn.commit()
+    conn.close()
+    assert worklist_index.is_ready() and worklist_index._count_index() == 101
+    raw_orthanc.limit_find = 100
+    worklist_index.start_background().join(20)
+    st = worklist_index.state()
+    assert st["status"] == "ready" and worklist_index._count_index() == 300 and st["total"] == 300
+    assert _run(patientId="SINT-LIM-00299")["total"] == 1
+
+
+def test_incremental_e_rebuild_com_limite_do_orthanc(raw_orthanc):
+    raw_orthanc.studies = list(MUITOS)
+    raw_orthanc.limit_find = 100
+    worklist_index.start_background().join(20)
+    raw_orthanc.add(_mk(9999, "ZZTESTE^NOVO", "SINT-NOVO", "20261026"))
+    asyncio.run(worklist_index.sync_on_request())
+    assert worklist_index._count_index() == 301
+    worklist_index.start_background(rebuild=True).join(20)
+    assert worklist_index._count_index() == 301 and worklist_index.state()["status"] == "ready"
