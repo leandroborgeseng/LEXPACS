@@ -92,7 +92,7 @@ _state = {"status": "idle", "indexed": 0, "total": None}
 def retry_in_seconds() -> int:
     """Quanto falta para poder tentar a carga de novo (0 = já pode). Só vale em erro."""
     with _state_lock:
-        if _state["status"] != "error" or _last_attempt is None:
+        if _state["status"] not in ("error", "incomplete") or _last_attempt is None:
             return 0
         left = settings.worklist_index_retry_seconds - (time.monotonic() - _last_attempt)
     return max(0, int(left + 0.999))
@@ -101,7 +101,7 @@ def retry_in_seconds() -> int:
 def state() -> dict:
     with _state_lock:
         st = dict(_state)
-    st["retryInSeconds"] = retry_in_seconds() if st["status"] == "error" else 0
+    st["retryInSeconds"] = retry_in_seconds() if st["status"] in ("error", "incomplete") else 0
     return st
 
 
@@ -191,21 +191,34 @@ async def full_load(client: httpx.AsyncClient) -> int:
     _set_state(status="indexing", indexed=0, total=total)
     conn = connect()
     try:
-        offset = n = 0
+        # O Orthanc pode cortar cada consulta em LimitFindResults (ex.: 100) mesmo pedindo BATCH:
+        # avança o offset pelo que veio de fato e só para com lote vazio (ou sem nada novo, caso
+        # o servidor ignore o offset).
+        offset = 0
+        seen: set[str] = set()
         while True:
             rows = await _qido(client, {"limit": BATCH, "offset": offset, "includefield": QIDO_FIELDS})
+            if not rows:
+                break
             vals = [v for v in (row_from_qido(s) for s in rows) if v]
+            novos = {v[0] for v in vals} - seen
             conn.executemany(UPSERT, vals)
             conn.commit()  # cada lote já fica visível para busca parcial
-            n += len(vals)
-            _set_state(indexed=n)
-            if len(rows) < BATCH:
+            seen |= novos
+            _set_state(indexed=len(seen))
+            if not novos:
                 break
-            offset += BATCH
+            offset += len(rows)
+        n = conn.execute("SELECT COUNT(*) FROM worklist_study").fetchone()[0]
+        if total is not None and n < total:
+            # Incompleto: NÃO grava full_load_done (o próximo startup recarrega) e não finge "ready".
+            _set_state(status="incomplete", indexed=n, total=total)
+            print(f"worklist_index: carga incompleta, {n} de {total} estudos")
+            return n
         _meta_set(conn, "changes_seq", checkpoint)
         _meta_set(conn, "full_load_done", 1)
         conn.commit()
-        _set_state(status="ready", indexed=n, total=max(n, total or 0))
+        _set_state(status="ready", indexed=n, total=total if total is not None else n)
         print(f"worklist_index: carga inicial de {n} estudos em {time.perf_counter() - t0:.1f} s")
         return n
     finally:
@@ -255,30 +268,43 @@ _sync_lock = threading.Lock()
 _bg_thread: threading.Thread | None = None
 
 
-async def _empty_index_but_orthanc_has_studies(client: httpx.AsyncClient) -> bool:
-    """Índice pronto com 0 estudos e Orthanc com estudos (ex.: seed de homologação depois da
-    primeira carga, /changes podado): reconstrói sozinho, sem ninguém apagar o arquivo."""
+def _count_index() -> int:
     conn = connect()
     try:
-        n = conn.execute("SELECT COUNT(*) FROM worklist_study").fetchone()[0]
+        return conn.execute("SELECT COUNT(*) FROM worklist_study").fetchone()[0]
     finally:
         conn.close()
-    if n:
-        return False
-    r = await client.get(f"{_base()}/statistics")
-    r.raise_for_status()
-    return int(r.json().get("CountStudies", 0) or 0) > 0
 
 
-async def _run_sync(full: bool) -> None:
+async def _orthanc_count(client: httpx.AsyncClient) -> int | None:
+    try:
+        r = await client.get(f"{_base()}/statistics")
+        r.raise_for_status()
+        return int(r.json().get("CountStudies", 0) or 0)
+    except (httpx.HTTPError, ValueError, TypeError):
+        return None
+
+
+async def _run_sync(full: bool, check_complete: bool = False) -> None:
+    """check_complete (startup/rebuild): depois do incremental, se o índice tiver menos estudos
+    que o Orthanc (ex.: carga antiga cortada pelo LimitFindResults e marcada como pronta),
+    reconstrói sozinho, sem ninguém apagar o worklist_index.db."""
     async with httpx.AsyncClient(timeout=120.0, auth=settings.orthanc_auth) as client:
-        if not full and await _empty_index_but_orthanc_has_studies(client):
-            _clear_index()
-            _set_state(status="indexing", indexed=0, total=None)
-            full = True
         if full:
             await full_load(client)
+            if state()["status"] == "incomplete":
+                return
         await incremental(client)
+        if check_complete and not full:
+            total = await _orthanc_count(client)
+            if total is not None and _count_index() < total:
+                print(f"worklist_index: índice com {_count_index()} de {total} estudos, reconstruindo")
+                _clear_index()
+                _set_state(status="indexing", indexed=0, total=total)
+                await full_load(client)
+                if state()["status"] == "incomplete":
+                    return
+                await incremental(client)
 
 
 def _clear_index() -> None:
@@ -299,14 +325,12 @@ def _background_full(rebuild: bool = False) -> None:
             if rebuild:
                 _clear_index()
             if is_ready():
-                _set_state(status="ready")
-                asyncio.run(_run_sync(full=False))
+                asyncio.run(_run_sync(full=False, check_complete=True))
             else:
                 asyncio.run(_run_sync(full=True))
-            conn = connect()
-            n = conn.execute("SELECT COUNT(*) FROM worklist_study").fetchone()[0]
-            conn.close()
-            _set_state(status="ready", indexed=n, total=n)
+            if state()["status"] != "incomplete":
+                n = _count_index()
+                _set_state(status="ready", indexed=n, total=n)
         except Exception as exc:  # sem PII: só o tipo
             _set_state(status="error")
             print(f"worklist_index: sincronização falhou ({type(exc).__name__})")
@@ -324,7 +348,7 @@ def start_background(rebuild: bool = False) -> threading.Thread | None:
         if _bg_thread and _bg_thread.is_alive():
             return _bg_thread
         now = time.monotonic()
-        if (not rebuild and _state["status"] == "error" and _last_attempt is not None
+        if (not rebuild and _state["status"] in ("error", "incomplete") and _last_attempt is not None
                 and now - _last_attempt < settings.worklist_index_retry_seconds):
             return None
         _last_attempt = now
@@ -345,10 +369,9 @@ async def sync_on_request() -> dict:
             await _run_sync(full=False)
         finally:
             _sync_lock.release()
-    conn = connect()
-    n = conn.execute("SELECT COUNT(*) FROM worklist_study").fetchone()[0]
-    conn.close()
-    _set_state(status="ready", indexed=n, total=n)
+    if state()["status"] == "ready":
+        n = _count_index()
+        _set_state(indexed=n, total=n)
     return state()
 
 

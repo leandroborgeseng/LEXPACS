@@ -19,6 +19,8 @@ server {
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
     add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
     add_header Strict-Transport-Security $lex_hsts_header always;
+    # Cache do viewer: ver map $lex_viewer_cache_control em 00-lex-security.conf (vazio = sem cabeçalho).
+    add_header Cache-Control $lex_viewer_cache_control always;
     add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' blob:; worker-src 'self' blob:; frame-ancestors 'self'; base-uri 'self'; form-action 'self'" always;
 
     # Assets compartilhados (portal + login clínico)
@@ -233,7 +235,8 @@ server {
         proxy_pass http://$lex_upstream_viewer:80;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        add_header Cache-Control "public, max-age=31536000, immutable";
+        # Cache-Control vem do map (immutable só com hash; app-config.js/sw.js/manifest: no-cache).
+        proxy_hide_header Cache-Control;
     }
 
     location /viewer/ {
@@ -246,6 +249,7 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header Cookie $http_cookie;
         proxy_set_header Authorization $http_authorization;
+        proxy_hide_header Cache-Control;
     }
 
     location = /viewer {
@@ -257,6 +261,7 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header Cookie $http_cookie;
         proxy_set_header Authorization $http_authorization;
+        proxy_hide_header Cache-Control;
     }
 
     location = / {
