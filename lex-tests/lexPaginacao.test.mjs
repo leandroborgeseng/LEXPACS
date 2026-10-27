@@ -171,3 +171,18 @@ test('StudyList.Table (Layout) repassa paginação no servidor, banners e mensag
     assert.match(src, new RegExp(`${prop}=\\{${prop}\\}`), prop);
   }
 });
+
+test('#9 ressalva 3: aviso não bloqueante quando o índice está incomplete', async () => {
+  const m = await import('../ohif-viewer/platform/ui-next/src/components/DataTable/lexPaginationLabel.js');
+  assert.equal(m.LEX_INDEX_INCOMPLETE_MESSAGE, 'Índice em atualização: alguns exames podem ainda não aparecer.');
+  assert.equal(m.lexShowIndexIncomplete({ status: 'incomplete' }), true);
+  for (const st of ['ready', 'indexing', 'error', undefined]) {
+    assert.equal(m.lexShowIndexIncomplete({ status: st }), false);
+  }
+  assert.equal(m.lexShowIndexIncomplete(null), false);
+  const wl = read('platform/app/src/routes/WorkList/WorkList.tsx');
+  // aria-live, role=status (não alert) e a lista continua renderizada (não é emptyMessage)
+  assert.match(wl, /lexShowIndexIncomplete\(dataIndex\) \? \(\s*<div\s*role="status"\s*aria-live="polite"/);
+  assert.match(wl, /\{LEX_INDEX_INCOMPLETE_MESSAGE\}/);
+  assert.doesNotMatch(wl, /emptyMessage=\{[^}]*INCOMPLETE/);
+});

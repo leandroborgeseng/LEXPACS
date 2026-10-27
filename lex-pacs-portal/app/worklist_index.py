@@ -71,10 +71,16 @@ def index_path() -> Path:
     return Path(settings.local_users_db_path).with_name("worklist_index.db")
 
 
-def connect() -> sqlite3.Connection:
+def shadow_path() -> Path:
+    """Base-sombra da reconstrução: mesma pasta (mesmo volume) para o os.replace ser atômico."""
+    p = index_path()
+    return p.with_name(p.name + ".shadow")
+
+
+def connect(path: Path | None = None) -> sqlite3.Connection:
     """Abre o índice. O arquivo nasce 0600 (só o usuário do portal) e fica no volume do portal,
     que o gateway nginx não monta: não há como servi-lo por HTTP."""
-    path = index_path()
+    path = Path(path) if path else index_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     if not path.exists():
         os.close(os.open(path, os.O_CREAT | os.O_WRONLY, 0o600))
@@ -98,10 +104,20 @@ def retry_in_seconds() -> int:
     return max(0, int(left + 0.999))
 
 
+def next_auto_retry_in_seconds() -> int | None:
+    """Segundos até a próxima tentativa automática (None = nenhuma agendada)."""
+    with _state_lock:
+        if _next_retry_at is None:
+            return None
+        left = _next_retry_at - time.monotonic()
+    return max(0, int(left + 0.999))
+
+
 def state() -> dict:
     with _state_lock:
         st = dict(_state)
     st["retryInSeconds"] = retry_in_seconds() if st["status"] in ("error", "incomplete") else 0
+    st["nextAutoRetryInSeconds"] = next_auto_retry_in_seconds() if st["status"] in ("error", "incomplete") else None
     return st
 
 
@@ -175,8 +191,9 @@ async def _qido(client: httpx.AsyncClient, params: dict) -> list[dict]:
     return r.json() if r.status_code == 200 and r.text.strip() else []
 
 
-async def full_load(client: httpx.AsyncClient) -> int:
-    """Carga inicial (só GET). O checkpoint é o /changes de ANTES da carga, para não perder nada."""
+async def full_load(client: httpx.AsyncClient, path: Path | None = None) -> int:
+    """Carga inicial (só GET). O checkpoint é o /changes de ANTES da carga, para não perder nada.
+    path: base de destino (padrão: o índice em uso; na reconstrução, a base-sombra)."""
     r = await client.get(f"{_base()}/changes", params={"last": ""})
     r.raise_for_status()
     checkpoint = int(r.json().get("Last", 0))
@@ -189,7 +206,7 @@ async def full_load(client: httpx.AsyncClient) -> int:
     except (httpx.HTTPError, ValueError, TypeError):
         total = None
     _set_state(status="indexing", indexed=0, total=total)
-    conn = connect()
+    conn = connect(path)
     try:
         # O Orthanc pode cortar cada consulta em LimitFindResults (ex.: 100) mesmo pedindo BATCH:
         # avança o offset pelo que veio de fato e só para com lote vazio (ou sem nada novo, caso
@@ -285,13 +302,20 @@ async def _orthanc_count(client: httpx.AsyncClient) -> int | None:
         return None
 
 
-async def _run_sync(full: bool, check_complete: bool = False) -> None:
-    """check_complete (startup/rebuild): depois do incremental, se o índice tiver menos estudos
-    que o Orthanc (ex.: carga antiga cortada pelo LimitFindResults e marcada como pronta),
-    reconstrói sozinho, sem ninguém apagar o worklist_index.db."""
+async def _run_sync(full: bool, check_complete: bool = False, rebuild: bool = False) -> None:
+    """check_complete (startup): depois do incremental, se o índice tiver menos estudos que o
+    Orthanc (ex.: carga antiga cortada pelo LimitFindResults e marcada como pronta), reconstrói
+    sozinho. rebuild: reconstrução explícita. Toda reconstrução com índice já preenchido carrega
+    numa base-sombra e troca atomicamente no fim: a busca continua com os dados antigos."""
     async with httpx.AsyncClient(timeout=120.0, auth=settings.orthanc_auth) as client:
+        if rebuild:
+            await _shadow_rebuild(client)
+            return
         if full:
-            await full_load(client)
+            if _count_index() > 0:
+                await _shadow_rebuild(client)
+                return
+            await full_load(client)  # índice vazio: carrega direto (resultado parcial visível)
             if state()["status"] == "incomplete":
                 return
         await incremental(client)
@@ -299,32 +323,46 @@ async def _run_sync(full: bool, check_complete: bool = False) -> None:
             total = await _orthanc_count(client)
             if total is not None and _count_index() < total:
                 print(f"worklist_index: índice com {_count_index()} de {total} estudos, reconstruindo")
-                _clear_index()
-                _set_state(status="indexing", indexed=0, total=total)
-                await full_load(client)
-                if state()["status"] == "incomplete":
-                    return
-                await incremental(client)
+                await _shadow_rebuild(client)
 
 
-def _clear_index() -> None:
-    """Reconstrução: o índice é só cache (a origem é o Orthanc), então limpa linhas e checkpoint
-    numa transação única antes de recarregar. Estudo removido do Orthanc não volta."""
-    conn = connect()
+def _drop_shadow() -> None:
+    for suffix in ("", "-journal", "-wal", "-shm"):
+        p = Path(str(shadow_path()) + suffix)
+        if p.exists():
+            p.unlink()
+
+
+async def _shadow_rebuild(client: httpx.AsyncClient) -> None:
+    """Carrega o acervo inteiro na base-sombra e só então troca (os.replace, atômico no mesmo
+    volume). Conexões abertas terminam a leitura no arquivo antigo; as novas já veem o novo.
+    Carga incompleta: troca só se a sombra tiver MAIS estudos que o índice atual (sem marcar
+    full_load_done); senão descarta a sombra e a busca segue com o índice antigo."""
+    _drop_shadow()
+    shadow = shadow_path()
     try:
-        with conn:
-            conn.execute("DELETE FROM worklist_study")
-            conn.execute("DELETE FROM worklist_meta WHERE key IN ('full_load_done', 'changes_seq')")
+        await full_load(client, shadow)
+        complete = state()["status"] != "incomplete"
+        conn = connect(shadow)
+        try:
+            n_shadow = conn.execute("SELECT COUNT(*) FROM worklist_study").fetchone()[0]
+        finally:
+            conn.close()
+        if complete or n_shadow > _count_index():
+            os.chmod(shadow, 0o600)
+            os.replace(shadow, index_path())
+        if complete:
+            await incremental(client)
     finally:
-        conn.close()
+        _drop_shadow()
 
 
 def _background_full(rebuild: bool = False) -> None:
     with _sync_lock:
         try:
             if rebuild:
-                _clear_index()
-            if is_ready():
+                asyncio.run(_run_sync(full=True, rebuild=True))
+            elif is_ready():
                 asyncio.run(_run_sync(full=False, check_complete=True))
             else:
                 asyncio.run(_run_sync(full=True))
@@ -334,21 +372,70 @@ def _background_full(rebuild: bool = False) -> None:
         except Exception as exc:  # sem PII: só o tipo
             _set_state(status="error")
             print(f"worklist_index: sincronização falhou ({type(exc).__name__})")
+    _after_attempt()
 
 
 _last_attempt: float | None = None
+_next_retry_at: float | None = None
+_retry_attempts = 0
+_retry_timer: threading.Timer | None = None
 
 
-def start_background(rebuild: bool = False) -> threading.Thread | None:
+def retry_delay(attempts: int) -> float:
+    """Backoff exponencial: intervalo base, 2x, 4x… até WORKLIST_INDEX_RETRY_MAX_SECONDS."""
+    base = max(1, settings.worklist_index_retry_seconds)
+    return float(min(base * (2 ** max(0, attempts)), max(base, settings.worklist_index_retry_max_seconds)))
+
+
+def _after_attempt() -> None:
+    """Fim de uma tentativa (thread em segundo plano). incomplete/error => agenda a próxima num
+    timer com backoff; NENHUMA busca dispara carga. ready => zera o backoff."""
+    global _retry_attempts, _next_retry_at, _retry_timer
+    with _state_lock:
+        st = _state["status"]
+        if st == "ready":
+            _retry_attempts = 0
+            _next_retry_at = None
+            return
+        if st not in ("error", "incomplete") or not settings.worklist_index_auto_retry:
+            return
+        delay = retry_delay(_retry_attempts)
+        _retry_attempts += 1
+        _next_retry_at = time.monotonic() + delay
+        if _retry_timer is not None:
+            _retry_timer.cancel()
+        _retry_timer = threading.Timer(delay, _auto_retry)
+        _retry_timer.daemon = True
+        _retry_timer.start()
+    print(f"worklist_index: nova tentativa automática em {int(delay)} s (tentativa {_retry_attempts})")
+
+
+def _auto_retry() -> None:
+    start_background(_auto=True)
+
+
+def cancel_auto_retry() -> None:
+    global _retry_timer, _next_retry_at, _retry_attempts
+    with _state_lock:
+        if _retry_timer is not None:
+            _retry_timer.cancel()
+        _retry_timer = None
+        _next_retry_at = None
+        _retry_attempts = 0
+
+
+def start_background(rebuild: bool = False, _auto: bool = False) -> threading.Thread | None:
     """Carga inicial (ou reconstrução) numa thread em segundo plano; idempotente. Depois de uma
-    falha, nova tentativa automática só após WORKLIST_INDEX_RETRY_SECONDS (padrão 60 s); a
-    reconstrução explícita (rebuild=True) não espera. Devolve None quando não inicia."""
+    falha, nova tentativa manual só após WORKLIST_INDEX_RETRY_SECONDS (padrão 60 s); as
+    automáticas vêm do timer com backoff. A reconstrução explícita (rebuild=True) não espera.
+    Devolve None quando não inicia."""
     global _bg_thread, _last_attempt
     with _state_lock:
         if _bg_thread and _bg_thread.is_alive():
             return _bg_thread
         now = time.monotonic()
-        if (not rebuild and _state["status"] in ("error", "incomplete") and _last_attempt is not None
+        if (not rebuild and not _auto and _state["status"] in ("error", "incomplete")
+                and _last_attempt is not None
                 and now - _last_attempt < settings.worklist_index_retry_seconds):
             return None
         _last_attempt = now
@@ -360,9 +447,11 @@ def start_background(rebuild: bool = False) -> threading.Thread | None:
 
 
 async def sync_on_request() -> dict:
-    """Na busca: nunca espera a carga inicial. Pronto => incremental, só se o lock estiver livre."""
+    """Na busca: nunca espera nem dispara carga completa (a nova tentativa de incomplete/error é
+    do timer em segundo plano). Pronto => incremental, só se o lock estiver livre."""
     if not is_ready():
-        start_background()
+        if _state["status"] == "idle" and _bg_thread is None:
+            start_background()  # só se nada rodou ainda neste processo (ex.: autostart desligado)
         return state()
     if _sync_lock.acquire(blocking=False):
         try:

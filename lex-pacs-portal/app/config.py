@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     worklist_index_autostart: bool = True
     # Intervalo mínimo entre tentativas de carga do índice depois de uma falha (s).
     worklist_index_retry_seconds: int = 60
+    # #9 ressalva 1: nova tentativa automática de incomplete/error em segundo plano, com backoff
+    worklist_index_auto_retry: bool = True
+    worklist_index_retry_max_seconds: int = 1800
     lex_admin_user: str = ""
     lex_admin_password: str = ""
     password_min_length: int = 10

@@ -57,3 +57,11 @@ export function lexRetryLabel(secondsLeft) {
   const s = Math.max(0, Math.ceil(Number(secondsLeft) || 0));
   return s > 0 ? `Tentar de novo em ${s} s` : 'Tentar de novo';
 }
+
+/** Índice incompleto (o Orthanc cortou a carga): aviso não bloqueante, a lista continua usável. */
+export const LEX_INDEX_INCOMPLETE_MESSAGE =
+  'Índice em atualização: alguns exames podem ainda não aparecer.';
+
+export function lexShowIndexIncomplete(index) {
+  return index?.status === 'incomplete';
+}
