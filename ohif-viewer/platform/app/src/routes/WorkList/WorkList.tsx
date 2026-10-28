@@ -12,6 +12,8 @@ import {
   LEX_INDEX_ERROR_MESSAGE,
   LEX_INDEX_INCOMPLETE_MESSAGE,
   lexShowIndexIncomplete,
+  LEX_INDEX_REBUILDING_MESSAGE,
+  lexShowIndexRebuilding,
   lexRetryLabel,
   LEX_SEARCHING_DELAY_MS,
   StudyList,
@@ -273,6 +275,16 @@ export default function WorkList({
                       className="text-muted-foreground px-3 py-1 text-sm"
                     >
                       {LEX_INDEX_INCOMPLETE_MESSAGE}
+                    </div>
+                  ) : null}
+                  {serverPaging && lexShowIndexRebuilding(dataIndex) ? (
+                    <div
+                      role="status"
+                      aria-live="polite"
+                      data-testid="lex-index-rebuilding"
+                      className="text-muted-foreground px-3 py-1 text-sm"
+                    >
+                      {LEX_INDEX_REBUILDING_MESSAGE}
                     </div>
                   ) : null}
                 </>

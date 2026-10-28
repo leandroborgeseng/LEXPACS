@@ -65,3 +65,11 @@ export const LEX_INDEX_INCOMPLETE_MESSAGE =
 export function lexShowIndexIncomplete(index) {
   return index?.status === 'incomplete';
 }
+
+/** Reconstrução do índice em segundo plano com o índice completo em uso: a busca funciona normalmente. */
+export const LEX_INDEX_REBUILDING_MESSAGE =
+  'Atualizando o índice do acervo em segundo plano. A busca continua disponível.';
+
+export function lexShowIndexRebuilding(index) {
+  return index?.status === 'rebuilding';
+}

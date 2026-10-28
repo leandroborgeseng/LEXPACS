@@ -186,3 +186,23 @@ test('#9 ressalva 3: aviso não bloqueante quando o índice está incomplete', a
   assert.match(wl, /\{LEX_INDEX_INCOMPLETE_MESSAGE\}/);
   assert.doesNotMatch(wl, /emptyMessage=\{[^}]*INCOMPLETE/);
 });
+
+test('QA #10: reconstrução (rebuilding) não mostra "Preparando a busca…" e avisa que a busca segue', async () => {
+  const m = await import('../ohif-viewer/platform/ui-next/src/components/DataTable/lexPaginationLabel.js');
+  assert.equal(m.LEX_INDEX_REBUILDING_MESSAGE, 'Atualizando o índice do acervo em segundo plano. A busca continua disponível.');
+  assert.equal(m.lexShowIndexRebuilding({ status: 'rebuilding' }), true);
+  for (const st of ['ready', 'indexing', 'incomplete', 'error', undefined]) {
+    assert.equal(m.lexShowIndexRebuilding({ status: st }), false);
+  }
+  assert.equal(m.lexShowIndexRebuilding(null), false);
+  // o backend manda partial=false em rebuilding: o aviso de "Preparando" (dataPartial) não aparece
+  const r = parseWorklistResponse({ studies: [{}], total: 1, partial: false, index: { status: 'rebuilding', indexed: 0, total: 300 } });
+  assert.equal(r.partial, false);
+  assert.equal(r.index.status, 'rebuilding');
+  const wl = read('platform/app/src/routes/WorkList/WorkList.tsx');
+  assert.match(wl, /lexShowIndexRebuilding\(dataIndex\) \? \(\s*<div\s*role="status"\s*aria-live="polite"/);
+  assert.match(wl, /\{LEX_INDEX_REBUILDING_MESSAGE\}/);
+  assert.doesNotMatch(wl, /emptyMessage=\{[^}]*REBUILDING/);
+  const idx = read('platform/ui-next/src/components/index.ts');
+  assert.match(idx, /LEX_INDEX_REBUILDING_MESSAGE, lexShowIndexRebuilding/);
+});

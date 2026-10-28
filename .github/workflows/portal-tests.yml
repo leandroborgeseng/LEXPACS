@@ -26,8 +26,7 @@ jobs:
       - name: Lint (arquivos de usuários locais e viewer)
         run: ruff check --select E,F,W --ignore E501 app/local_users.py app/users.py app/clinical_session.py app/clinical_auth.py app/config.py tests
       - name: Testes
-        # test_parse_orm_new_order já falha na main (modalidade OT != CT); fora do escopo deste PR
-        run: pytest -q --deselect tests/test_hl7_orm.py::Hl7OrmParserTest::test_parse_orm_new_order
+        run: pytest -q
       - name: Gateway nginx (sintaxe do template)
         working-directory: ohif-viewer/nginx
         run: |

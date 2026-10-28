@@ -591,3 +591,84 @@ def test_lp20_indice_sobrevive_ao_restart_sem_carga_completa(raw_orthanc, monkey
     assert paginadas == []  # nem QIDO do acervo: só /changes e /statistics
     r = _run(patientId="SINT-LIM-00299")
     assert r["total"] == 1 and r["index"]["status"] == "ready"
+
+
+# --- Ressalvas baixas do QA do #10: status durante a reconstrução e estudo apagado no Orthanc ---
+
+
+def _indice_antigo_pronto(estudos):
+    conn = worklist_index.connect()
+    conn.executemany(worklist_index.UPSERT, [worklist_index.row_from_qido(_dicom(x)) for x in estudos])
+    worklist_index._meta_set(conn, "changes_seq", 0)
+    worklist_index._meta_set(conn, "full_load_done", 1)
+    conn.commit()
+    conn.close()
+
+
+def test_reconstrucao_status_rebuilding_e_resultado_nao_parcial(raw_orthanc):
+    """Durante a reconstrução em sombra o status é 'rebuilding' (não 'indexing') e a resposta
+    não é parcial: a tela não deve mostrar "Preparando a busca…", porque a busca funciona."""
+    raw_orthanc.studies = list(MUITOS)
+    _indice_antigo_pronto(MUITOS[:101])
+    raw_orthanc.__class__ = SlowOrthanc
+    raw_orthanc.gate = __import__("threading").Event()
+    raw_orthanc.first_batch = __import__("threading").Event()
+    raw_orthanc.loads = 0
+    raw_orthanc.limit_find = 100
+    t = worklist_index.start_background()
+    assert raw_orthanc.first_batch.wait(10)
+    r = _run(patientName="maria")
+    assert r["index"]["status"] == "rebuilding" and r["partial"] is False and r["total"] == 101
+    raw_orthanc.gate.set()
+    t.join(20)
+    r = _run(patientName="maria")
+    assert r["index"]["status"] == "ready" and r["partial"] is False and r["total"] == 300
+
+
+def test_primeira_carga_continua_indexing_parcial(slow):
+    """Sem índice anterior, a carga continua 'indexing' com resultado parcial (comportamento atual)."""
+    t = worklist_index.start_background()
+    assert slow.first_batch.wait(10)
+    r = _run()
+    assert r["index"]["status"] == "indexing" and r["partial"] is True
+    slow.gate.set()
+    t.join(20)
+
+
+def test_estudo_apagado_no_orthanc_com_evento_sai_sem_carga_completa(orthanc, monkeypatch):
+    """Estudo apagado no Orthanc (evento Deleted no /changes): o incremental remove do índice,
+    sem carga completa e só com GET."""
+    uid = "1.2.826.0.1.3680043.8.498.4"
+    assert _pids(_run(patientId="SINT-SILVA")) == ["SINT-SILVA"]
+    cargas = _conta_cargas(monkeypatch)
+    orthanc.delete(uid)
+    r = _run(patientId="SINT-SILVA")
+    assert r["total"] == 0 and r["index"]["status"] == "ready"
+    assert cargas == [] and all(m == "GET" for m, _ in orthanc.calls)
+
+
+def test_estudo_apagado_antes_do_get_do_incremental(orthanc):
+    """StableStudy seguido de exclusão antes do GET /studies/{id} (404): não fica no índice."""
+    s = _mk(9100, "ZZTESTE^EFEMERO", "SINT-EFEMERO", "20261026")
+    orthanc.add(s)
+    orthanc.studies.remove(s)  # apagado no Orthanc; o Deleted ainda não chegou ao /changes
+    r = _run(patientId="SINT-EFEMERO")
+    assert r["total"] == 0
+
+
+def test_startup_reconstroi_quando_estudo_foi_apagado_sem_evento(raw_orthanc, monkeypatch):
+    """Índice com MAIS estudos que o Orthanc (apagado sem evento no /changes, ex.: podado): no
+    startup a conferência de contagem reconstrói em sombra e o estudo apagado some."""
+    raw_orthanc.studies = list(MUITOS)
+    worklist_index.start_background().join(20)
+    assert worklist_index._count_index() == 300
+    apagado = raw_orthanc.studies.pop(0)  # sem evento no /changes
+    monkeypatch.setattr(worklist_index, "_bg_thread", None)
+    monkeypatch.setattr(worklist_index, "_last_attempt", None)
+    worklist_index._set_state(status="idle", indexed=0, total=None)
+    cargas = _conta_cargas(monkeypatch)
+    worklist_index.start_background().join(20)
+    st = worklist_index.state()
+    assert st["status"] == "ready" and worklist_index._count_index() == 299 and len(cargas) == 1
+    assert _run(patientId=apagado["pid"])["total"] == 0
+    assert all(m == "GET" for m, _ in raw_orthanc.calls)
