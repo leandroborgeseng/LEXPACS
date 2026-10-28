@@ -79,11 +79,11 @@ test('UXE1–UXE4: erro do índice sem paginador, alerta único central, botão 
   assert.match(table, /hidePagination \? null : <DataTable\.Pagination/); // UXE1
   // UXE2: uma ocorrência do alerta, dentro do emptyMessage (centro da tabela), com o botão
   assert.equal((wl.match(/role="alert"/g) || []).length, 1);
-  assert.match(wl, /emptyMessage=\{\s*serverPaging && dataIndex\?\.status === 'error' \? \([\s\S]{0,200}role="alert"[\s\S]{0,500}LEX_INDEX_ERROR_MESSAGE[\s\S]{0,100}<LexIndexRetryButton/);
+  assert.match(wl, /emptyMessage=\{\s*serverPaging && dataIndex\?\.status === 'error' \? \([\s\S]{0,200}data-testid="lex-index-error"[\s\S]{0,500}role="alert"[\s\S]{0,200}LEX_INDEX_ERROR_MESSAGE[\s\S]{0,100}<LexIndexRetryButton/);
   // UXE3
   assert.doesNotMatch(wl, /lex-num">\{lexRetryLabel/);
   assert.match(wl, /font-sans/);
-  assert.match(wl, /<span aria-live="polite">\{lexRetryLabel\(left\)\}<\/span>/);
+  assert.doesNotMatch(wl, /aria-live="polite">\{lexRetryLabel/); // contagem visível fora da região viva
   // UXE4
   assert.match(table, /disabled=\{filtersDisabled\}/);
   const row = read('platform/ui-next/src/components/DataTable/FilterRow.tsx');
@@ -175,7 +175,7 @@ const lum = hex => {
 const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
 
 test('UXE2 v2: erro do índice como alerta âmbar com ícone e botão com contraste AA', () => {
-  const alert = wl.slice(wl.indexOf('data-testid="lex-index-error"') - 200, wl.indexOf('<LexIndexRetryButton\n'));
+  const alert = wl.slice(wl.indexOf('data-testid="lex-index-error"'), wl.indexOf('<LexIndexRetryButton\n'));
   assert.match(alert, /role="alert"/);
   assert.match(alert, /style=\{LEX_ALERT_STYLE\}/);
   assert.match(wl, /const LEX_ALERT_STYLE = \{ backgroundColor: '#FFFBEB', borderColor: '#F59E0B', color: '#78350F' \}/);
@@ -205,4 +205,53 @@ test('contador "Exibindo X–Y de N" do topo sem fonte mono', () => {
   assert.match(trig, /font-sans/);
   assert.match(trig, /tabular-nums/);
   assert.match(trig, /\{range\}/);
+});
+
+test('aria-live do "Tentar de novo": só dois anúncios, sem contagem por segundo', async () => {
+  const p = await import('../ohif-viewer/platform/ui-next/src/components/DataTable/lexPaginationLabel.js');
+  for (const left of [40, 39, 12, 1]) {
+    assert.equal(p.lexRetryAnnouncement(40, left), 'Busca indisponível. Nova tentativa em 40 segundos');
+  }
+  assert.equal(p.lexRetryAnnouncement(42, 42), 'Busca indisponível. Nova tentativa em 42 segundos');
+  assert.equal(p.lexRetryAnnouncement(40, 0), 'Pode tentar de novo');
+  // anúncios distintos ao longo da contagem 40 → 0: exatamente dois
+  const seq = new Set(Array.from({ length: 41 }, (_, i) => p.lexRetryAnnouncement(40, 40 - i)));
+  assert.equal(seq.size, 2);
+  const btn = wl.slice(wl.indexOf('function LexIndexRetryButton'));
+  assert.match(btn, /className="sr-only"\s+role="status"\s+aria-live="polite"\s+data-testid="lex-retry-announce"\s*>\s*\{lexRetryAnnouncement\(announcedWait, left\)\}/);
+  assert.equal((btn.match(/aria-live/g) || []).length, 1);
+  assert.match(btn, /<\/button>/);
+  // alerta ARIA só na mensagem, fora do botão que conta
+  assert.match(wl, /<span role="alert" className="flex gap-2">\s*<LexAlertIcon \/>\s*<span>\{LEX_INDEX_ERROR_MESSAGE\}<\/span>\s*<\/span>/);
+});
+
+test('busca em todo o acervo: campos de data vazios com placeholder "Todo o acervo"', () => {
+  assert.equal(m.LEX_WHOLE_ARCHIVE_PLACEHOLDER, 'Todo o acervo');
+  const table = read('platform/ui-next/src/components/StudyList/components/Table.tsx');
+  assert.match(table, /const wholeArchive = lexHasTextSearch\(table\.getState\(\)\.columnFilters\)/);
+  assert.match(table, /const startDate = wholeArchive \? '' :/);
+  assert.match(table, /const endDate = wholeArchive \? '' :/);
+  assert.match(table, /placeholder=\{wholeArchive \? LEX_WHOLE_ARCHIVE_PLACEHOLDER : undefined\}/);
+  const dr = read('platform/ui-next/src/components/DateRange/DateRange.tsx');
+  assert.match(dr, /placeholder=\{placeholder \?\? t\('Start', 'Start'\)\}/);
+  assert.match(dr, /placeholder=\{placeholder \?\? t\('End', 'End'\)\}/);
+});
+
+test('virada da meia-noite: aba aberta antes recalcula "Hoje" ao voltar o foco', () => {
+  const f = d => [{ id: 'studyDateTime', value: { startDate: d, endDate: d } }];
+  const antes = new Date('2026-10-29T02:50:00Z'); // 28/10 23:50 SP
+  const depois = new Date('2026-10-29T03:10:00Z'); // 29/10 00:10 SP
+  assert.equal(m.lexViewRangeIsStale('hoje', f('20261028'), antes), false);
+  assert.equal(m.lexViewRangeIsStale('hoje', f('20261028'), depois), true);
+  assert.deepEqual(m.lexDateRange('hoje', depois), { startDate: '20261029', endDate: '20261029' });
+  // busca por nome ou período manual (sem botão ativo) não é tocada
+  assert.equal(m.lexViewRangeIsStale('hoje', [...f('20261028'), { id: 'patient', value: 'zzteste' }], depois), false);
+  assert.equal(m.lexViewRangeIsStale(null, f('20261028'), depois), false);
+  // Esta semana também vira (segunda 02/11)
+  const sem = [{ id: 'studyDateTime', value: { startDate: '20261026', endDate: '20261101' } }];
+  assert.equal(m.lexViewRangeIsStale('semana', sem, new Date('2026-11-02T03:10:00Z')), true);
+  assert.match(wl, /document\.visibilityState === 'visible' && lexViewRangeIsStale\(activeView, filters\)[\s\S]{0,80}handleViewChange\(activeView\)/);
+  assert.match(wl, /addEventListener\('visibilitychange', onReturn\)/);
+  assert.match(wl, /window\.addEventListener\('focus', onReturn\)/);
+  assert.match(wl, /removeEventListener\('visibilitychange', onReturn\)/);
 });

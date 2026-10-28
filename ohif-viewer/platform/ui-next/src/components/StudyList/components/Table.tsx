@@ -10,6 +10,7 @@ import { tokenizeModalities } from '../utils/tokenizeModalities';
 import { useWorkflows } from './WorkflowsProvider';
 import { lexDoubleClickWorkflow } from './lexDoubleClick';
 import { COLUMN_IDS } from '../columns/defaultColumns';
+import { LEX_WHOLE_ARCHIVE_PLACEHOLDER, lexHasTextSearch } from '../../DataTable/lexWorklistDefaults';
 
 export type TableProps = Omit<DataTableProps<StudyRow>, 'children' | 'getRowId'> & {
   title?: ReactNode;
@@ -204,14 +205,18 @@ function TableContent({
                 value && typeof value === 'object'
                   ? (value as StudyDateRangeFilter)
                   : {};
-              const startDate = dateRange.startDate ?? '';
-              const endDate = dateRange.endDate ?? '';
+              // Busca por nome/prontuário vai em todo o acervo: os campos de data ficam vazios
+              // (o filtro guardado volta quando o termo é apagado).
+              const wholeArchive = lexHasTextSearch(table.getState().columnFilters);
+              const startDate = wholeArchive ? '' : (dateRange.startDate ?? '');
+              const endDate = wholeArchive ? '' : (dateRange.endDate ?? '');
 
               return (
                 <DatePickerWithRange
                   id={COLUMN_IDS.STUDY_DATE_TIME}
                   startDate={startDate}
                   endDate={endDate}
+                  placeholder={wholeArchive ? LEX_WHOLE_ARCHIVE_PLACEHOLDER : undefined}
                   onChange={next => {
                     const normalized = {
                       ...(next.startDate ? { startDate: next.startDate } : {}),

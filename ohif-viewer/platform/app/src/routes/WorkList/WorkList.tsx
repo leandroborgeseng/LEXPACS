@@ -15,6 +15,7 @@ import {
   LEX_INDEX_REBUILDING_MESSAGE,
   lexShowIndexRebuilding,
   lexRetryLabel,
+  lexRetryAnnouncement,
   LEX_SEARCHING_DELAY_MS,
   StudyList,
   Icons, InvestigationalUseDialog, LexThemeToggle, type StudyRow } from '@ohif/ui-next';
@@ -33,6 +34,7 @@ import {
   lexSaveColumnVisibility,
   lexShouldPollIndex,
   lexViewForFilters,
+  lexViewRangeIsStale,
 } from '@ohif/ui-next';
 
 type Props = withAppTypes & {
@@ -200,6 +202,21 @@ export default function WorkList({
     setPagination(p => ({ ...p, pageIndex: 0 }));
   };
 
+  // Virada do dia: aba aberta antes da meia-noite (SP) recalcula o período ao voltar o foco.
+  useEffect(() => {
+    const onReturn = () => {
+      if (document.visibilityState === 'visible' && lexViewRangeIsStale(activeView, filters)) {
+        handleViewChange(activeView);
+      }
+    };
+    document.addEventListener('visibilitychange', onReturn);
+    window.addEventListener('focus', onReturn);
+    return () => {
+      document.removeEventListener('visibilitychange', onReturn);
+      window.removeEventListener('focus', onReturn);
+    };
+  });
+
   return (
     <div className="bg-background flex h-screen min-h-0 flex-col overflow-hidden">
       <InvestigationalUseDialog dialogConfiguration={appConfig?.investigationalUseDialog} />
@@ -237,12 +254,12 @@ export default function WorkList({
                 serverPaging && dataIndex?.status === 'error' ? (
                   // UXE2: alerta âmbar único no centro (cores e contraste em LEX_ALERT_STYLE).
                   <div
-                    role="alert"
                     data-testid="lex-index-error"
                     className="mx-auto flex max-w-md flex-col items-center gap-3 rounded-md border px-4 py-3 text-sm"
                     style={LEX_ALERT_STYLE}
                   >
-                    <span className="flex gap-2">
+                    {/* Alerta ARIA só na mensagem: a contagem do botão não é reanunciada. */}
+                    <span role="alert" className="flex gap-2">
                       <LexAlertIcon />
                       <span>{LEX_INDEX_ERROR_MESSAGE}</span>
                     </span>
@@ -374,8 +391,14 @@ function LexIndexRetryButton({
   onRetried: () => void;
 }) {
   const [left, setLeft] = useState(Math.max(0, Math.ceil(retryInSeconds)));
+  // Espera anunciada ao leitor de tela (uma vez); a contagem visível não é região viva.
+  const [announcedWait, setAnnouncedWait] = useState(Math.max(0, Math.ceil(retryInSeconds)));
   const [busy, setBusy] = useState(false);
-  useEffect(() => setLeft(Math.max(0, Math.ceil(retryInSeconds))), [retryInSeconds]);
+  useEffect(() => {
+    const s = Math.max(0, Math.ceil(retryInSeconds));
+    setLeft(s);
+    setAnnouncedWait(s);
+  }, [retryInSeconds]);
   useEffect(() => {
     if (left <= 0) {
       return;
@@ -392,7 +415,9 @@ function LexIndexRetryButton({
       });
       if (r.status === 429) {
         const body = await r.json().catch(() => ({}));
-        setLeft(Number(body?.detail?.retryInSeconds) || Number(r.headers.get('Retry-After')) || 60);
+        const wait = Number(body?.detail?.retryInSeconds) || Number(r.headers.get('Retry-After')) || 60;
+        setLeft(wait);
+        setAnnouncedWait(wait);
         return;
       }
       onRetried();
@@ -401,22 +426,33 @@ function LexIndexRetryButton({
     }
   };
   return (
-    <button
-      type="button"
-      // UXE3: fonte do sistema (sem monoespaçada) e contagem anunciada com aria-live.
-      // UXE2: branco sobre #92400E = 7,1:1 (AA). Desabilitado fica #FEF3C7 sobre #92400E, sem opacidade.
-      className="rounded-md border px-3 py-1 font-sans text-sm font-medium disabled:cursor-not-allowed"
-      style={{
-        backgroundColor: '#92400E',
-        borderColor: '#92400E',
-        color: busy || left > 0 ? '#FEF3C7' : '#FFFFFF',
-      }}
-      disabled={busy || left > 0}
-      aria-disabled={busy || left > 0}
-      onClick={retry}
-    >
-      <span aria-live="polite">{lexRetryLabel(left)}</span>
-    </button>
+    <>
+      <button
+        type="button"
+        // UXE3: fonte do sistema (sem monoespaçada). A contagem visível não é região viva.
+        // UXE2: branco sobre #92400E = 7,1:1 (AA). Desabilitado fica #FEF3C7 sobre #92400E, sem opacidade.
+        className="rounded-md border px-3 py-1 font-sans text-sm font-medium disabled:cursor-not-allowed"
+        style={{
+          backgroundColor: '#92400E',
+          borderColor: '#92400E',
+          color: busy || left > 0 ? '#FEF3C7' : '#FFFFFF',
+        }}
+        disabled={busy || left > 0}
+        aria-disabled={busy || left > 0}
+        onClick={retry}
+      >
+        {lexRetryLabel(left)}
+      </button>
+      {/* Leitor de tela: só dois anúncios, sem contagem por segundo (Designer UX). */}
+      <span
+        className="sr-only"
+        role="status"
+        aria-live="polite"
+        data-testid="lex-retry-announce"
+      >
+        {lexRetryAnnouncement(announcedWait, left)}
+      </span>
+    </>
   );
 }
 

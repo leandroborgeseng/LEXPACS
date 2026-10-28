@@ -96,6 +96,24 @@ export function lexSearchWholeArchive(values) {
   return v;
 }
 
+export const LEX_WHOLE_ARCHIVE_PLACEHOLDER = 'Todo o acervo';
+
+/**
+ * Virada do dia: o filtro de data do período ativo está defasado em relação a `now` (SP)?
+ * Usado ao voltar o foco para a aba (aba aberta antes da meia-noite).
+ */
+export function lexViewRangeIsStale(viewId, filters, now = new Date()) {
+  if (!LEX_DATE_VIEWS.some(v => v.id === viewId) || lexHasTextSearch(filters)) {
+    return false;
+  }
+  const want = lexDateRange(viewId, now);
+  if (!want) {
+    return false;
+  }
+  const cur = (filters || []).find(f => f && f.id === 'studyDateTime')?.value;
+  return !cur || cur.startDate !== want.startDate || cur.endDate !== want.endDate;
+}
+
 export const LEX_WHOLE_ARCHIVE_MESSAGE = 'Buscando em todo o acervo';
 export const LEX_EMPTY_TODAY_MESSAGE =
   'Nenhum exame hoje. Veja Esta semana ou digite um nome para buscar em todo o acervo.';

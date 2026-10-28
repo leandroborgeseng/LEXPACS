@@ -14,6 +14,8 @@ export type DatePickerWithRangeProps = {
   endDate: string;
   /** Callback that received { startDate: string(YYYYMMDD), endDate: string(YYYYMMDD)} */
   onChange: (value: { startDate: string; endDate: string }) => void;
+  /** LEX PACS: placeholder único dos dois campos (ex.: "Todo o acervo" na busca por nome). */
+  placeholder?: string;
 };
 
 export function DatePickerWithRange({
@@ -22,6 +24,7 @@ export function DatePickerWithRange({
   startDate,
   endDate,
   onChange,
+  placeholder,
   ...props
 }: React.HTMLAttributes<HTMLDivElement> & DatePickerWithRangeProps) {
   const { t } = useTranslation('DatePicker');
@@ -89,7 +92,7 @@ export function DatePickerWithRange({
             <input
               id={`${id}-start`}
               type="text"
-              placeholder={t('Start', 'Start')}
+              placeholder={placeholder ?? t('Start', 'Start')}
               autoComplete="off"
               value={start}
               onChange={e => handleInputChange(e, 'start')}
@@ -130,7 +133,7 @@ export function DatePickerWithRange({
             <input
               id={`${id}-end`}
               type="text"
-              placeholder={t('End', 'End')}
+              placeholder={placeholder ?? t('End', 'End')}
               autoComplete="off"
               value={end}
               onChange={e => handleInputChange(e, 'end')}

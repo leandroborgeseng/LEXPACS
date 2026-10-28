@@ -321,4 +321,4 @@ export {
   SmartScrollbarEndpoints,
   useByteArray,
 };
-export { lexShowSearching, lexSortNote, lexIndexingMessage, LEX_INDEX_ERROR_MESSAGE, LEX_INDEX_INCOMPLETE_MESSAGE, lexShowIndexIncomplete, LEX_INDEX_REBUILDING_MESSAGE, lexShowIndexRebuilding, lexRetryLabel, LEX_SEARCHING_DELAY_MS } from './DataTable/lexPaginationLabel';
+export { lexShowSearching, lexSortNote, lexIndexingMessage, LEX_INDEX_ERROR_MESSAGE, LEX_INDEX_INCOMPLETE_MESSAGE, lexShowIndexIncomplete, LEX_INDEX_REBUILDING_MESSAGE, lexShowIndexRebuilding, lexRetryLabel, lexRetryAnnouncement, LEX_SEARCHING_DELAY_MS } from './DataTable/lexPaginationLabel';
