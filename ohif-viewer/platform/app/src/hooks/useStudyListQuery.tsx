@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useLocation, useParams } from 'react-router';
 import { Enums, log } from '@ohif/core';
-import { Button } from '@ohif/ui-next';
+import { Button, lexSearchWholeArchive } from '@ohif/ui-next';
 import { shallowEqualIgnoringArrayOrder } from '../utils/shallowEqualIgnoringArrayOrder';
 import {
   URL_KEYS,
@@ -243,5 +243,7 @@ function _getQueryFilterValues(query, queryLimit, serverPaging = false) {
     key => queryFilterValues[key] == null && delete queryFilterValues[key]
   );
 
-  return queryFilterValues;
+  // LP19: com termo digitado (nome, prontuário, acesso, descrição), busca em todo o acervo,
+  // ignorando o filtro de data (Hoje/Esta semana/Semana passada). Limpar volta ao filtro.
+  return lexSearchWholeArchive(queryFilterValues);
 }

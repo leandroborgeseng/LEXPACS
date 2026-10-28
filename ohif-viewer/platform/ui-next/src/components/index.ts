@@ -1,3 +1,5 @@
+// LEX PACS LP19/UXE: lista padrão por data e estado de erro do índice.
+export * from './DataTable/lexWorklistDefaults';
 import { Badge, badgeVariants } from './Badge';
 import { Button, buttonVariants } from './Button';
 import {

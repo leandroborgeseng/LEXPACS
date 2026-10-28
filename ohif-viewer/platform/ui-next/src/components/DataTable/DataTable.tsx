@@ -75,6 +75,8 @@ export type DataTableProps<TData> = {
   sortNote?: string | null;
   enforceSingleSelection?: boolean;
   onSelectionChange?: (rows: TData[]) => void;
+  /** LEX PACS LP19: avisa mudanças de colunas visíveis (para salvar a preferência do usuário). */
+  onColumnVisibilityChange?: (visibility: VisibilityState) => void;
   children: ReactNode;
 };
 
@@ -100,9 +102,15 @@ function DataTableRoot<TData>({
   sortNote = null,
   enforceSingleSelection = true,
   onSelectionChange,
+  onColumnVisibilityChange,
   children,
 }: DataTableProps<TData>) {
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(initialVisibility);
+  const visibilityChangeRef = React.useRef(onColumnVisibilityChange);
+  visibilityChangeRef.current = onColumnVisibilityChange;
+  React.useEffect(() => {
+    visibilityChangeRef.current?.(columnVisibility);
+  }, [columnVisibility]);
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
 
   const table = useReactTable<TData>({
@@ -365,7 +373,7 @@ type BodyProps<TData> = {
   /**
    * Message shown when there are no rows to render.
    */
-  emptyMessage?: string;
+  emptyMessage?: ReactNode;
   /**
    * When true and there are no rows, show loadingComponent centered instead of emptyMessage.
    */

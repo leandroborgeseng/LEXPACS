@@ -23,6 +23,10 @@ export type TableProps = Omit<DataTableProps<StudyRow>, 'children' | 'getRowId'>
   loadingComponent?: ReactNode;
   /** LEX PACS: mensagem da lista vazia (ex.: índice preparando). */
   emptyMessage?: ReactNode;
+  /** LEX PACS UXE1: esconde o paginador (ex.: erro do índice). */
+  hidePagination?: boolean;
+  /** LEX PACS UXE4: filtros desativados (ex.: erro do índice). */
+  filtersDisabled?: boolean;
 };
 
 export function Table({
@@ -52,6 +56,9 @@ export function Table({
   hasMore,
   sortNote,
   emptyMessage,
+  hidePagination = false,
+  filtersDisabled = false,
+  onColumnVisibilityChange,
 }: TableProps) {
   return (
     <DataTable<StudyRow>
@@ -72,6 +79,7 @@ export function Table({
       sortNote={sortNote}
       enforceSingleSelection={enforceSingleSelection}
       onSelectionChange={onSelectionChange}
+      onColumnVisibilityChange={onColumnVisibilityChange}
     >
       <TableContent
         title={title}
@@ -84,6 +92,8 @@ export function Table({
         isLoading={isLoading}
         loadingComponent={loadingComponent}
         emptyMessage={emptyMessage}
+        hidePagination={hidePagination}
+        filtersDisabled={filtersDisabled}
       />
     </DataTable>
   );
@@ -100,6 +110,8 @@ function TableContent({
   isLoading,
   loadingComponent,
   emptyMessage,
+  hidePagination,
+  filtersDisabled,
 }: {
   title?: ReactNode;
   showColumnVisibility?: boolean;
@@ -111,6 +123,8 @@ function TableContent({
   isLoading?: boolean;
   loadingComponent?: ReactNode;
   emptyMessage?: ReactNode;
+  hidePagination?: boolean;
+  filtersDisabled?: boolean;
 }) {
   const { t } = useTranslation('StudyList');
   const { table } = useDataTable<StudyRow>();
@@ -150,7 +164,7 @@ function TableContent({
             {toolbarRightActionsComponent}
             {toolbarRightActionsComponent && <div className="bg-input mx-2 h-4 w-px" />}
             {/* Pagination appears to the left of the "View" button */}
-            <DataTable.Pagination<StudyRow> />
+            {hidePagination ? null : <DataTable.Pagination<StudyRow> />}
             {showColumnVisibility && <DataTable.ViewOptions<StudyRow> />}
             {toolbarRightComponent}
           </div>
@@ -168,6 +182,7 @@ function TableContent({
       <DataTable.Table<StudyRow> tableClassName={tableClassName}>
         <DataTable.Header<StudyRow> />
         <DataTable.FilterRow<StudyRow>
+          disabled={filtersDisabled}
           excludeColumnIds={[COLUMN_IDS.INSTANCES]}
           renderFilterCell={({ columnId, value, setValue }) => {
             if (columnId === COLUMN_IDS.ACTIONS) {
