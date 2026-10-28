@@ -672,3 +672,74 @@ def test_startup_reconstroi_quando_estudo_foi_apagado_sem_evento(raw_orthanc, mo
     assert st["status"] == "ready" and worklist_index._count_index() == 299 and len(cargas) == 1
     assert _run(patientId=apagado["pid"])["total"] == 0
     assert all(m == "GET" for m, _ in raw_orthanc.calls)
+
+
+# --- QA do #11: R1 (corrida de contagem no startup) e R2 (divergência permanente) -------------
+
+
+def _restart(monkeypatch):
+    monkeypatch.setattr(worklist_index, "_bg_thread", None)
+    monkeypatch.setattr(worklist_index, "_last_attempt", None)
+    worklist_index._set_state(status="idle", indexed=0, total=None)
+
+
+def test_r1_estudo_chega_entre_incremental_e_statistics_sem_carga_completa(raw_orthanc, monkeypatch):
+    """R1: estudo chega depois do /changes e antes do /statistics. Antes de reconstruir, o
+    startup roda o incremental de novo e reconfere: sem carga completa."""
+    raw_orthanc.studies = list(MUITOS)
+    worklist_index.start_background().join(20)
+    orig = worklist_index._orthanc_count
+    chegou = []
+
+    async def count_com_chegada(client):
+        if not chegou:
+            chegou.append(1)
+            raw_orthanc.add(_mk(7999, "ZZTESTE^CORRIDA", "SINT-CORRIDA", "20261028"))
+        return await orig(client)
+
+    monkeypatch.setattr(worklist_index, "_orthanc_count", count_com_chegada)
+    _restart(monkeypatch)
+    cargas = _conta_cargas(monkeypatch)
+    worklist_index.start_background().join(20)
+    assert worklist_index._count_index() == 301 and cargas == []
+    assert worklist_index.state()["status"] == "ready"
+    assert _run(patientId="SINT-CORRIDA")["total"] == 1
+
+
+def test_r2_divergencia_permanente_nao_recarrega_a_cada_restart(raw_orthanc, monkeypatch):
+    """R2: /statistics conta estudos que o QIDO não devolve. A 1ª conferência reconstrói uma vez
+    e guarda o par (total, contagem); restarts seguintes com o mesmo par não recarregam."""
+    raw_orthanc.studies = list(MUITOS)
+    worklist_index.start_background().join(20)
+    raw_orthanc.extra_count = 2
+    total = 0
+    for _ in range(3):
+        _restart(monkeypatch)
+        cargas = _conta_cargas(monkeypatch)
+        worklist_index.start_background().join(20)
+        total += len(cargas)
+    assert total == 1  # antes: uma carga completa por restart
+    assert worklist_index._count_index() == 300
+    assert _meta("divergence_orthanc_total") == "302" and _meta("divergence_index_count") == "300"
+    # o par muda (estudo apagado sem evento) => tenta reconstruir de novo, uma vez
+    raw_orthanc.studies.pop(0)
+    _restart(monkeypatch)
+    cargas = _conta_cargas(monkeypatch)
+    worklist_index.start_background().join(20)
+    assert len(cargas) == 1
+    # contas batem de novo => reconstrução completa troca o índice e limpa o registro
+    raw_orthanc.extra_count = 0
+    _restart(monkeypatch)
+    worklist_index.start_background().join(20)
+    assert worklist_index._count_index() == 299 and _meta("divergence_orthanc_total") is None
+    assert all(m == "GET" for m, _ in raw_orthanc.calls)
+
+
+def test_status_do_indice_leve_sem_orthanc_e_exige_sessao(raw_orthanc, client):
+    """GET /api/worklist/index/status: só o estado (para o polling de 'rebuilding'), sem chamar o Orthanc."""
+    assert client.get("/api/worklist/index/status").status_code in (401, 403)
+    worklist_index._set_state(status="rebuilding", indexed=10, total=300)
+    raw_orthanc.calls.clear()
+    st = asyncio.run(worklist.worklist_index_status())
+    assert st == {"index": {"status": "rebuilding", "indexed": 10, "total": 300, "retryInSeconds": 0}}
+    assert raw_orthanc.calls == []

@@ -323,12 +323,59 @@ async def _run_sync(full: bool, check_complete: bool = False, rebuild: bool = Fa
                 return
         await incremental(client)
         if check_complete and not full:
-            total = await _orthanc_count(client)
-            # Diferença em qualquer sentido: a menos (carga cortada) ou a mais (estudo apagado no
-            # Orthanc sem evento no /changes, ex.: /changes podado) => reconstrói em sombra.
-            if total is not None and _count_index() != total:
-                print(f"worklist_index: índice com {_count_index()} de {total} estudos, reconstruindo")
-                await _shadow_rebuild(client)
+            await _reconcile_counts(client)
+
+
+def _divergence_get() -> tuple[str | None, str | None]:
+    conn = connect()
+    try:
+        return _meta_get(conn, "divergence_orthanc_total"), _meta_get(conn, "divergence_index_count")
+    finally:
+        conn.close()
+
+
+def _divergence_set(total: int | None, n: int | None) -> None:
+    conn = connect()
+    try:
+        if total is None:
+            conn.execute("DELETE FROM worklist_meta WHERE key IN ('divergence_orthanc_total', 'divergence_index_count')")
+        else:
+            _meta_set(conn, "divergence_orthanc_total", total)
+            _meta_set(conn, "divergence_index_count", n)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+async def _reconcile_counts(client: httpx.AsyncClient) -> None:
+    """Startup: compara o índice com o /statistics do Orthanc. Diferença em qualquer sentido (a
+    menos: carga cortada; a mais: estudo apagado sem evento no /changes) => reconstrói em sombra.
+    R1: antes de reconstruir, roda o incremental de novo e reconfere (estudo que chegou entre o
+    /changes e o /statistics não vale uma carga inteira).
+    R2: guarda o par (total do Orthanc, contagem do índice) de uma reconstrução que não fechou a
+    conta; com o mesmo par, não repete a carga completa a cada restart/nova tentativa."""
+    total = await _orthanc_count(client)
+    if total is None or _count_index() == total:
+        if total is not None:
+            _divergence_set(None, None)
+        return
+    await incremental(client)  # R1
+    total = await _orthanc_count(client)
+    n = _count_index()
+    if total is None or n == total:
+        if total is not None:
+            _divergence_set(None, None)
+        return
+    if _divergence_get() == (str(total), str(n)):  # R2
+        print(f"worklist_index: divergência conhecida ({n} de {total}), sem nova carga completa")
+        return
+    print(f"worklist_index: índice com {n} de {total} estudos, reconstruindo")
+    await _shadow_rebuild(client)
+    n2 = _count_index()
+    if n2 != total:
+        _divergence_set(total, n2)
+    else:
+        _divergence_set(None, None)
 
 
 def _drop_shadow() -> None:

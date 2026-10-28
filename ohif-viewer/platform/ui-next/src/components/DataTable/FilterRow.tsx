@@ -5,6 +5,8 @@ import { Input } from '../Input';
 import { useDataTable } from './context';
 
 export type FilterRowProps = {
+  /** LEX PACS UXE4: desativa todos os filtros da linha (inert: sem foco nem clique). */
+  disabled?: boolean;
   excludeColumnIds?: string[];
   renderFilterCell?: (opts: {
     columnId: string;
@@ -13,13 +15,20 @@ export type FilterRowProps = {
   }) => React.ReactNode;
 };
 
-export function FilterRow<TData>({ excludeColumnIds = [], renderFilterCell }: FilterRowProps) {
+export function FilterRow<TData>({
+  excludeColumnIds = [],
+  renderFilterCell,
+  disabled = false,
+}: FilterRowProps) {
   const { table } = useDataTable<TData>();
   const cols = table.getVisibleLeafColumns();
   return (
     <TableRow
       data-filter-row
-      className="hover:bg-transparent"
+      data-disabled={disabled ? 'true' : undefined}
+      aria-disabled={disabled || undefined}
+      {...(disabled ? ({ inert: '' } as Record<string, string>) : {})}
+      className={disabled ? 'pointer-events-none opacity-50 hover:bg-transparent' : 'hover:bg-transparent'}
     >
       {cols.map(col => {
         const id = col.id;

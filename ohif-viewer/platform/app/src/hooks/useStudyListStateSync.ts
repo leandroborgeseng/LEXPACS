@@ -10,6 +10,8 @@ import {
   COLUMN_IDS,
   TEXT_FILTER_COLUMN_IDS,
   type StudyDateRangeFilter,
+  LEX_DEFAULT_VIEW,
+  lexDateRange,
 } from '@ohif/ui-next';
 import { preserveQueryStrings } from '../utils/preserveQueryParameters';
 import {
@@ -47,17 +49,19 @@ export function useStudyListStateSync() {
   const [pagination, setPagination] = useState<PaginationState>(
     sessionState.pagination || parsePaginationFromURL(searchParams)
   );
-  const [filters, setFilters] = useState<ColumnFiltersState>(
-    sessionState.filters || parseFiltersFromURL(searchParams)
-  );
+  // LP19: a lista abre sempre em "Hoje" (reload e novo login); os demais filtros continuam.
+  const [filters, setFilters] = useState<ColumnFiltersState>(() => [
+    ...(sessionState.filters || parseFiltersFromURL(searchParams)).filter(
+      (f: { id: string }) => f.id !== COLUMN_IDS.STUDY_DATE_TIME
+    ),
+    { id: COLUMN_IDS.STUDY_DATE_TIME, value: lexDateRange(LEX_DEFAULT_VIEW) },
+  ]);
   const [sorting, setSorting] = useState<SortingState>(
     sessionState.sorting || parseSortingFromURL(searchParams)
   );
 
   const dataSources = sessionState.dataSources || getUrlParam(searchParams, URL_KEYS.dataSources);
-  const [activeView, setActiveView] = useState<string>(
-    sessionState.view || getUrlParam(searchParams, URL_KEYS.view) || 'all'
-  );
+  const [activeView, setActiveView] = useState<string>(LEX_DEFAULT_VIEW);
 
   const state = useMemo(
     () => ({ sorting, pagination, filters, dataSources, view: activeView }),
@@ -223,7 +227,7 @@ function buildQueryFromState(state: StudyListState): string {
     query[URL_KEYS.dataSources] = state.dataSources;
   }
 
-  if (state.view && state.view !== 'all') {
+  if (state.view && state.view !== LEX_DEFAULT_VIEW) {
     query[URL_KEYS.view] = state.view;
   }
 

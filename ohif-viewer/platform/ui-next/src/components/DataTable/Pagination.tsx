@@ -121,7 +121,7 @@ function ServerPagination({
           <Button
             variant="ghost"
             size="sm"
-            className="lex-num text-primary/80 px-2 text-sm leading-tight"
+            className="text-primary/80 px-2 font-sans text-sm leading-tight tabular-nums"
             aria-label="Exames por página"
           >
             {range}
