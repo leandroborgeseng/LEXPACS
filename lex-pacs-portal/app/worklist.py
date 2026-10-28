@@ -107,6 +107,7 @@ async def worklist_studies(q: WorklistQuery) -> dict:
         # Enquanto a carga inicial não termina, o resultado é parcial (só o que já foi indexado).
         "index": {"status": index["status"], "indexed": index.get("indexed") or 0, "total": index.get("total"),
                   "retryInSeconds": index.get("retryInSeconds", 0)},
+        # rebuilding: reconstrução em sombra com o índice completo em uso => resultado completo, não parcial.
         # error: carga falhou (Orthanc fora/timeout) => não é "parcial" e a tela não reconsulta.
         "partial": index["status"] in ("indexing", "idle"),
         "offset": q.offset,

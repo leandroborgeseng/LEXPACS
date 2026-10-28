@@ -90,7 +90,9 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     return conn
 
 
-# Estado da indexação (sem PII): status idle|indexing|ready|error, indexados e total do Orthanc.
+# Estado da indexação (sem PII): status idle|indexing|rebuilding|ready|incomplete|error, indexados e
+# total do Orthanc. rebuilding = já existe índice completo em uso (a busca funciona normalmente) e
+# uma reconstrução/conferência roda em segundo plano; indexing = primeira carga (resultado parcial).
 _state_lock = threading.Lock()
 _state = {"status": "idle", "indexed": 0, "total": None}
 
@@ -205,7 +207,8 @@ async def full_load(client: httpx.AsyncClient, path: Path | None = None) -> int:
             total = int(st.json().get("CountStudies"))
     except (httpx.HTTPError, ValueError, TypeError):
         total = None
-    _set_state(status="indexing", indexed=0, total=total)
+    # Carga na base-sombra (path informado): a busca segue no índice atual => "rebuilding".
+    _set_state(status="rebuilding" if path is not None and _count_index() > 0 else "indexing", indexed=0, total=total)
     conn = connect(path)
     try:
         # O Orthanc pode cortar cada consulta em LimitFindResults (ex.: 100) mesmo pedindo BATCH:
@@ -321,7 +324,9 @@ async def _run_sync(full: bool, check_complete: bool = False, rebuild: bool = Fa
         await incremental(client)
         if check_complete and not full:
             total = await _orthanc_count(client)
-            if total is not None and _count_index() < total:
+            # Diferença em qualquer sentido: a menos (carga cortada) ou a mais (estudo apagado no
+            # Orthanc sem evento no /changes, ex.: /changes podado) => reconstrói em sombra.
+            if total is not None and _count_index() != total:
                 print(f"worklist_index: índice com {_count_index()} de {total} estudos, reconstruindo")
                 await _shadow_rebuild(client)
 
@@ -430,6 +435,7 @@ def start_background(rebuild: bool = False, _auto: bool = False) -> threading.Th
     automáticas vêm do timer com backoff. A reconstrução explícita (rebuild=True) não espera.
     Devolve None quando não inicia."""
     global _bg_thread, _last_attempt
+    ready = is_ready()  # fora do lock de estado (abre o SQLite)
     with _state_lock:
         if _bg_thread and _bg_thread.is_alive():
             return _bg_thread
@@ -439,7 +445,7 @@ def start_background(rebuild: bool = False, _auto: bool = False) -> threading.Th
                 and now - _last_attempt < settings.worklist_index_retry_seconds):
             return None
         _last_attempt = now
-        _state.update(status="indexing")
+        _state.update(status="rebuilding" if ready else "indexing")
         _bg_thread = threading.Thread(target=_background_full, args=(rebuild,), name="worklist-index",
                                       daemon=True)
         _bg_thread.start()
