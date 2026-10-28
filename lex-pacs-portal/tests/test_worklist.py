@@ -456,3 +456,138 @@ def test_incremental_e_rebuild_com_limite_do_orthanc(raw_orthanc):
     assert worklist_index._count_index() == 301
     worklist_index.start_background(rebuild=True).join(20)
     assert worklist_index._count_index() == 301 and worklist_index.state()["status"] == "ready"
+
+
+# --- Follow-up do #9: ressalvas do Tester (1, 2) e LP20 -------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _sem_timer_entre_testes():
+    yield
+    worklist_index.cancel_auto_retry()
+    if worklist_index._bg_thread:
+        worklist_index._bg_thread.join(10)
+
+
+def _conta_cargas(monkeypatch):
+    cargas = []
+    real = worklist_index.full_load
+
+    async def contando(client, path=None):
+        cargas.append(path)
+        return await real(client, path)
+
+    monkeypatch.setattr(worklist_index, "full_load", contando)
+    return cargas
+
+
+def test_backoff_exponencial_com_teto(monkeypatch):
+    monkeypatch.setattr(worklist.settings, "worklist_index_retry_seconds", 60)
+    monkeypatch.setattr(worklist.settings, "worklist_index_retry_max_seconds", 1800)
+    assert [worklist_index.retry_delay(n) for n in range(7)] == [60, 120, 240, 480, 960, 1800, 1800]
+
+
+def test_incomplete_nova_tentativa_em_background_e_busca_nao_recarrega(raw_orthanc, monkeypatch):
+    """Ressalva 1: com o Orthanc cortando, buscas NÃO disparam carga; o timer tenta de novo
+    com backoff e, quando o Orthanc entrega tudo, o índice fica ready."""
+    import time as _t
+    raw_orthanc.studies = list(MUITOS)
+    raw_orthanc.limit_find = 100
+    raw_orthanc.extra_count = 7
+    monkeypatch.setattr(worklist.settings, "worklist_index_auto_retry", True)
+    monkeypatch.setattr(worklist.settings, "worklist_index_retry_seconds", 1)
+    monkeypatch.setattr(worklist_index, "_last_attempt", None)
+    cargas = _conta_cargas(monkeypatch)
+    worklist_index.start_background().join(20)
+    st = worklist_index.state()
+    assert st["status"] == "incomplete" and len(cargas) == 1
+    assert st["nextAutoRetryInSeconds"] in (0, 1)
+    for _ in range(20):  # várias buscas seguidas: nenhuma recarga por requisição
+        r = _run(patientName="maria")
+        assert r["total"] == 300 and r["index"]["status"] in ("incomplete", "indexing")
+    assert len(cargas) <= 2  # no máximo a tentativa do timer (1 s), nunca uma por busca
+    raw_orthanc.extra_count = 0  # Orthanc volta a bater a contagem
+    fim = _t.monotonic() + 15
+    while worklist_index.state()["status"] != "ready" and _t.monotonic() < fim:
+        _t.sleep(0.1)
+    assert worklist_index.state()["status"] == "ready" and worklist_index._count_index() == 300
+    assert _meta("full_load_done") == "1" and worklist_index.state()["nextAutoRetryInSeconds"] is None
+    assert worklist_index._retry_attempts == 0
+
+
+def test_incomplete_backoff_cresce_entre_tentativas(raw_orthanc, monkeypatch):
+    raw_orthanc.studies = list(MUITOS)
+    raw_orthanc.extra_count = 7
+    monkeypatch.setattr(worklist.settings, "worklist_index_auto_retry", True)
+    monkeypatch.setattr(worklist.settings, "worklist_index_retry_seconds", 100)
+    worklist_index.start_background().join(20)
+    assert worklist_index._retry_attempts == 1 and 99 <= worklist_index.next_auto_retry_in_seconds() <= 100
+    worklist_index.start_background(_auto=True).join(20)  # o que o timer faria
+    assert worklist_index._retry_attempts == 2 and 199 <= worklist_index.next_auto_retry_in_seconds() <= 200
+
+
+def test_reconstrucao_em_sombra_busca_continua_com_dados_antigos(raw_orthanc, monkeypatch):
+    """Ressalva 2: índice antigo (101, marcado pronto) e Orthanc com 300. Durante a reconstrução
+    a busca continua devolvendo os 101 antigos (nada é apagado antes); no fim troca atômica."""
+    raw_orthanc.studies = list(MUITOS)
+    conn = worklist_index.connect()
+    conn.executemany(worklist_index.UPSERT, [worklist_index.row_from_qido(_dicom(x)) for x in MUITOS[:101]])
+    worklist_index._meta_set(conn, "changes_seq", 0)
+    worklist_index._meta_set(conn, "full_load_done", 1)
+    conn.commit()
+    conn.close()
+    raw_orthanc.__class__ = SlowOrthanc
+    raw_orthanc.gate = __import__("threading").Event()
+    raw_orthanc.first_batch = __import__("threading").Event()
+    raw_orthanc.loads = 0
+    raw_orthanc.limit_find = 100
+    t = worklist_index.start_background()
+    assert raw_orthanc.first_batch.wait(10)
+    assert worklist_index.shadow_path().exists()
+    r = _run(patientName="maria")
+    assert r["total"] == 101  # dados antigos, não lista vazia nem parcial da sombra
+    assert _run(patientId="SINT-LIM-00000")["total"] == 1
+    raw_orthanc.gate.set()
+    t.join(20)
+    assert worklist_index.state()["status"] == "ready" and _run(patientName="maria")["total"] == 300
+    assert not worklist_index.shadow_path().exists()
+    import os
+    import stat
+    assert stat.S_IMODE(os.stat(worklist_index.index_path()).st_mode) == 0o600
+
+
+def test_reconstrucao_incompleta_nao_troca_por_menos(raw_orthanc, monkeypatch):
+    """Sombra incompleta com MENOS estudos que o índice atual: descarta e mantém o antigo."""
+    raw_orthanc.studies = list(MUITOS)
+    worklist_index.start_background().join(20)
+    assert worklist_index._count_index() == 300
+    raw_orthanc.limit_find = 50
+    raw_orthanc.studies = list(MUITOS[:120])
+    raw_orthanc.extra_count = 500
+    worklist_index.start_background(rebuild=True).join(20)
+    assert worklist_index.state()["status"] == "incomplete"
+    assert worklist_index._count_index() == 300 and not worklist_index.shadow_path().exists()
+
+
+def test_lp20_indice_sobrevive_ao_restart_sem_carga_completa(raw_orthanc, monkeypatch):
+    """LP20: com o índice completo, "reinicia" o portal (estado do processo zerado, mesmo arquivo
+    no volume): volta ready com a mesma contagem e SEM nova carga completa."""
+    raw_orthanc.studies = list(MUITOS)
+    worklist_index.start_background().join(20)
+    assert worklist_index.state()["status"] == "ready"
+    antes = worklist_index._count_index()
+    assert antes == 300
+    # restart: novo processo => estado em memória do zero, mesmo worklist_index.db
+    monkeypatch.setattr(worklist_index, "_bg_thread", None)
+    monkeypatch.setattr(worklist_index, "_last_attempt", None)
+    worklist_index._set_state(status="idle", indexed=0, total=None)
+    cargas = _conta_cargas(monkeypatch)
+    raw_orthanc.calls.clear()
+    worklist_index.start_background().join(20)  # o que o startup do portal faz
+    st = worklist_index.state()
+    assert st["status"] == "ready" and st["indexed"] == st["total"] == antes
+    assert cargas == []  # nenhuma carga completa
+    paginadas = [p for m, p in raw_orthanc.calls if p == "/dicom-web/studies"]
+    assert paginadas == []  # nem QIDO do acervo: só /changes e /statistics
+    r = _run(patientId="SINT-LIM-00299")
+    assert r["total"] == 1 and r["index"]["status"] == "ready"
