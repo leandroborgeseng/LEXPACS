@@ -48,6 +48,30 @@ export const LEX_DATE_VIEWS = [
 ];
 export const LEX_DEFAULT_VIEW = 'hoje';
 
+/** Nenhum botão de período ativo (ex.: depois de "Limpar filtros"). */
+export const LEX_NO_VIEW = '';
+
+/**
+ * Botão de período que deve ficar destacado para os filtros atuais.
+ * Sem filtro de data (ex.: "Limpar filtros") → nenhum; intervalo igual ao de uma visão → essa visão
+ * (preferindo a atual); intervalo manual diferente → nenhum.
+ */
+export function lexViewForFilters(currentView, filters, now = new Date(), dateId = 'studyDateTime') {
+  const f = (filters || []).find(x => x?.id === dateId);
+  const v = f?.value;
+  if (!v || typeof v !== 'object' || (!v.startDate && !v.endDate)) {
+    return LEX_NO_VIEW;
+  }
+  const same = id => {
+    const r = lexDateRange(id, now);
+    return r.startDate === v.startDate && r.endDate === v.endDate;
+  };
+  if (lexIsDateView(currentView) && same(currentView)) {
+    return currentView;
+  }
+  return LEX_DATE_VIEWS.find(x => same(x.id))?.id ?? LEX_NO_VIEW;
+}
+
 export function lexIsDateView(id) {
   return LEX_DATE_VIEWS.some(v => v.id === id);
 }
@@ -101,10 +125,25 @@ export function lexInitialColumnVisibility(storage) {
   return vis;
 }
 
-export function lexSaveColumnVisibility(storage, visibility) {
+/**
+ * Salva só a escolha explícita do usuário. `autoHiddenIds` = colunas que o ajuste de tela estreita
+ * ocultou sozinho: o "oculto" automático não é gravado (mantém o valor já salvo, ou nada).
+ */
+export function lexSaveColumnVisibility(storage, visibility, autoHiddenIds) {
+  const auto = autoHiddenIds instanceof Set ? autoHiddenIds : new Set(autoHiddenIds || []);
+  let saved = {};
+  try {
+    saved = JSON.parse(storage?.getItem(LEX_COLUMNS_PREF_KEY) || 'null') || {};
+  } catch {
+    saved = {};
+  }
   const pref = {};
   LEX_PREF_COLUMN_IDS.forEach(id => {
-    if (typeof visibility?.[id] === 'boolean') {
+    if (auto.has(id) && visibility?.[id] === false) {
+      if (typeof saved[id] === 'boolean') {
+        pref[id] = saved[id];
+      }
+    } else if (typeof visibility?.[id] === 'boolean') {
       pref[id] = visibility[id];
     }
   });

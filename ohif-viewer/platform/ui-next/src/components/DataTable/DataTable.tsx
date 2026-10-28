@@ -36,7 +36,11 @@ import { ViewOptions } from './ViewOptions';
 import { ActionOverlayCell } from './ActionOverlayCell';
 import { FilterRow } from './FilterRow';
 import { ColumnHeader } from './ColumnHeader';
-import { ResponsiveColumnsProvider, useResponsiveColumns } from './useResponsiveColumns';
+import {
+  ResponsiveColumnsProvider,
+  useAutoHiddenColumnIdsRef,
+  useResponsiveColumns,
+} from './useResponsiveColumns';
 import type { ColumnMeta } from './types';
 import {
   Table as BasicTable,
@@ -76,7 +80,7 @@ export type DataTableProps<TData> = {
   enforceSingleSelection?: boolean;
   onSelectionChange?: (rows: TData[]) => void;
   /** LEX PACS LP19: avisa mudanças de colunas visíveis (para salvar a preferência do usuário). */
-  onColumnVisibilityChange?: (visibility: VisibilityState) => void;
+  onColumnVisibilityChange?: (visibility: VisibilityState, autoHiddenIds: Set<string>) => void;
   children: ReactNode;
 };
 
@@ -106,11 +110,6 @@ function DataTableRoot<TData>({
   children,
 }: DataTableProps<TData>) {
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(initialVisibility);
-  const visibilityChangeRef = React.useRef(onColumnVisibilityChange);
-  visibilityChangeRef.current = onColumnVisibilityChange;
-  React.useEffect(() => {
-    visibilityChangeRef.current?.(columnVisibility);
-  }, [columnVisibility]);
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
 
   const table = useReactTable<TData>({
@@ -205,9 +204,36 @@ function DataTableRoot<TData>({
 
   return (
     <DataTableContext.Provider value={{ table } as DataTableContextValue<unknown>}>
-      <ResponsiveColumnsProvider>{children}</ResponsiveColumnsProvider>
+      <ResponsiveColumnsProvider>
+        {children}
+        <LexVisibilityPersist
+          columnVisibility={columnVisibility}
+          onColumnVisibilityChange={onColumnVisibilityChange}
+        />
+      </ResponsiveColumnsProvider>
     </DataTableContext.Provider>
   );
+}
+
+/**
+ * LEX PACS: avisa a mudança de colunas junto com as que o ajuste de tela estreita ocultou sozinho,
+ * para que só a escolha explícita do usuário vire preferência. Fica depois de `children` para rodar
+ * após o algoritmo responsivo no mesmo commit.
+ */
+function LexVisibilityPersist({
+  columnVisibility,
+  onColumnVisibilityChange,
+}: {
+  columnVisibility: VisibilityState;
+  onColumnVisibilityChange?: (visibility: VisibilityState, autoHiddenIds: Set<string>) => void;
+}) {
+  const autoHiddenIdsRef = useAutoHiddenColumnIdsRef();
+  const cbRef = useRef(onColumnVisibilityChange);
+  cbRef.current = onColumnVisibilityChange;
+  useEffect(() => {
+    cbRef.current?.(columnVisibility, new Set(autoHiddenIdsRef.current));
+  }, [columnVisibility, autoHiddenIdsRef]);
+  return null;
 }
 
 type TableProps = {

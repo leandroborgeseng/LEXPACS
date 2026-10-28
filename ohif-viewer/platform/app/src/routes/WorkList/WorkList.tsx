@@ -30,6 +30,7 @@ import {
   lexPollIndexStatus,
   lexSaveColumnVisibility,
   lexShouldPollIndex,
+  lexViewForFilters,
 } from '@ohif/ui-next';
 
 type Props = withAppTypes & {
@@ -225,7 +226,9 @@ export default function WorkList({
               hasMore={dataHasMore}
               sortNote={serverPaging ? lexSortNote(dataSortScope) : null}
               initialVisibility={initialVisibility}
-              onColumnVisibilityChange={vis => lexSaveColumnVisibility(window.localStorage, vis)}
+              onColumnVisibilityChange={(vis, autoHidden) =>
+                lexSaveColumnVisibility(window.localStorage, vis, autoHidden)
+              }
               hidePagination={errorUi.hidePagination}
               filtersDisabled={errorUi.filtersDisabled}
               emptyMessage={
@@ -250,7 +253,10 @@ export default function WorkList({
               }
               onFiltersChange={updater => {
                 setIsFilterPending(true);
-                setFilters(updater);
+                // "Limpar filtros" (ou data manual): o destaque do período segue o filtro de data.
+                const next = typeof updater === 'function' ? updater(filters) : updater;
+                setActiveView(v => lexViewForFilters(v, next));
+                setFilters(next);
               }}
               isLoading={showStudyListLoading}
               loadingComponent={

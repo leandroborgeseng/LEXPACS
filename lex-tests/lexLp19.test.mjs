@@ -67,7 +67,7 @@ test('LP19: menu lateral recolhido; Descrição e Nº de acesso desmarcadas; pre
   mem.set(m.LEX_COLUMNS_PREF_KEY, '{quebrado');
   assert.deepEqual(m.lexInitialColumnVisibility(st), { description: false, accession: false });
   assert.match(wl, /initialVisibility=\{initialVisibility\}/);
-  assert.match(wl, /onColumnVisibilityChange=\{vis => lexSaveColumnVisibility/);
+  assert.match(wl, /onColumnVisibilityChange=\{\(vis, autoHidden\) =>\s+lexSaveColumnVisibility/);
 });
 
 test('UXE1–UXE4: erro do índice sem paginador, alerta único central, botão sem mono, filtros inativos', () => {
@@ -116,4 +116,52 @@ test('LP19/UXE: props chegam à tabela (Layout) e coluna desmarcada no início n
   }
   const rc = read('platform/ui-next/src/components/DataTable/useResponsiveColumns.tsx');
   assert.match(rc, /lastColumnVisibilityRef\.current\[sizing\.id\] === false\) \{\s*userHiddenRef\.current\.add\(sizing\.id\)/);
+});
+
+test('Lacuna 1: "Limpar filtros" tira o destaque do botão de período', () => {
+  const qua = new Date('2026-10-28T13:00:00Z');
+  const hoje = [{ id: 'studyDateTime', value: m.lexDateRange('hoje', qua) }];
+  const semana = [{ id: 'studyDateTime', value: m.lexDateRange('semana', qua) }];
+  // limpar filtros = lista vazia: nenhum período ativo, coerente com o filtro de data removido
+  assert.equal(m.lexViewForFilters('hoje', [], qua), m.LEX_NO_VIEW);
+  assert.equal(m.lexViewForFilters('semana', [{ id: 'patient', value: '' }], qua), '');
+  assert.equal(m.lexIsDateView(m.lexViewForFilters('semana-passada', [], qua)), false);
+  // filtro de data igual a uma visão mantém/acha o destaque; data manual diferente não destaca nenhum
+  assert.equal(m.lexViewForFilters('hoje', hoje, qua), 'hoje');
+  assert.equal(m.lexViewForFilters('', semana, qua), 'semana');
+  assert.equal(m.lexViewForFilters('hoje', [{ id: 'studyDateTime', value: { startDate: '20250101', endDate: '20250102' } }], qua), '');
+  // a WorkList recalcula o período a cada mudança de filtro (inclui o botão "Limpar filtros")
+  assert.match(wl, /setActiveView\(v => lexViewForFilters\(v, next\)\)/);
+  const table = read('platform/ui-next/src/components/StudyList/components/Table.tsx');
+  assert.match(table, /table\.setColumnFilters\(\[\]\)/);
+});
+
+test('Lacuna 2: coluna ocultada pela tela estreita não vira preferência', () => {
+  const mem = () => {
+    const d = {};
+    return { getItem: k => (k in d ? d[k] : null), setItem: (k, v) => { d[k] = String(v); }, d };
+  };
+  // usuário marcou as duas colunas
+  const s = mem();
+  m.lexSaveColumnVisibility(s, { description: true, accession: true });
+  // tela estreita: o ajuste oculta as duas sozinho → preferência continua true
+  m.lexSaveColumnVisibility(s, { description: false, accession: false }, new Set(['description', 'accession']));
+  assert.deepEqual(m.lexInitialColumnVisibility(s), { description: true, accession: true });
+  // sem preferência salva: o oculto automático não é gravado
+  const s2 = mem();
+  assert.deepEqual(m.lexSaveColumnVisibility(s2, { description: false }, ['description']), {});
+  assert.deepEqual(m.lexInitialColumnVisibility(s2), { description: false, accession: false });
+  // escolha explícita do usuário (não automática) continua salva
+  m.lexSaveColumnVisibility(s, { description: false, accession: true }, new Set());
+  assert.deepEqual(m.lexInitialColumnVisibility(s), { description: false, accession: true });
+  // usuário reexibe uma coluna que o ajuste re-oculta: vale o "true" do usuário
+  m.lexSaveColumnVisibility(s, { description: true, accession: true }, new Set(['description']));
+  assert.equal(m.lexInitialColumnVisibility(s).description, true);
+  // fiação: o algoritmo publica as ocultas automáticas e a DataTable as repassa ao salvar
+  const rc = read('platform/ui-next/src/components/DataTable/useResponsiveColumns.tsx');
+  assert.match(rc, /autoHiddenIdsRef\.current = autoHidden/);
+  assert.match(rc, /!userHiddenRef\.current\.has\(id\)/);
+  const dt = read('platform/ui-next/src/components/DataTable/DataTable.tsx');
+  assert.match(dt, /new Set\(autoHiddenIdsRef\.current\)/);
+  assert.match(wl, /lexSaveColumnVisibility\(window\.localStorage, vis, autoHidden\)/);
 });
