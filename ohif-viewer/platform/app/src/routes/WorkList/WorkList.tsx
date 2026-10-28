@@ -23,6 +23,8 @@ import { SidePanelPreview } from './SidePanelPreview';
 import { WorkListViewBar, filtersWithDateView } from './WorkListViewBar';
 import {
   LEX_INDEX_POLL_MS,
+  LEX_EMPTY_TODAY_PREFIX,
+  LEX_EMPTY_TODAY_SUFFIX,
   lexEmptyMessageForView,
   lexHasTextSearch,
   lexIndexErrorUi,
@@ -233,13 +235,17 @@ export default function WorkList({
               filtersDisabled={errorUi.filtersDisabled}
               emptyMessage={
                 serverPaging && dataIndex?.status === 'error' ? (
-                  // UXE2: uma mensagem só, no centro da tabela, como alerta, com o botão embaixo.
+                  // UXE2: alerta âmbar único no centro (cores e contraste em LEX_ALERT_STYLE).
                   <div
                     role="alert"
                     data-testid="lex-index-error"
-                    className="mx-auto flex max-w-md flex-col items-center gap-3"
+                    className="mx-auto flex max-w-md flex-col items-center gap-3 rounded-md border px-4 py-3 text-sm"
+                    style={LEX_ALERT_STYLE}
                   >
-                    <span>{LEX_INDEX_ERROR_MESSAGE}</span>
+                    <span className="flex gap-2">
+                      <LexAlertIcon />
+                      <span>{LEX_INDEX_ERROR_MESSAGE}</span>
+                    </span>
                     <LexIndexRetryButton
                       retryInSeconds={dataIndex?.retryInSeconds ?? 0}
                       onRetried={onRefresh}
@@ -248,7 +254,21 @@ export default function WorkList({
                 ) : serverPaging && dataPartial ? (
                   lexIndexingMessage(dataIndex)
                 ) : (
-                  lexEmptyMessageForView(activeView, hasTextSearch) ?? undefined
+                  lexEmptyMessageForView(activeView, hasTextSearch) ? (
+                    // Vazio de Hoje: "Esta semana" aplica o período direto.
+                    <span data-testid="lex-empty-today">
+                      {LEX_EMPTY_TODAY_PREFIX}
+                      <button
+                        type="button"
+                        data-testid="lex-empty-today-semana"
+                        className="text-primary font-sans underline underline-offset-2"
+                        onClick={() => handleViewChange('semana')}
+                      >
+                        Esta semana
+                      </button>
+                      {LEX_EMPTY_TODAY_SUFFIX}
+                    </span>
+                  ) : undefined
                 )
               }
               onFiltersChange={updater => {
@@ -384,12 +404,46 @@ function LexIndexRetryButton({
     <button
       type="button"
       // UXE3: fonte do sistema (sem monoespaçada) e contagem anunciada com aria-live.
-      className="border-input text-primary rounded-md border px-3 py-1 font-sans text-sm disabled:opacity-60"
+      // UXE2: branco sobre #92400E = 7,1:1 (AA). Desabilitado fica #FEF3C7 sobre #92400E, sem opacidade.
+      className="rounded-md border px-3 py-1 font-sans text-sm font-medium disabled:cursor-not-allowed"
+      style={{
+        backgroundColor: '#92400E',
+        borderColor: '#92400E',
+        color: busy || left > 0 ? '#FEF3C7' : '#FFFFFF',
+      }}
       disabled={busy || left > 0}
       aria-disabled={busy || left > 0}
       onClick={retry}
     >
       <span aria-live="polite">{lexRetryLabel(left)}</span>
     </button>
+  );
+}
+
+/**
+ * UXE2: alerta âmbar claro. Texto #78350F sobre #FFFBEB = 8,75:1 (WCAG AA ≥ 4,5:1).
+ */
+const LEX_ALERT_STYLE = { backgroundColor: '#FFFBEB', borderColor: '#F59E0B', color: '#78350F' };
+
+/** UXE2: ícone de alerta (triângulo), #B45309 sobre #FFFBEB = 4,84:1. */
+function LexAlertIcon() {
+  return (
+      <svg
+        aria-hidden="true"
+        data-testid="lex-index-error-icon"
+        viewBox="0 0 24 24"
+        width="20"
+        height="20"
+        fill="none"
+        stroke="#B45309"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="mt-px shrink-0"
+      >
+        <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+        <line x1="12" y1="9" x2="12" y2="13" />
+        <line x1="12" y1="17" x2="12.01" y2="17" />
+      </svg>
   );
 }

@@ -100,6 +100,9 @@ export const LEX_WHOLE_ARCHIVE_MESSAGE = 'Buscando em todo o acervo';
 export const LEX_EMPTY_TODAY_MESSAGE =
   'Nenhum exame hoje. Veja Esta semana ou digite um nome para buscar em todo o acervo.';
 
+export const LEX_EMPTY_TODAY_PREFIX = 'Nenhum exame hoje. Veja ';
+export const LEX_EMPTY_TODAY_SUFFIX = ' ou digite um nome para buscar em todo o acervo.';
+
 export function lexEmptyMessageForView(viewId, hasTextSearch) {
   return viewId === 'hoje' && !hasTextSearch ? LEX_EMPTY_TODAY_MESSAGE : null;
 }

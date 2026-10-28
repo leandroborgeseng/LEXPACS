@@ -79,7 +79,7 @@ test('UXE1–UXE4: erro do índice sem paginador, alerta único central, botão 
   assert.match(table, /hidePagination \? null : <DataTable\.Pagination/); // UXE1
   // UXE2: uma ocorrência do alerta, dentro do emptyMessage (centro da tabela), com o botão
   assert.equal((wl.match(/role="alert"/g) || []).length, 1);
-  assert.match(wl, /emptyMessage=\{\s*serverPaging && dataIndex\?\.status === 'error' \? \([\s\S]{0,200}role="alert"[\s\S]{0,300}LEX_INDEX_ERROR_MESSAGE[\s\S]{0,100}<LexIndexRetryButton/);
+  assert.match(wl, /emptyMessage=\{\s*serverPaging && dataIndex\?\.status === 'error' \? \([\s\S]{0,200}role="alert"[\s\S]{0,500}LEX_INDEX_ERROR_MESSAGE[\s\S]{0,100}<LexIndexRetryButton/);
   // UXE3
   assert.doesNotMatch(wl, /lex-num">\{lexRetryLabel/);
   assert.match(wl, /font-sans/);
@@ -164,4 +164,45 @@ test('Lacuna 2: coluna ocultada pela tela estreita não vira preferência', () =
   const dt = read('platform/ui-next/src/components/DataTable/DataTable.tsx');
   assert.match(dt, /new Set\(autoHiddenIdsRef\.current\)/);
   assert.match(wl, /lexSaveColumnVisibility\(window\.localStorage, vis, autoHidden\)/);
+});
+
+// Contraste WCAG 2.x (luminância relativa)
+const lum = hex => {
+  const c = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255)
+    .map(v => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+};
+const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+
+test('UXE2 v2: erro do índice como alerta âmbar com ícone e botão com contraste AA', () => {
+  const alert = wl.slice(wl.indexOf('data-testid="lex-index-error"') - 200, wl.indexOf('<LexIndexRetryButton\n'));
+  assert.match(alert, /role="alert"/);
+  assert.match(alert, /style=\{LEX_ALERT_STYLE\}/);
+  assert.match(wl, /const LEX_ALERT_STYLE = \{ backgroundColor: '#FFFBEB', borderColor: '#F59E0B', color: '#78350F' \}/);
+  assert.match(alert, /<LexAlertIcon \/>/);
+  assert.match(wl, /function LexAlertIcon[\s\S]{0,80}<svg\s+aria-hidden="true"\s+data-testid="lex-index-error-icon"/);
+  const btn = wl.slice(wl.indexOf('function LexIndexRetryButton'));
+  assert.match(btn, /backgroundColor: '#92400E'/);
+  assert.match(btn, /'#FFFFFF'/);
+  assert.doesNotMatch(btn, /opacity-60/);
+  assert.ok(ratio('#FFFFFF', '#92400E') >= 4.5, `botão ${ratio('#FFFFFF', '#92400E')}`);
+  assert.ok(ratio('#FEF3C7', '#92400E') >= 4.5, 'botão desabilitado');
+  assert.ok(ratio('#78350F', '#FFFBEB') >= 4.5, 'texto do alerta');
+  assert.ok(ratio('#B45309', '#FFFBEB') >= 3, 'ícone (não-texto, ≥3:1)');
+});
+
+test('vazio de Hoje: "Esta semana" é botão que aplica o período', () => {
+  assert.equal(m.LEX_EMPTY_TODAY_PREFIX + 'Esta semana' + m.LEX_EMPTY_TODAY_SUFFIX, m.LEX_EMPTY_TODAY_MESSAGE);
+  assert.match(wl, /data-testid="lex-empty-today-semana"[\s\S]{0,200}onClick=\{\(\) => handleViewChange\('semana'\)\}[\s\S]{0,80}Esta semana/);
+  assert.match(wl, /<button\s+type="button"\s+data-testid="lex-empty-today-semana"/);
+});
+
+test('contador "Exibindo X–Y de N" do topo sem fonte mono', () => {
+  const pag = read('platform/ui-next/src/components/DataTable/Pagination.tsx');
+  const sp = pag.slice(pag.indexOf('function ServerPagination'));
+  const trig = sp.slice(sp.indexOf('<DropdownMenuTrigger'), sp.indexOf('</DropdownMenuTrigger>'));
+  assert.doesNotMatch(trig, /lex-num|font-mono/);
+  assert.match(trig, /font-sans/);
+  assert.match(trig, /tabular-nums/);
+  assert.match(trig, /\{range\}/);
 });
