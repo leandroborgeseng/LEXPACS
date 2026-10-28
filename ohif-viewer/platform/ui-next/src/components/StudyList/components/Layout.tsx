@@ -143,6 +143,10 @@ function Table({
   sortNote,
   emptyMessage,
   toolbarBelowComponent,
+  // LEX PACS LP19/UXE: preferência de colunas, paginador e filtros no erro do índice.
+  hidePagination,
+  filtersDisabled,
+  onColumnVisibilityChange,
 }: TableProps) {
   const { defaultPreviewSizePercent } = useLayout();
 
@@ -181,6 +185,9 @@ function Table({
             sortNote={sortNote}
             emptyMessage={emptyMessage}
             toolbarBelowComponent={toolbarBelowComponent}
+            hidePagination={hidePagination}
+            filtersDisabled={filtersDisabled}
+            onColumnVisibilityChange={onColumnVisibilityChange}
           />
         </div>
       </div>

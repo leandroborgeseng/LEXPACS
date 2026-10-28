@@ -232,6 +232,13 @@ export function useResponsiveColumns<TData>(
         // any initialVisibility from the consumer is treated as the algorithm's
         // baseline, not as a user override.
         lastColumnVisibilityRef.current = { ...table.getState().columnVisibility };
+        // LEX PACS LP19: coluna desmarcada no initialVisibility (padrão ou preferência salva)
+        // conta como escolha do usuário: o algoritmo não a reexibe quando sobra espaço.
+        for (const sizing of droppableColumns) {
+          if (lastColumnVisibilityRef.current[sizing.id] === false) {
+            userHiddenRef.current.add(sizing.id);
+          }
+        }
         isFirstRunRef.current = false;
       } else {
         // Diff the table's current visibility against what we last applied;

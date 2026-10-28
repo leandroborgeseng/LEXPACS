@@ -108,3 +108,12 @@ test('rebuilding: polling a cada 10 s só do status; para e recarrega ao voltar 
   assert.match(wl, /LEX_INDEX_POLL_MS\);/);
   assert.match(wl, /lexShowIndexRebuilding\(\{ status: shownIndexStatus \}\)/);
 });
+
+test('LP19/UXE: props chegam à tabela (Layout) e coluna desmarcada no início não volta sozinha', () => {
+  const layout = read('platform/ui-next/src/components/StudyList/components/Layout.tsx');
+  for (const p of ['hidePagination', 'filtersDisabled', 'onColumnVisibilityChange']) {
+    assert.match(layout, new RegExp(`${p}=\\{${p}\\}`), p);
+  }
+  const rc = read('platform/ui-next/src/components/DataTable/useResponsiveColumns.tsx');
+  assert.match(rc, /lastColumnVisibilityRef\.current\[sizing\.id\] === false\) \{\s*userHiddenRef\.current\.add\(sizing\.id\)/);
+});
