@@ -383,7 +383,10 @@ def _noite(vezes=3):
     agora = datetime(2026, 10, 30, 3, 0, tzinfo=worklist_index._tz())
     out = []
     for _ in range(vezes):
-        worklist_index._last_check = None
+        conn = worklist_index.connect()  # B1: conferência vencida (horário fica no worklist_meta)
+        conn.execute("DELETE FROM worklist_meta WHERE key='last_check_at'")
+        conn.commit()
+        conn.close()
         out.append(asyncio.run(worklist_index.scheduled_tick(now=agora)))
     return out
 

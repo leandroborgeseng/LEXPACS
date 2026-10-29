@@ -47,6 +47,12 @@ class Settings(BaseSettings):
     worklist_index_timezone: str = "America/Sao_Paulo"
     # Sem volume persistente (lex-data) não há carga completa automática, salvo se true.
     worklist_index_allow_ephemeral: bool = False
+    # B2: força a detecção de volume (auto = pelo fstype; true/false quando bind mount ou disco de
+    # rede enganam a detecção).
+    worklist_index_volume_persistent: str = "auto"
+    # M1: sem volume persistente, depois de X s de processo no ar a carga completa roda mesmo assim
+    # (uma vez por processo), para a busca não ficar parada. Restart em loop (< X s) não recarrega.
+    worklist_index_ephemeral_grace_seconds: int = 600
     lex_admin_user: str = ""
     lex_admin_password: str = ""
     password_min_length: int = 10
