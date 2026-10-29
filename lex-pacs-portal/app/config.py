@@ -37,6 +37,16 @@ class Settings(BaseSettings):
     # #9 ressalva 1: nova tentativa automática de incomplete/error em segundo plano, com backoff
     worklist_index_auto_retry: bool = True
     worklist_index_retry_max_seconds: int = 1800
+    # Índice persistente: incremental periódico (s), sync na busca só se a última for mais velha
+    # que X s, conferência de contagem (s), N divergências seguidas => reconstrução na janela.
+    worklist_index_sync_seconds: int = 60
+    worklist_index_search_sync_seconds: int = 30
+    worklist_index_check_seconds: int = 3600
+    worklist_index_divergence_threshold: int = 3
+    worklist_index_rebuild_window: str = "02:00-05:00"
+    worklist_index_timezone: str = "America/Sao_Paulo"
+    # Sem volume persistente (lex-data) não há carga completa automática, salvo se true.
+    worklist_index_allow_ephemeral: bool = False
     lex_admin_user: str = ""
     lex_admin_password: str = ""
     password_min_length: int = 10
