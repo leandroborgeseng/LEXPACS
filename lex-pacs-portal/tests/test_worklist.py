@@ -377,8 +377,20 @@ def test_tentar_de_novo_respeita_intervalo_no_backend(raw_orthanc, monkeypatch, 
     assert client.post("/api/worklist/index/retry").status_code == 401
 
 
+def _noite(vezes=3):
+    """Rodadas da agenda às 03:00 (dentro da janela 02:00–05:00), com conferência em cada uma."""
+    from datetime import datetime
+    agora = datetime(2026, 10, 30, 3, 0, tzinfo=worklist_index._tz())
+    out = []
+    for _ in range(vezes):
+        worklist_index._last_check = None
+        out.append(asyncio.run(worklist_index.scheduled_tick(now=agora)))
+    return out
+
+
 def test_indice_vazio_com_orthanc_cheio_reconstroi_sozinho(raw_orthanc):
-    """Índice criado com 0 estudos (antes do seed) e /changes sem eventos: o startup reconstrói."""
+    """Índice criado com 0 estudos (antes do seed) e /changes sem eventos: o startup NÃO
+    reconstrói; a agenda reconstrói na janela depois de 3 divergências seguidas."""
     estudos = raw_orthanc.studies
     raw_orthanc.studies = []
     asyncio.run(worklist_index._sync_now_for_tests())
@@ -387,6 +399,8 @@ def test_indice_vazio_com_orthanc_cheio_reconstroi_sozinho(raw_orthanc):
     conn.close()
     raw_orthanc.studies = estudos  # chegaram sem evento no /changes (ex.: podado)
     worklist_index.start_background().join(10)
+    assert worklist_index._count_index() == 0 and worklist_index.state()["status"] == "ready"
+    assert _noite(3)[-1].endswith("+rebuild")
     r = _run()
     assert r["index"]["status"] == "ready" and r["total"] == len(estudos)
 
@@ -442,6 +456,8 @@ def test_startup_reconstroi_indice_antigo_cortado_em_101(raw_orthanc):
     assert worklist_index.is_ready() and worklist_index._count_index() == 101
     raw_orthanc.limit_find = 100
     worklist_index.start_background().join(20)
+    assert worklist_index._count_index() == 101 and worklist_index.state()["status"] == "ready"
+    _noite(3)
     st = worklist_index.state()
     assert st["status"] == "ready" and worklist_index._count_index() == 300 and st["total"] == 300
     assert _run(patientId="SINT-LIM-00299")["total"] == 1
@@ -541,7 +557,7 @@ def test_reconstrucao_em_sombra_busca_continua_com_dados_antigos(raw_orthanc, mo
     raw_orthanc.first_batch = __import__("threading").Event()
     raw_orthanc.loads = 0
     raw_orthanc.limit_find = 100
-    t = worklist_index.start_background()
+    t = worklist_index.start_background(rebuild=True)
     assert raw_orthanc.first_batch.wait(10)
     assert worklist_index.shadow_path().exists()
     r = _run(patientName="maria")
@@ -615,7 +631,7 @@ def test_reconstrucao_status_rebuilding_e_resultado_nao_parcial(raw_orthanc):
     raw_orthanc.first_batch = __import__("threading").Event()
     raw_orthanc.loads = 0
     raw_orthanc.limit_find = 100
-    t = worklist_index.start_background()
+    t = worklist_index.start_background(rebuild=True)
     assert raw_orthanc.first_batch.wait(10)
     r = _run(patientName="maria")
     assert r["index"]["status"] == "rebuilding" and r["partial"] is False and r["total"] == 101
@@ -668,6 +684,8 @@ def test_startup_reconstroi_quando_estudo_foi_apagado_sem_evento(raw_orthanc, mo
     worklist_index._set_state(status="idle", indexed=0, total=None)
     cargas = _conta_cargas(monkeypatch)
     worklist_index.start_background().join(20)
+    assert worklist_index._count_index() == 300 and cargas == []  # startup não reconstrói
+    _noite(3)
     st = worklist_index.state()
     assert st["status"] == "ready" and worklist_index._count_index() == 299 and len(cargas) == 1
     assert _run(patientId=apagado["pid"])["total"] == 0
