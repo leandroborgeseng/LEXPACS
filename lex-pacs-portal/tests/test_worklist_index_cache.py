@@ -20,6 +20,7 @@ from test_worklist import BASE, FakeOrthanc, _conta_cargas, _mk, _run
 import test_worklist
 from app.worklist_index import orthanc_study_id
 
+_REAL_STORAGE = worklist_index.storage_is_persistent  # antes do patch do conftest
 raw_orthanc = test_worklist.raw_orthanc  # fixture compartilhada (Orthanc falso)
 
 DENTRO = datetime(2026, 10, 30, 3, 0)
@@ -40,6 +41,8 @@ def _restart(monkeypatch):
     monkeypatch.setattr(worklist_index, "_last_attempt", None)
     monkeypatch.setattr(worklist_index, "_last_sync", None)
     monkeypatch.setattr(worklist_index, "_last_check", None)
+    monkeypatch.setattr(worklist_index, "_process_started", time.monotonic())
+    worklist_index.cancel_auto_retry()
     worklist_index._set_state(status="idle", indexed=0, total=None)
 
 
@@ -57,11 +60,19 @@ def _grava_estados(monkeypatch):
 
 
 def _tick(dt=DENTRO, check=True):
-    if check:
-        worklist_index._last_check = None
-    else:
-        worklist_index._last_check = time.monotonic()
+    if check is not None:
+        _marca_conferencia(vencida=check)
     return asyncio.run(worklist_index.scheduled_tick(now=_at(dt)))
+
+
+def _marca_conferencia(vencida):
+    conn = worklist_index.connect()
+    if vencida:  # conferência vencida (última há mais de 1 h)
+        worklist_index._meta_set(conn, "last_check_at", int(time.time()) - 3601)
+    else:
+        worklist_index._meta_set(conn, "last_check_at", int(time.time()))
+    conn.commit()
+    conn.close()
 
 
 @pytest.fixture(autouse=True)
@@ -133,11 +144,12 @@ def test_sincronizacoes_simultaneas_so_uma_roda(raw_orthanc):
 
 def test_sem_mudancas_nenhuma_chamada_extra_nem_escrita(raw_orthanc):
     asyncio.run(worklist_index._sync_now_for_tests())
+    _marca_conferencia(vencida=False)  # B1: conferência recente já gravada no worklist_meta
     db = worklist_index.index_path()
     antes = (os.stat(db).st_mtime_ns, os.stat(db).st_size)
     time.sleep(0.02)
     raw_orthanc.calls.clear()
-    assert _tick(check=False) == "incremental"
+    assert _tick(check=None) == "incremental"
     assert raw_orthanc.calls == [("GET", "/changes")]
     assert (os.stat(db).st_mtime_ns, os.stat(db).st_size) == antes
 
@@ -193,12 +205,15 @@ def test_volume_ausente_avisa_e_nao_entra_em_loop_de_carga(raw_orthanc, monkeypa
     monkeypatch.setattr(worklist_index, "_ephemeral_warned", False)
     monkeypatch.setattr(worklist_index.settings, "worklist_index_auto_retry", True)
     cargas = _conta_cargas(monkeypatch)
-    for _ in range(3):  # três "restarts"
+    for _ in range(3):  # três "restarts" rápidos (dentro da carência): nenhuma carga
         _restart(monkeypatch)
         worklist_index.start_background().join(10)
-        assert worklist_index._retry_timer is None or not worklist_index._retry_timer.is_alive()
+        # M1: nova tentativa automática agendada, status com motivo claro
+        assert worklist_index._retry_timer is not None and worklist_index._retry_timer.is_alive()
+        st = worklist_index.state()
+        assert st["status"] == "error" and st["reason"] == "volume_nao_persistente"
+        assert st["nextAutoRetryInSeconds"] is not None and st["nextAutoRetryInSeconds"] > 0
     assert cargas == [] and _qido_acervo(raw_orthanc.calls) == []
-    assert worklist_index.state()["status"] == "error"
     assert "WARNING worklist_index: índice em caminho NÃO persistente" in capsys.readouterr().out
     monkeypatch.setattr(worklist_index.settings, "worklist_index_allow_ephemeral", True)
     _restart(monkeypatch)
@@ -290,3 +305,111 @@ def test_janela_noturna():
     assert worklist_index.in_rebuild_window(_at(DENTRO))
     assert not worklist_index.in_rebuild_window(_at(FORA))
     assert not worklist_index.in_rebuild_window(_at(datetime(2026, 10, 30, 5, 0)))
+
+
+def test_m1_volume_efemero_recupera_sozinho_depois_da_carencia(raw_orthanc, monkeypatch, capsys):
+    """M1: sem lex-data e sem ALLOW_EPHEMERAL, o índice vazio não fica em 'error' para sempre:
+    a tentativa automática depois da carência faz UMA carga e a busca volta."""
+    monkeypatch.setattr(worklist_index, "storage_is_persistent", lambda: False)
+    monkeypatch.setattr(worklist_index.settings, "worklist_index_allow_ephemeral", False)
+    monkeypatch.setattr(worklist_index.settings, "worklist_index_auto_retry", True)
+    monkeypatch.setattr(worklist_index.settings, "worklist_index_ephemeral_grace_seconds", 1)
+    monkeypatch.setattr(worklist_index.settings, "worklist_index_retry_seconds", 1)
+    cargas = _conta_cargas(monkeypatch)
+    _restart(monkeypatch)
+    worklist_index.start_background().join(10)
+    assert worklist_index.state()["reason"] == "volume_nao_persistente" and cargas == []
+    fim = time.monotonic() + 10
+    while time.monotonic() < fim and worklist_index.state()["status"] != "ready":
+        time.sleep(0.1)
+        if worklist_index._bg_thread:
+            worklist_index._bg_thread.join(5)
+    st = worklist_index.state()
+    assert st["status"] == "ready" and st["reason"] is None and len(cargas) == 1
+    uids, total = worklist_index.search(name=None, wildcard=False, patient_id=None, accession=None,
+                                        description=None, date_from=None, date_to=None,
+                                        modalities=[], limit=10, offset=0)
+    assert total > 0
+    assert "carência encerrada, carga completa liberada" in capsys.readouterr().out
+
+
+def test_m1_orthanc_fora_sem_indice_tem_motivo_e_retry(raw_orthanc, monkeypatch):
+    monkeypatch.setattr(worklist_index.settings, "worklist_index_auto_retry", True)
+    monkeypatch.setattr(worklist_index.settings, "worklist_index_retry_seconds", 300)
+
+    async def fora(*a, **k):
+        raise httpx.ConnectError("fora")
+
+    monkeypatch.setattr(worklist_index, "_run_sync", fora)
+    _restart(monkeypatch)
+    worklist_index.start_background().join(10)
+    st = worklist_index.state()
+    assert st["status"] == "error" and st["reason"] == "orthanc_indisponivel"
+    assert st["nextAutoRetryInSeconds"] and st["nextAutoRetryInSeconds"] > 0
+
+
+def test_b1_ultima_conferencia_persiste_entre_restarts(raw_orthanc, monkeypatch):
+    asyncio.run(worklist_index._sync_now_for_tests())
+    raw_orthanc.extra_count = 5
+    conn = worklist_index.connect()
+    conn.execute("DELETE FROM worklist_meta WHERE key='last_check_at'")
+    conn.commit()
+    conn.close()
+    assert asyncio.run(worklist_index.scheduled_tick(now=_at(FORA))) == "incremental+check"
+    conn = worklist_index.connect()
+    gravado = int(worklist_index._meta_get(conn, "last_check_at"))
+    conn.close()
+    assert abs(gravado - time.time()) < 5
+    # vários restarts seguidos: o horário vem do worklist_meta, sem nova conferência em ~60 s
+    for _ in range(5):
+        _restart(monkeypatch)
+        assert asyncio.run(worklist_index.scheduled_tick(now=_at(FORA))) == "incremental"
+    conn = worklist_index.connect()
+    assert worklist_index._meta_get(conn, "divergence_count") == "1"
+    conn.close()
+    # só depois de 1 h (relógio real simulado) vem a próxima conferência
+    agora = time.time()
+    assert worklist_index._check_due(agora + 3599) is False
+    assert worklist_index._check_due(agora + 3601) is True
+    monkeypatch.setattr(worklist_index.time, "time", lambda: agora + 3601)
+    _restart(monkeypatch)
+    assert asyncio.run(worklist_index.scheduled_tick(now=_at(FORA))) == "incremental+check"
+    conn = worklist_index.connect()
+    assert worklist_index._meta_get(conn, "divergence_count") == "2"
+    conn.close()
+    assert worklist_index.rebuild_pending() is None
+
+
+def test_b1_relogio_voltou_ou_valor_invalido_confere(raw_orthanc):
+    conn = worklist_index.connect()
+    worklist_index._meta_set(conn, "last_check_at", "lixo")
+    conn.commit()
+    assert worklist_index._check_due() is True
+    worklist_index._meta_set(conn, "last_check_at", int(time.time()) + 86400)
+    conn.commit()
+    conn.close()
+    assert worklist_index._check_due() is True
+
+
+@pytest.mark.parametrize("valor,fstype,esperado", [
+    ("auto", "overlay", False), ("auto", "ext4", True),
+    ("true", "overlay", True), ("TRUE", "tmpfs", True),
+    ("false", "ext4", False), ("false", "nfs4", False),
+    ("qualquer", "overlay", False),  # inválido => auto
+])
+def test_b2_override_de_volume(monkeypatch, valor, fstype, esperado):
+    monkeypatch.undo()
+    monkeypatch.setattr(worklist_index.settings, "worklist_index_volume_persistent", valor)
+    monkeypatch.setattr(worklist_index, "_mount_of", lambda p: ("/lex-data", fstype))
+    assert worklist_index.storage_is_persistent() is esperado
+
+
+def test_b2_override_true_libera_carga_mesmo_com_overlay(raw_orthanc, monkeypatch):
+    monkeypatch.setattr(worklist_index, "storage_is_persistent", _REAL_STORAGE)
+    monkeypatch.setattr(worklist_index.settings, "worklist_index_volume_persistent", "true")
+    monkeypatch.setattr(worklist_index.settings, "worklist_index_allow_ephemeral", False)
+    monkeypatch.setattr(worklist_index, "_mount_of", lambda p: ("/", "overlay"))
+    cargas = _conta_cargas(monkeypatch)
+    _restart(monkeypatch)
+    worklist_index.start_background().join(10)
+    assert worklist_index.state()["status"] == "ready" and len(cargas) == 1

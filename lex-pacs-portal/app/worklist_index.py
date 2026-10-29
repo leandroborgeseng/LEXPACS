@@ -95,7 +95,7 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
 # total do Orthanc. rebuilding = já existe índice completo em uso (a busca funciona normalmente) e
 # uma reconstrução/conferência roda em segundo plano; indexing = primeira carga (resultado parcial).
 _state_lock = threading.Lock()
-_state = {"status": "idle", "indexed": 0, "total": None}
+_state = {"status": "idle", "indexed": 0, "total": None, "reason": None}
 
 
 def retry_in_seconds() -> int:
@@ -126,6 +126,8 @@ def state() -> dict:
 
 def _set_state(**kw) -> None:
     with _state_lock:
+        if "status" in kw and "reason" not in kw:
+            kw["reason"] = None  # motivo só vale para o status em que foi gravado
         _state.update(kw)
 
 
@@ -391,10 +393,23 @@ def _mount_of(path: Path) -> tuple[str, str] | None:
     return best
 
 
+def volume_override() -> bool | None:
+    """WORKLIST_INDEX_VOLUME_PERSISTENT: true/false força; auto (padrão) ou inválido => detecção."""
+    v = str(settings.worklist_index_volume_persistent or "auto").strip().lower()
+    if v in ("true", "1", "yes", "sim", "on"):
+        return True
+    if v in ("false", "0", "no", "nao", "não", "off"):
+        return False
+    return None
+
+
 def storage_is_persistent() -> bool:
     """O índice está num volume montado (ex.: lex-data), e não na camada do container?
     Efêmero = fstype da camada do container ou em memória (overlay/aufs/tmpfs/ramfs); um disco
     comum (ext4/xfs/volume) é persistente. Sem /proc (fora do Linux) => assume persistente."""
+    forced = volume_override()
+    if forced is not None:
+        return forced
     m = _mount_of(index_path().parent if index_path().parent.exists() else index_path().parent.parent)
     if m is None:
         return True
@@ -403,12 +418,24 @@ def storage_is_persistent() -> bool:
 
 
 _ephemeral_warned = False
+_process_started = time.monotonic()
+EPHEMERAL_REASON = "volume_nao_persistente"
+
+
+def ephemeral_grace_left() -> float:
+    """Segundos até a carga em volume efêmero ser liberada neste processo (0 = já liberada)."""
+    return max(0.0, settings.worklist_index_ephemeral_grace_seconds - (time.monotonic() - _process_started))
 
 
 def _full_load_allowed() -> bool:
-    """Carga completa automática só em volume persistente ou com WORKLIST_INDEX_ALLOW_EPHEMERAL."""
+    """Carga completa automática em volume persistente, com WORKLIST_INDEX_ALLOW_EPHEMERAL, ou
+    (M1) em volume efêmero depois do período de carência do processo, para a busca voltar."""
     global _ephemeral_warned
     if storage_is_persistent():
+        return True
+    if not settings.worklist_index_allow_ephemeral and ephemeral_grace_left() <= 0:
+        print("worklist_index: volume não persistente; carência encerrada, carga completa liberada "
+              "neste processo (some no próximo restart: monte o lex-data)")
         return True
     if not _ephemeral_warned:
         _ephemeral_warned = True
@@ -416,7 +443,8 @@ def _full_load_allowed() -> bool:
               "monte o volume lex-data. "
               + ("Carga completa liberada por WORKLIST_INDEX_ALLOW_EPHEMERAL=true (refaz a cada restart)."
                  if settings.worklist_index_allow_ephemeral
-                 else "Carga completa automática DESLIGADA para não refazer o índice a cada restart."))
+                 else "Carga completa adiada por WORKLIST_INDEX_EPHEMERAL_GRACE_SECONDS para não refazer "
+                     "o índice a cada restart; novas tentativas automáticas até lá."))
     return bool(settings.worklist_index_allow_ephemeral)
 
 
@@ -569,17 +597,21 @@ def _background_full(rebuild: bool = False) -> None:
                 _set_state(status="ready")
             return
         ready = is_ready()
+        ephemeral = False
         try:
             if rebuild:
                 asyncio.run(_run_sync(full=True, rebuild=True))
             elif ready:
                 asyncio.run(_run_sync(full=False))
             elif not _full_load_allowed():
-                _set_state(status="error")
-                return  # sem retry automático: não refaz carga a cada tentativa
+                # M1: status claro + nova tentativa agendada (_after_attempt), sem carga agora.
+                _set_state(status="error", reason=EPHEMERAL_REASON)
+                print("worklist_index: busca indisponível até a carga; volume não persistente, "
+                      f"carga liberada em {int(ephemeral_grace_left())} s")
+                ephemeral = True
             else:
                 asyncio.run(_run_sync(full=True))
-            if state()["status"] != "incomplete":
+            if not ephemeral and state()["status"] != "incomplete":
                 n = _count_index()
                 _set_state(status="ready", indexed=n, total=n)
         except Exception as exc:  # sem PII: só o tipo
@@ -588,7 +620,7 @@ def _background_full(rebuild: bool = False) -> None:
                 _set_state(status="ready", indexed=n, total=n)
                 print(f"worklist_index: incremental falhou ({type(exc).__name__}); segue com o índice salvo")
                 return
-            _set_state(status="error")
+            _set_state(status="error", reason="orthanc_indisponivel")
             print(f"worklist_index: sincronização falhou ({type(exc).__name__})")
     _after_attempt()
 
@@ -618,6 +650,8 @@ def _after_attempt() -> None:
         if st not in ("error", "incomplete") or not settings.worklist_index_auto_retry:
             return
         delay = retry_delay(_retry_attempts)
+        if _state.get("reason") == EPHEMERAL_REASON:
+            delay = max(1.0, min(delay, ephemeral_grace_left() or delay))
         _retry_attempts += 1
         _next_retry_at = time.monotonic() + delay
         if _retry_timer is not None:
@@ -702,9 +736,9 @@ async def scheduled_tick(now=None) -> str:
                 await incremental(client)
                 _last_sync = time.monotonic()
                 did = "incremental"
-                due = _last_check is None or time.monotonic() - _last_check >= settings.worklist_index_check_seconds
-                if due:
+                if _check_due():
                     _last_check = time.monotonic()
+                    _mark_checked()
                     await check_count(client)
                     did += "+check"
                 reason = rebuild_pending()
@@ -717,6 +751,33 @@ async def scheduled_tick(now=None) -> str:
                 if is_ready():
                     _set_state(status="ready")
                 return "error"
+
+
+def _check_due(now: float | None = None) -> bool:
+    """B1: o horário da última conferência fica em worklist_meta (last_check_at, epoch s), então
+    restart não antecipa a conferência e N divergências seguidas exigem N conferências reais."""
+    now = time.time() if now is None else now
+    conn = connect()
+    try:
+        raw = _meta_get(conn, "last_check_at")
+    finally:
+        conn.close()
+    try:
+        last = float(raw) if raw is not None else None
+    except ValueError:
+        last = None
+    if last is None or last > now + 60:  # nunca conferiu, ou relógio voltou: confere
+        return True
+    return now - last >= settings.worklist_index_check_seconds
+
+
+def _mark_checked(now: float | None = None) -> None:
+    conn = connect()
+    try:
+        _meta_set(conn, "last_check_at", int(time.time() if now is None else now))
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def _scheduler_loop() -> None:
