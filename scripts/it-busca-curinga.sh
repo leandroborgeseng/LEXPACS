@@ -32,6 +32,7 @@ echo "Carga de $N estudos sintéticos: $(( $(date +%s) - T0 )) s"
 cd "$ROOT/lex-pacs-portal"
 ORTHANC_URL=http://127.0.0.1:18142 ORTHANC_USERNAME=leitor ORTHANC_PASSWORD="$OPW" ORTHANC_EXTERNAL_READONLY=true \
 JWT_SECRET="it-$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')" LEX_ADMIN_USER=admin LEX_ADMIN_PASSWORD=Admin-Inicial-IT1 \
+WORKLIST_INDEX_SEARCH_SYNC_SECONDS=2 WORKLIST_INDEX_SYNC_SECONDS=2 \
 LOCAL_USERS_DB_PATH="$IT/data/users.db" AUDIT_DATA_PATH="$IT/data/audit" REPORTS_DATA_PATH="$IT/data/reports" \
   python3 -m uvicorn app.main:app --host 127.0.0.1 --port 18180 > "$IT/portal.log" 2>&1 & PIDS+=($!)
 cd "$ROOT"
