@@ -393,12 +393,13 @@ def _mount_of(path: Path) -> tuple[str, str] | None:
 
 def storage_is_persistent() -> bool:
     """O índice está num volume montado (ex.: lex-data), e não na camada do container?
-    Efêmero = montagem '/' ou fstype overlay/tmpfs. Sem /proc (fora do Linux) => assume persistente."""
+    Efêmero = fstype da camada do container ou em memória (overlay/aufs/tmpfs/ramfs); um disco
+    comum (ext4/xfs/volume) é persistente. Sem /proc (fora do Linux) => assume persistente."""
     m = _mount_of(index_path().parent if index_path().parent.exists() else index_path().parent.parent)
     if m is None:
         return True
     mnt, fstype = m
-    return not (mnt == "/" or fstype in ("overlay", "tmpfs", "aufs", "ramfs"))
+    return fstype not in ("overlay", "tmpfs", "aufs", "ramfs")
 
 
 _ephemeral_warned = False

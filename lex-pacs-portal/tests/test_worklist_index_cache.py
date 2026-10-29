@@ -210,6 +210,10 @@ def test_deteccao_de_volume(monkeypatch):
     monkeypatch.undo()  # sem o patch do conftest
     monkeypatch.setattr(worklist_index, "_mount_of", lambda p: ("/", "overlay"))
     assert worklist_index.storage_is_persistent() is False
+    monkeypatch.setattr(worklist_index, "_mount_of", lambda p: ("/lex-data", "tmpfs"))
+    assert worklist_index.storage_is_persistent() is False
+    monkeypatch.setattr(worklist_index, "_mount_of", lambda p: ("/", "ext4"))  # disco de VM
+    assert worklist_index.storage_is_persistent() is True
     monkeypatch.setattr(worklist_index, "_mount_of", lambda p: ("/lex-data", "ext4"))
     assert worklist_index.storage_is_persistent() is True
     monkeypatch.setattr(worklist_index, "_mount_of", lambda p: None)
