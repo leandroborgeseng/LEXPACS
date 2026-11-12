@@ -8,6 +8,13 @@ import { useStudyListStateSync, useWorkListToolbarActions } from '../../hooks';
 import {
   lexShowSearching,
   lexSortNote,
+  lexIndexingMessage,
+  LEX_INDEX_ERROR_MESSAGE,
+  LEX_INDEX_INCOMPLETE_MESSAGE,
+  lexShowIndexIncomplete,
+  LEX_INDEX_REBUILDING_MESSAGE,
+  lexShowIndexRebuilding,
+  lexRetryLabel,
   LEX_SEARCHING_DELAY_MS,
   StudyList,
   Icons, InvestigationalUseDialog, LexThemeToggle, type StudyRow } from '@ohif/ui-next';
@@ -27,6 +34,13 @@ type Props = withAppTypes & {
   dataTotal?: number | null;
   dataHasMore?: boolean;
   dataSortScope?: string;
+  dataPartial?: boolean;
+  dataIndex?: null | {
+    status: string;
+    indexed: number;
+    total: number | null;
+    retryInSeconds?: number;
+  };
   onRefresh: () => void;
 };
 
@@ -40,6 +54,8 @@ export default function WorkList({
   dataTotal = null,
   dataHasMore = false,
   dataSortScope = 'global',
+  dataPartial = false,
+  dataIndex = null,
   onRefresh,
   servicesManager,
   extensionManager,
@@ -191,6 +207,13 @@ export default function WorkList({
               rowCount={serverPaging ? dataTotal : undefined}
               hasMore={dataHasMore}
               sortNote={serverPaging ? lexSortNote(dataSortScope) : null}
+              emptyMessage={
+                serverPaging && dataIndex?.status === 'error'
+                  ? LEX_INDEX_ERROR_MESSAGE
+                  : serverPaging && dataPartial
+                    ? lexIndexingMessage(dataIndex)
+                    : undefined
+              }
               onFiltersChange={updater => {
                 setIsFilterPending(true);
                 setFilters(updater);
@@ -213,6 +236,28 @@ export default function WorkList({
                     activeView={activeView}
                     onViewChange={handleViewChange}
                   />
+                  {serverPaging && dataIndex?.status === 'error' ? (
+                    <div
+                      role="alert"
+                      className="text-muted-foreground px-3 py-1 text-sm"
+                    >
+                      {LEX_INDEX_ERROR_MESSAGE}
+                      <LexIndexRetryButton
+                        retryInSeconds={dataIndex?.retryInSeconds ?? 0}
+                        onRetried={onRefresh}
+                      />
+                    </div>
+                  ) : null}
+                  {serverPaging && dataPartial ? (
+                    <div
+                      role="status"
+                      aria-live="polite"
+                      className="text-primary px-3 py-1 text-sm"
+                    >
+                      {lexIndexingMessage(dataIndex)}
+                      <span className="text-muted-foreground ml-2">(resultados parciais)</span>
+                    </div>
+                  ) : null}
                   {searchingSlow ? (
                     <div
                       role="status"
@@ -220,6 +265,26 @@ export default function WorkList({
                       className="text-primary px-3 py-1 text-sm"
                     >
                       Buscando…
+                    </div>
+                  ) : null}
+                  {serverPaging && lexShowIndexIncomplete(dataIndex) ? (
+                    <div
+                      role="status"
+                      aria-live="polite"
+                      data-testid="lex-index-incomplete"
+                      className="text-muted-foreground px-3 py-1 text-sm"
+                    >
+                      {LEX_INDEX_INCOMPLETE_MESSAGE}
+                    </div>
+                  ) : null}
+                  {serverPaging && lexShowIndexRebuilding(dataIndex) ? (
+                    <div
+                      role="status"
+                      aria-live="polite"
+                      data-testid="lex-index-rebuilding"
+                      className="text-muted-foreground px-3 py-1 text-sm"
+                    >
+                      {LEX_INDEX_REBUILDING_MESSAGE}
                     </div>
                   ) : null}
                 </>
@@ -246,3 +311,54 @@ export default function WorkList({
   );
 }
 
+
+/**
+ * "Tentar de novo" da carga do índice: desabilitado com contagem até passar o intervalo mínimo
+ * (o backend aplica o mesmo intervalo e responde 429 antes disso).
+ */
+function LexIndexRetryButton({
+  retryInSeconds,
+  onRetried,
+}: {
+  retryInSeconds: number;
+  onRetried: () => void;
+}) {
+  const [left, setLeft] = useState(Math.max(0, Math.ceil(retryInSeconds)));
+  const [busy, setBusy] = useState(false);
+  useEffect(() => setLeft(Math.max(0, Math.ceil(retryInSeconds))), [retryInSeconds]);
+  useEffect(() => {
+    if (left <= 0) {
+      return;
+    }
+    const timer = window.setTimeout(() => setLeft(v => Math.max(0, v - 1)), 1000);
+    return () => window.clearTimeout(timer);
+  }, [left]);
+  const retry = async () => {
+    setBusy(true);
+    try {
+      const r = await fetch('/clinica-api/worklist/index/retry', {
+        method: 'POST',
+        credentials: 'include',
+      });
+      if (r.status === 429) {
+        const body = await r.json().catch(() => ({}));
+        setLeft(Number(body?.detail?.retryInSeconds) || Number(r.headers.get('Retry-After')) || 60);
+        return;
+      }
+      onRetried();
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <button
+      type="button"
+      className="border-input text-primary ml-3 rounded-md border px-2 py-0.5 text-sm disabled:opacity-60"
+      disabled={busy || left > 0}
+      aria-disabled={busy || left > 0}
+      onClick={retry}
+    >
+      <span className="lex-num">{lexRetryLabel(left)}</span>
+    </button>
+  );
+}

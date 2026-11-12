@@ -45,6 +45,8 @@ class FakeOrthanc:
         self.studies = list(studies)
         self.changes = []
         self.calls = []
+        self.limit_find = None  # simula LimitFindResults do Orthanc (corta cada consulta)
+        self.extra_count = 0  # /statistics conta estudos que o QIDO não devolve
 
     def add(self, s):
         self.studies.append(s)
@@ -68,6 +70,8 @@ class FakeOrthanc:
                 rows = [s for s in self.studies if s["uid"] in uids]
             else:
                 off, lim = int(qs.get("offset", 0)), int(qs.get("limit", 101))
+                if self.limit_find:
+                    lim = min(lim, self.limit_find)
                 rows = self.studies[off: off + lim]
             return httpx.Response(200, json=[_dicom(s) for s in rows])
         if path == "/changes":
@@ -77,6 +81,8 @@ class FakeOrthanc:
             chunk = [c for c in self.changes if c["Seq"] > since][:lim]
             last = chunk[-1]["Seq"] if chunk else since
             return httpx.Response(200, json={"Changes": chunk, "Done": last >= len(self.changes), "Last": last})
+        if path == "/statistics":
+            return httpx.Response(200, json={"CountStudies": len(self.studies) + self.extra_count})
         if path.startswith("/studies/"):
             oid = path.rsplit("/", 1)[1]
             for s in self.studies:
@@ -90,7 +96,7 @@ _REAL = httpx.AsyncClient
 
 
 @pytest.fixture
-def orthanc(monkeypatch, tmp_path):
+def raw_orthanc(monkeypatch, tmp_path):
     fake = FakeOrthanc(BASE)
 
     def factory(*a, **kw):
@@ -101,7 +107,15 @@ def orthanc(monkeypatch, tmp_path):
         monkeypatch.setattr(mod.httpx, "AsyncClient", factory)
     monkeypatch.setattr(worklist.settings, "orthanc_url", "http://orthanc-sintetico.invalid:8042")
     monkeypatch.setattr(worklist.settings, "worklist_index_path", str(tmp_path / "idx.db"))
+    worklist_index._set_state(status="idle", indexed=0, total=None)
     return fake
+
+
+@pytest.fixture
+def orthanc(raw_orthanc):
+    """Índice já carregado (o caso comum depois do startup)."""
+    asyncio.run(worklist_index._sync_now_for_tests())
+    return raw_orthanc
 
 
 def _run(**kw):
@@ -199,3 +213,483 @@ def test_validacao(orthanc):
 
 def test_exige_sessao_clinica(client):
     assert client.post("/api/worklist/studies", json={"patientName": "zzteste"}).status_code == 401
+
+
+class SlowOrthanc(FakeOrthanc):
+    """Segura a carga inicial depois do 1º lote, para observar o estado de preparação."""
+
+    def __init__(self, studies):
+        super().__init__(studies)
+        self.gate = __import__("threading").Event()
+        self.first_batch = __import__("threading").Event()
+        self.loads = 0
+
+    def __call__(self, request):
+        qs = parse_qs(urlparse(str(request.url)).query, keep_blank_values=True)
+        if request.url.path == "/changes" and "last" in qs:
+            self.loads += 1
+        if request.url.path == "/statistics":
+            return httpx.Response(200, json={"CountStudies": len(self.studies) + self.extra_count})
+        if request.url.path == "/dicom-web/studies" and qs.get("offset", ["0"])[0] != "0" and "StudyInstanceUID" not in qs:
+            self.first_batch.set()
+            self.gate.wait(10)
+        return super().__call__(request)
+
+
+@pytest.fixture
+def slow(monkeypatch, tmp_path):
+    many = BASE + [_mk(5000 + i, f"ZZTESTE^JOAO {i:05d}", f"SINT-J{i:05d}", "20240101") for i in range(1100)]
+    fake = SlowOrthanc(many)
+
+    def factory(*a, **kw):
+        kw["transport"] = httpx.MockTransport(fake)
+        return _REAL(*a, **kw)
+
+    monkeypatch.setattr(worklist.httpx, "AsyncClient", factory)
+    monkeypatch.setattr(worklist.settings, "orthanc_url", "http://orthanc-sintetico.invalid:8042")
+    monkeypatch.setattr(worklist.settings, "worklist_index_path", str(tmp_path / "idx.db"))
+    worklist_index._set_state(status="idle", indexed=0, total=None)
+    yield fake
+    fake.gate.set()
+    if worklist_index._bg_thread:
+        worklist_index._bg_thread.join(10)
+
+
+def test_preparacao_nao_bloqueia_e_resultado_parcial(slow):
+    import time as _t
+    t = worklist_index.start_background()
+    assert slow.first_batch.wait(10)
+    t0 = _t.perf_counter()
+    r = _run(patientName="zzteste joao")
+    assert _t.perf_counter() - t0 < 1.0  # a busca não espera a carga completa
+    assert r["partial"] is True and r["index"]["status"] == "indexing"
+    assert r["index"]["indexed"] == 1000 and r["index"]["total"] == len(slow.studies)
+    assert 0 < r["total"] < 1101  # só o que já foi indexado
+    slow.gate.set()
+    t.join(10)
+    r = _run(patientName="zzteste joao")
+    assert r["partial"] is False and r["index"]["status"] == "ready" and r["total"] == 1101
+
+
+def test_sincronizacoes_simultaneas_uma_carga_so(slow):
+    import threading as _th
+    threads = [_th.Thread(target=lambda: _run(patientName="zzteste")) for _ in range(5)]
+    first = worklist_index.start_background()
+    for th in threads:
+        th.start()
+    assert worklist_index.start_background() is first  # idempotente enquanto roda
+    assert slow.first_batch.wait(10)
+    slow.gate.set()
+    for th in threads:
+        th.join(10)
+    first.join(10)
+    assert slow.loads == 1  # uma única carga inicial
+    assert _run()["index"]["status"] == "ready"
+
+
+def test_reconstrucao_em_background(orthanc):
+    t = worklist_index.start_background(rebuild=True)
+    t.join(10)
+    assert worklist_index.is_ready() and _run()["total"] == len(BASE)
+
+
+def test_arquivo_do_indice_0600(orthanc):
+    import os
+    import stat
+    path = worklist_index.index_path()
+    assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
+    os.chmod(path, 0o644)
+    worklist_index.connect().close()
+    assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
+
+
+
+def test_orthanc_indisponivel_status_error_sem_parcial_e_intervalo(raw_orthanc, monkeypatch):
+    import time as _t
+
+    def down(request):
+        raise httpx.ConnectError("orthanc fora do ar")
+
+    raw_orthanc.__class__ = type("Down", (FakeOrthanc,), {"__call__": lambda self, req: down(req)})
+    monkeypatch.setattr(worklist_index, "_last_attempt", None)
+    monkeypatch.setattr(worklist.settings, "worklist_index_retry_seconds", 60)
+    t = worklist_index.start_background()
+    t.join(10)
+    r = _run(patientName="zzteste")
+    assert r["index"]["status"] == "error" and r["partial"] is False
+    # dentro dos 60 s, a busca não dispara nova carga
+    assert worklist_index.start_background() is None
+    _run()
+    assert worklist_index._bg_thread is t
+    # passado o intervalo (configurável), tenta de novo
+    monkeypatch.setattr(worklist_index, "_last_attempt", _t.monotonic() - 61)
+    t2 = worklist_index.start_background()
+    assert t2 is not None and t2 is not t
+    t2.join(10)
+    assert worklist_index.state()["status"] == "error"
+
+
+def test_rebuild_limpa_linhas_e_removido_nao_volta(orthanc):
+    uid = "1.2.826.0.1.3680043.8.498.4"
+    assert _pids(_run(patientId="SINT-SILVA")) == ["SINT-SILVA"]
+    # removido do Orthanc SEM evento no /changes (ex.: /changes podado): só o rebuild resolve
+    orthanc.studies = [x for x in orthanc.studies if x["uid"] != uid]
+    t = worklist_index.start_background(rebuild=True)
+    t.join(10)
+    conn = worklist_index.connect()
+    assert conn.execute("SELECT COUNT(*) FROM worklist_study WHERE study_uid=?", (uid,)).fetchone()[0] == 0
+    conn.close()
+    r = _run(patientId="SINT-SILVA")
+    assert r["total"] == 0 and r["index"]["status"] == "ready"
+
+
+def test_sync_de_teste_nao_e_usado_por_rotas():
+    from pathlib import Path
+    app_dir = Path(worklist_index.__file__).parent
+    for f in app_dir.glob("*.py"):
+        src = f.read_text(encoding="utf-8")
+        if f.name != "worklist_index.py":
+            assert "_sync_now_for_tests" not in src, f.name
+        assert "worklist_index.sync(" not in src, f.name
+    assert not hasattr(worklist_index, "sync")
+
+
+
+def test_tentar_de_novo_respeita_intervalo_no_backend(raw_orthanc, monkeypatch, client):
+    import time as _t
+    from fastapi import HTTPException
+
+    raw_orthanc.__class__ = type("Down2", (FakeOrthanc,), {
+        "__call__": lambda self, req: (_ for _ in ()).throw(httpx.ConnectError("fora"))})
+    monkeypatch.setattr(worklist_index, "_last_attempt", None)
+    monkeypatch.setattr(worklist.settings, "worklist_index_retry_seconds", 60)
+    worklist_index.start_background().join(10)
+    r = _run()
+    assert r["index"]["status"] == "error" and 55 <= r["index"]["retryInSeconds"] <= 60
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(worklist.worklist_index_retry())
+    assert exc.value.status_code == 429 and exc.value.headers["Retry-After"]
+    monkeypatch.setattr(worklist_index, "_last_attempt", _t.monotonic() - 61)
+    out = asyncio.run(worklist.worklist_index_retry())
+    assert out["started"] is True
+    worklist_index._bg_thread.join(10)
+    # a rota exige sessão clínica
+    assert client.post("/api/worklist/index/retry").status_code == 401
+
+
+def _noite(vezes=3):
+    """Rodadas da agenda às 03:00 (dentro da janela 02:00–05:00), com conferência em cada uma."""
+    from datetime import datetime
+    agora = datetime(2026, 10, 30, 3, 0, tzinfo=worklist_index._tz())
+    out = []
+    for _ in range(vezes):
+        conn = worklist_index.connect()  # B1: conferência vencida (horário fica no worklist_meta)
+        conn.execute("DELETE FROM worklist_meta WHERE key='last_check_at'")
+        conn.commit()
+        conn.close()
+        out.append(asyncio.run(worklist_index.scheduled_tick(now=agora)))
+    return out
+
+
+def test_indice_vazio_com_orthanc_cheio_reconstroi_sozinho(raw_orthanc):
+    """Índice criado com 0 estudos (antes do seed) e /changes sem eventos: o startup NÃO
+    reconstrói; a agenda reconstrói na janela depois de 3 divergências seguidas."""
+    estudos = raw_orthanc.studies
+    raw_orthanc.studies = []
+    asyncio.run(worklist_index._sync_now_for_tests())
+    conn = worklist_index.connect()
+    assert conn.execute("SELECT COUNT(*) FROM worklist_study").fetchone()[0] == 0
+    conn.close()
+    raw_orthanc.studies = estudos  # chegaram sem evento no /changes (ex.: podado)
+    worklist_index.start_background().join(10)
+    assert worklist_index._count_index() == 0 and worklist_index.state()["status"] == "ready"
+    assert _noite(3)[-1].endswith("+rebuild")
+    r = _run()
+    assert r["index"]["status"] == "ready" and r["total"] == len(estudos)
+
+
+MUITOS = [_mk(5000 + i, f"ZZTESTE^MARIA {i:05d}", f"SINT-LIM-{i:05d}", "20240101") for i in range(300)]
+
+
+def _meta(key):
+    conn = worklist_index.connect()
+    try:
+        return worklist_index._meta_get(conn, key)
+    finally:
+        conn.close()
+
+
+@pytest.mark.parametrize("corte", [100, 101])
+def test_carga_aguenta_limitfindresults_do_orthanc(raw_orthanc, corte):
+    """Orthanc corta cada consulta em 100/101 (LimitFindResults): a carga indexa TODOS."""
+    raw_orthanc.studies = list(MUITOS)
+    raw_orthanc.limit_find = corte
+    worklist_index.start_background().join(20)
+    st = worklist_index.state()
+    assert st["status"] == "ready" and st["indexed"] == st["total"] == 300
+    assert worklist_index._count_index() == 300 and _meta("full_load_done") == "1"
+    r = _run(patientName="maria", limit=50, offset=250)
+    assert r["total"] == 300 and len(r["studies"]) == 50
+
+
+def test_carga_incompleta_nao_fica_ready_nem_grava_full_load_done(raw_orthanc, monkeypatch):
+    raw_orthanc.studies = list(MUITOS)
+    raw_orthanc.limit_find = 100
+    raw_orthanc.extra_count = 7  # /statistics diz 307, o QIDO só entrega 300
+    monkeypatch.setattr(worklist_index, "_last_attempt", None)
+    worklist_index.start_background().join(20)
+    st = worklist_index.state()
+    assert st["status"] == "incomplete" and st["indexed"] == 300 and st["total"] == 307
+    assert _meta("full_load_done") is None
+    r = _run()
+    assert r["index"]["status"] == "incomplete" and r["partial"] is False
+    assert r["index"]["indexed"] == 300 and r["index"]["total"] == 307
+
+
+def test_startup_reconstroi_indice_antigo_cortado_em_101(raw_orthanc):
+    """Produção hoje: índice gravado com full_load_done e só 101 estudos; o Orthanc tem 300."""
+    raw_orthanc.studies = list(MUITOS)
+    conn = worklist_index.connect()
+    vals = [worklist_index.row_from_qido(_dicom(x)) for x in MUITOS[:101]]
+    conn.executemany(worklist_index.UPSERT, vals)
+    worklist_index._meta_set(conn, "changes_seq", len(raw_orthanc.changes))
+    worklist_index._meta_set(conn, "full_load_done", 1)
+    conn.commit()
+    conn.close()
+    assert worklist_index.is_ready() and worklist_index._count_index() == 101
+    raw_orthanc.limit_find = 100
+    worklist_index.start_background().join(20)
+    assert worklist_index._count_index() == 101 and worklist_index.state()["status"] == "ready"
+    _noite(3)
+    st = worklist_index.state()
+    assert st["status"] == "ready" and worklist_index._count_index() == 300 and st["total"] == 300
+    assert _run(patientId="SINT-LIM-00299")["total"] == 1
+
+
+def test_incremental_e_rebuild_com_limite_do_orthanc(raw_orthanc):
+    raw_orthanc.studies = list(MUITOS)
+    raw_orthanc.limit_find = 100
+    worklist_index.start_background().join(20)
+    raw_orthanc.add(_mk(9999, "ZZTESTE^NOVO", "SINT-NOVO", "20261026"))
+    asyncio.run(worklist_index.sync_on_request())
+    assert worklist_index._count_index() == 301
+    worklist_index.start_background(rebuild=True).join(20)
+    assert worklist_index._count_index() == 301 and worklist_index.state()["status"] == "ready"
+
+
+# --- Follow-up do #9: ressalvas do Tester (1, 2) e LP20 -------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _sem_timer_entre_testes():
+    yield
+    worklist_index.cancel_auto_retry()
+    if worklist_index._bg_thread:
+        worklist_index._bg_thread.join(10)
+
+
+def _conta_cargas(monkeypatch):
+    cargas = []
+    real = worklist_index.full_load
+
+    async def contando(client, path=None):
+        cargas.append(path)
+        return await real(client, path)
+
+    monkeypatch.setattr(worklist_index, "full_load", contando)
+    return cargas
+
+
+def test_backoff_exponencial_com_teto(monkeypatch):
+    monkeypatch.setattr(worklist.settings, "worklist_index_retry_seconds", 60)
+    monkeypatch.setattr(worklist.settings, "worklist_index_retry_max_seconds", 1800)
+    assert [worklist_index.retry_delay(n) for n in range(7)] == [60, 120, 240, 480, 960, 1800, 1800]
+
+
+def test_incomplete_nova_tentativa_em_background_e_busca_nao_recarrega(raw_orthanc, monkeypatch):
+    """Ressalva 1: com o Orthanc cortando, buscas NÃO disparam carga; o timer tenta de novo
+    com backoff e, quando o Orthanc entrega tudo, o índice fica ready."""
+    import time as _t
+    raw_orthanc.studies = list(MUITOS)
+    raw_orthanc.limit_find = 100
+    raw_orthanc.extra_count = 7
+    monkeypatch.setattr(worklist.settings, "worklist_index_auto_retry", True)
+    monkeypatch.setattr(worklist.settings, "worklist_index_retry_seconds", 1)
+    monkeypatch.setattr(worklist_index, "_last_attempt", None)
+    cargas = _conta_cargas(monkeypatch)
+    worklist_index.start_background().join(20)
+    st = worklist_index.state()
+    assert st["status"] == "incomplete" and len(cargas) == 1
+    assert st["nextAutoRetryInSeconds"] in (0, 1)
+    for _ in range(20):  # várias buscas seguidas: nenhuma recarga por requisição
+        r = _run(patientName="maria")
+        assert r["total"] == 300 and r["index"]["status"] in ("incomplete", "indexing")
+    assert len(cargas) <= 2  # no máximo a tentativa do timer (1 s), nunca uma por busca
+    raw_orthanc.extra_count = 0  # Orthanc volta a bater a contagem
+    fim = _t.monotonic() + 15
+    while worklist_index.state()["status"] != "ready" and _t.monotonic() < fim:
+        _t.sleep(0.1)
+    assert worklist_index.state()["status"] == "ready" and worklist_index._count_index() == 300
+    assert _meta("full_load_done") == "1" and worklist_index.state()["nextAutoRetryInSeconds"] is None
+    assert worklist_index._retry_attempts == 0
+
+
+def test_incomplete_backoff_cresce_entre_tentativas(raw_orthanc, monkeypatch):
+    raw_orthanc.studies = list(MUITOS)
+    raw_orthanc.extra_count = 7
+    monkeypatch.setattr(worklist.settings, "worklist_index_auto_retry", True)
+    monkeypatch.setattr(worklist.settings, "worklist_index_retry_seconds", 100)
+    worklist_index.start_background().join(20)
+    assert worklist_index._retry_attempts == 1 and 99 <= worklist_index.next_auto_retry_in_seconds() <= 100
+    worklist_index.start_background(_auto=True).join(20)  # o que o timer faria
+    assert worklist_index._retry_attempts == 2 and 199 <= worklist_index.next_auto_retry_in_seconds() <= 200
+
+
+def test_reconstrucao_em_sombra_busca_continua_com_dados_antigos(raw_orthanc, monkeypatch):
+    """Ressalva 2: índice antigo (101, marcado pronto) e Orthanc com 300. Durante a reconstrução
+    a busca continua devolvendo os 101 antigos (nada é apagado antes); no fim troca atômica."""
+    raw_orthanc.studies = list(MUITOS)
+    conn = worklist_index.connect()
+    conn.executemany(worklist_index.UPSERT, [worklist_index.row_from_qido(_dicom(x)) for x in MUITOS[:101]])
+    worklist_index._meta_set(conn, "changes_seq", 0)
+    worklist_index._meta_set(conn, "full_load_done", 1)
+    conn.commit()
+    conn.close()
+    raw_orthanc.__class__ = SlowOrthanc
+    raw_orthanc.gate = __import__("threading").Event()
+    raw_orthanc.first_batch = __import__("threading").Event()
+    raw_orthanc.loads = 0
+    raw_orthanc.limit_find = 100
+    t = worklist_index.start_background(rebuild=True)
+    assert raw_orthanc.first_batch.wait(10)
+    assert worklist_index.shadow_path().exists()
+    r = _run(patientName="maria")
+    assert r["total"] == 101  # dados antigos, não lista vazia nem parcial da sombra
+    assert _run(patientId="SINT-LIM-00000")["total"] == 1
+    raw_orthanc.gate.set()
+    t.join(20)
+    assert worklist_index.state()["status"] == "ready" and _run(patientName="maria")["total"] == 300
+    assert not worklist_index.shadow_path().exists()
+    import os
+    import stat
+    assert stat.S_IMODE(os.stat(worklist_index.index_path()).st_mode) == 0o600
+
+
+def test_reconstrucao_incompleta_nao_troca_por_menos(raw_orthanc, monkeypatch):
+    """Sombra incompleta com MENOS estudos que o índice atual: descarta e mantém o antigo."""
+    raw_orthanc.studies = list(MUITOS)
+    worklist_index.start_background().join(20)
+    assert worklist_index._count_index() == 300
+    raw_orthanc.limit_find = 50
+    raw_orthanc.studies = list(MUITOS[:120])
+    raw_orthanc.extra_count = 500
+    worklist_index.start_background(rebuild=True).join(20)
+    assert worklist_index.state()["status"] == "incomplete"
+    assert worklist_index._count_index() == 300 and not worklist_index.shadow_path().exists()
+
+
+def test_lp20_indice_sobrevive_ao_restart_sem_carga_completa(raw_orthanc, monkeypatch):
+    """LP20: com o índice completo, "reinicia" o portal (estado do processo zerado, mesmo arquivo
+    no volume): volta ready com a mesma contagem e SEM nova carga completa."""
+    raw_orthanc.studies = list(MUITOS)
+    worklist_index.start_background().join(20)
+    assert worklist_index.state()["status"] == "ready"
+    antes = worklist_index._count_index()
+    assert antes == 300
+    # restart: novo processo => estado em memória do zero, mesmo worklist_index.db
+    monkeypatch.setattr(worklist_index, "_bg_thread", None)
+    monkeypatch.setattr(worklist_index, "_last_attempt", None)
+    worklist_index._set_state(status="idle", indexed=0, total=None)
+    cargas = _conta_cargas(monkeypatch)
+    raw_orthanc.calls.clear()
+    worklist_index.start_background().join(20)  # o que o startup do portal faz
+    st = worklist_index.state()
+    assert st["status"] == "ready" and st["indexed"] == st["total"] == antes
+    assert cargas == []  # nenhuma carga completa
+    paginadas = [p for m, p in raw_orthanc.calls if p == "/dicom-web/studies"]
+    assert paginadas == []  # nem QIDO do acervo: só /changes e /statistics
+    r = _run(patientId="SINT-LIM-00299")
+    assert r["total"] == 1 and r["index"]["status"] == "ready"
+
+
+# --- Ressalvas baixas do QA do #10: status durante a reconstrução e estudo apagado no Orthanc ---
+
+
+def _indice_antigo_pronto(estudos):
+    conn = worklist_index.connect()
+    conn.executemany(worklist_index.UPSERT, [worklist_index.row_from_qido(_dicom(x)) for x in estudos])
+    worklist_index._meta_set(conn, "changes_seq", 0)
+    worklist_index._meta_set(conn, "full_load_done", 1)
+    conn.commit()
+    conn.close()
+
+
+def test_reconstrucao_status_rebuilding_e_resultado_nao_parcial(raw_orthanc):
+    """Durante a reconstrução em sombra o status é 'rebuilding' (não 'indexing') e a resposta
+    não é parcial: a tela não deve mostrar "Preparando a busca…", porque a busca funciona."""
+    raw_orthanc.studies = list(MUITOS)
+    _indice_antigo_pronto(MUITOS[:101])
+    raw_orthanc.__class__ = SlowOrthanc
+    raw_orthanc.gate = __import__("threading").Event()
+    raw_orthanc.first_batch = __import__("threading").Event()
+    raw_orthanc.loads = 0
+    raw_orthanc.limit_find = 100
+    t = worklist_index.start_background(rebuild=True)
+    assert raw_orthanc.first_batch.wait(10)
+    r = _run(patientName="maria")
+    assert r["index"]["status"] == "rebuilding" and r["partial"] is False and r["total"] == 101
+    raw_orthanc.gate.set()
+    t.join(20)
+    r = _run(patientName="maria")
+    assert r["index"]["status"] == "ready" and r["partial"] is False and r["total"] == 300
+
+
+def test_primeira_carga_continua_indexing_parcial(slow):
+    """Sem índice anterior, a carga continua 'indexing' com resultado parcial (comportamento atual)."""
+    t = worklist_index.start_background()
+    assert slow.first_batch.wait(10)
+    r = _run()
+    assert r["index"]["status"] == "indexing" and r["partial"] is True
+    slow.gate.set()
+    t.join(20)
+
+
+def test_estudo_apagado_no_orthanc_com_evento_sai_sem_carga_completa(orthanc, monkeypatch):
+    """Estudo apagado no Orthanc (evento Deleted no /changes): o incremental remove do índice,
+    sem carga completa e só com GET."""
+    uid = "1.2.826.0.1.3680043.8.498.4"
+    assert _pids(_run(patientId="SINT-SILVA")) == ["SINT-SILVA"]
+    cargas = _conta_cargas(monkeypatch)
+    orthanc.delete(uid)
+    r = _run(patientId="SINT-SILVA")
+    assert r["total"] == 0 and r["index"]["status"] == "ready"
+    assert cargas == [] and all(m == "GET" for m, _ in orthanc.calls)
+
+
+def test_estudo_apagado_antes_do_get_do_incremental(orthanc):
+    """StableStudy seguido de exclusão antes do GET /studies/{id} (404): não fica no índice."""
+    s = _mk(9100, "ZZTESTE^EFEMERO", "SINT-EFEMERO", "20261026")
+    orthanc.add(s)
+    orthanc.studies.remove(s)  # apagado no Orthanc; o Deleted ainda não chegou ao /changes
+    r = _run(patientId="SINT-EFEMERO")
+    assert r["total"] == 0
+
+
+def test_startup_reconstroi_quando_estudo_foi_apagado_sem_evento(raw_orthanc, monkeypatch):
+    """Índice com MAIS estudos que o Orthanc (apagado sem evento no /changes, ex.: podado): no
+    startup a conferência de contagem reconstrói em sombra e o estudo apagado some."""
+    raw_orthanc.studies = list(MUITOS)
+    worklist_index.start_background().join(20)
+    assert worklist_index._count_index() == 300
+    apagado = raw_orthanc.studies.pop(0)  # sem evento no /changes
+    monkeypatch.setattr(worklist_index, "_bg_thread", None)
+    monkeypatch.setattr(worklist_index, "_last_attempt", None)
+    worklist_index._set_state(status="idle", indexed=0, total=None)
+    cargas = _conta_cargas(monkeypatch)
+    worklist_index.start_background().join(20)
+    assert worklist_index._count_index() == 300 and cargas == []  # startup não reconstrói
+    _noite(3)
+    st = worklist_index.state()
+    assert st["status"] == "ready" and worklist_index._count_index() == 299 and len(cargas) == 1
+    assert _run(patientId=apagado["pid"])["total"] == 0
+    assert all(m == "GET" for m, _ in raw_orthanc.calls)

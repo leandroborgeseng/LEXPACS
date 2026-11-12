@@ -13,6 +13,8 @@ os.environ.setdefault("JWT_SECRET", "test-secret-nao-usar-em-producao-123456")
 os.environ.setdefault("LEX_ADMIN_USER", "admin")
 os.environ.setdefault("LEX_ADMIN_PASSWORD", "Senha-Inicial-123")
 os.environ.setdefault("LOGIN_RATE_LIMIT_ATTEMPTS", "10000")
+os.environ.setdefault("WORKLIST_INDEX_AUTOSTART", "false")
+os.environ.setdefault("WORKLIST_INDEX_AUTO_RETRY", "false")  # testes ligam o timer explicitamente; sem thread contra o Orthanc fictício
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -41,3 +43,15 @@ def client():
 
     with TestClient(app) as c:
         yield c
+
+
+@pytest.fixture(autouse=True)
+def _worklist_index_defaults(monkeypatch):
+    """Índice: tmp_path conta como volume persistente e a busca sincroniza sempre (os testes
+    de volume ausente e de intervalo da busca sobrescrevem)."""
+    from app import worklist_index
+
+    monkeypatch.setattr(worklist_index, "storage_is_persistent", lambda: True)
+    monkeypatch.setattr(worklist_index.settings, "worklist_index_search_sync_seconds", 0)
+    monkeypatch.setattr(worklist_index, "_last_sync", None)
+    monkeypatch.setattr(worklist_index, "_last_check", None)

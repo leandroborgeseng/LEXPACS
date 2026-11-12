@@ -42,4 +42,24 @@ Portas úteis (override local): **3000** HTTP gateway, **4242** DICOM, **8042** 
 
 Guia completo: [docs/COOLIFY.md](docs/COOLIFY.md)
 
+## Homologação: seed de estudos sintéticos (`seed-homolog`)
+
+O `docker-compose.coolify.yml` tem o serviço `seed-homolog` (mesma imagem do portal,
+`python -m app.homolog_seed`, `restart: "no"`, depende de `server` saudável). O `portal` espera
+por ele com `condition: service_completed_successfully`.
+
+- **Produção:** não defina `HOMOLOG_SEED`. O seed sai na hora com código 0 sem tocar no Orthanc,
+  e o portal sobe normalmente.
+- **Homologação:** `HOMOLOG_SEED=10000` no `.env` do Coolify. O seed grava N estudos ZZTESTE
+  sintéticos em `http://server:8042` e só termina (liberando o portal) quando todos estiverem
+  gravados (confere `/statistics`). Os casos incluem `ZZTESTE^JOSÉ CONCEIÇÃO` (ID `SINT-ZZ-2023`,
+  exame de 05/05/2023), cerca de 3.500 exames MARIA, além de ANA, JOSE e outros.
+- **Idempotente:** se o Orthanc já tiver qualquer exame, não semeia (redeploy não duplica).
+- **Segurança:** só aceita `localhost`, `127.0.0.1` e o host `server`; recusa qualquer outro, e o
+  Orthanc de produção `172.21.31.198` explicitamente (código 3). Credenciais só por
+  `ORTHANC_USERNAME`/`ORTHANC_PASSWORD`; nomes e IDs não vão para o log.
+- **Índice da lista:** se o portal criou o índice com 0 estudos e o Orthanc passar a ter exames, o
+  startup reconstrói o índice sozinho; não é preciso apagar `worklist_index.db`. (Para forçar
+  manualmente: parar o portal, apagar `/lex-data/worklist_index.db` no volume `lex-data`, subir.)
+
 ## Início rápido (legado ohif-viewer)

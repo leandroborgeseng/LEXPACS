@@ -39,3 +39,37 @@ export function lexShowSearching(isLoading, elapsedMs) {
 export function lexSortNote(sortScope) {
   return sortScope === 'page' ? 'Ordenado por data dentro da página' : null;
 }
+
+/** Índice do portal carregando: "Preparando a busca no acervo… X de N exames indexados". */
+export function lexIndexingMessage(index) {
+  const indexed = Number(index?.indexed) || 0;
+  const total = Number.isFinite(index?.total) ? index.total : null;
+  const of = total === null ? '' : ` de ${fmt(total)}`;
+  return `Preparando a busca no acervo… ${fmt(indexed)}${of} exames indexados`;
+}
+
+/** Carga do índice falhou (Orthanc fora do ar/timeout): sem reconsulta automática. */
+export const LEX_INDEX_ERROR_MESSAGE =
+  'Busca no acervo indisponível no momento. Tente novamente em alguns minutos.';
+
+/** Texto do botão: desabilitado com contagem enquanto o intervalo mínimo não passou. */
+export function lexRetryLabel(secondsLeft) {
+  const s = Math.max(0, Math.ceil(Number(secondsLeft) || 0));
+  return s > 0 ? `Tentar de novo em ${s} s` : 'Tentar de novo';
+}
+
+/** Índice incompleto (o Orthanc cortou a carga): aviso não bloqueante, a lista continua usável. */
+export const LEX_INDEX_INCOMPLETE_MESSAGE =
+  'Índice em atualização: alguns exames podem ainda não aparecer.';
+
+export function lexShowIndexIncomplete(index) {
+  return index?.status === 'incomplete';
+}
+
+/** Reconstrução do índice em segundo plano com o índice completo em uso: a busca funciona normalmente. */
+export const LEX_INDEX_REBUILDING_MESSAGE =
+  'Atualizando o índice do acervo em segundo plano. A busca continua disponível.';
+
+export function lexShowIndexRebuilding(index) {
+  return index?.status === 'rebuilding';
+}

@@ -237,6 +237,8 @@ function createDicomWebApi(dicomWebConfig: DicomWebConfig, servicesManager) {
               lexHasMore: page.hasMore,
               lexTruncated: page.truncated,
               lexSortScope: page.sortScope,
+              lexPartial: page.partial,
+              lexIndex: page.index,
             });
           }
           qidoDicomWebClient.headers = getAuthorizationHeader();

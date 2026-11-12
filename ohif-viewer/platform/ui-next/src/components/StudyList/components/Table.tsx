@@ -21,6 +21,8 @@ export type TableProps = Omit<DataTableProps<StudyRow>, 'children' | 'getRowId'>
   toolbarBelowComponent?: ReactNode;
   isLoading?: boolean;
   loadingComponent?: ReactNode;
+  /** LEX PACS: mensagem da lista vazia (ex.: índice preparando). */
+  emptyMessage?: ReactNode;
 };
 
 export function Table({
@@ -49,6 +51,7 @@ export function Table({
   rowCount,
   hasMore,
   sortNote,
+  emptyMessage,
 }: TableProps) {
   return (
     <DataTable<StudyRow>
@@ -80,6 +83,7 @@ export function Table({
         toolbarBelowComponent={toolbarBelowComponent}
         isLoading={isLoading}
         loadingComponent={loadingComponent}
+        emptyMessage={emptyMessage}
       />
     </DataTable>
   );
@@ -95,6 +99,7 @@ function TableContent({
   toolbarBelowComponent,
   isLoading,
   loadingComponent,
+  emptyMessage,
 }: {
   title?: ReactNode;
   showColumnVisibility?: boolean;
@@ -105,6 +110,7 @@ function TableContent({
   toolbarBelowComponent?: ReactNode;
   isLoading?: boolean;
   loadingComponent?: ReactNode;
+  emptyMessage?: ReactNode;
 }) {
   const { t } = useTranslation('StudyList');
   const { table } = useDataTable<StudyRow>();
@@ -230,7 +236,7 @@ function TableContent({
           }}
         />
         <DataTable.Body<StudyRow>
-          emptyMessage={t('No studies available')}
+          emptyMessage={emptyMessage ?? t('No studies available')}
           isLoading={isLoading}
           loadingComponent={loadingComponent}
           rowProps={{

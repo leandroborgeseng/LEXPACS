@@ -34,7 +34,7 @@ test('LP9: nome e ID vão no corpo do POST, nunca na URL', async () => {
   assert.equal(seen.init.method, 'POST');
   assert.match(seen.init.body, /Concei/);
   assert.doesNotMatch(seen.url, /Concei|SINT/);
-  assert.deepEqual(r, { rows: [{}], total: 35214, hasMore: true, truncated: false, sortScope: 'global' });
+  assert.deepEqual(r, { rows: [{}], total: 35214, hasMore: true, truncated: false, sortScope: 'global', partial: false, index: { status: 'ready', indexed: 0, total: null, retryInSeconds: 0 } });
 });
 
 test('erro do PACS vira mensagem com código HTTP', async () => {
@@ -43,7 +43,7 @@ test('erro do PACS vira mensagem com código HTTP', async () => {
 });
 
 test('resposta sem total: total null', () => {
-  assert.deepEqual(parseWorklistResponse({ studies: [], hasMore: true }), { rows: [], total: null, hasMore: true, truncated: false, sortScope: 'global' });
+  assert.deepEqual(parseWorklistResponse({ studies: [], hasMore: true }), { rows: [], total: null, hasMore: true, truncated: false, sortScope: 'global', partial: false, index: { status: 'ready', indexed: 0, total: null, retryInSeconds: 0 } });
 });
 
 test('textos da paginação (esboço do Designer)', () => {
@@ -129,6 +129,80 @@ test('"Buscando…" só depois de 1 s, com filtros visíveis', async () => {
   const wl = read('platform/app/src/routes/WorkList/WorkList.tsx');
   assert.match(wl, /setTimeout\([\s\S]{0,120}LEX_SEARCHING_DELAY_MS/);
   // o aviso fica junto da barra de filtros (toolbarBelowComponent), que continua renderizada
-  assert.match(wl, /<WorkListViewBar[\s\S]{0,400}searchingSlow \?[\s\S]{0,400}Buscando…/);
+  assert.match(wl, /<WorkListViewBar[\s\S]{0,1200}searchingSlow \?[\s\S]{0,400}Buscando…/);
   assert.equal(m.lexSortNote('global'), null);
+});
+
+test('índice preparando: mensagem com X de N, parcial e nunca "Nenhum exame encontrado"', async () => {
+  const m = await import('../ohif-viewer/platform/ui-next/src/components/DataTable/lexPaginationLabel.js');
+  assert.equal(m.lexIndexingMessage({ indexed: 1000, total: 3000 }), 'Preparando a busca no acervo… 1.000 de 3.000 exames indexados');
+  assert.equal(m.lexIndexingMessage({ indexed: 0, total: null }), 'Preparando a busca no acervo… 0 exames indexados');
+  const { parseWorklistResponse } = await import('../ohif-viewer/extensions/default/src/DicomWebDataSource/lexWorklistApi.js');
+  const r = parseWorklistResponse({ studies: [], total: 0, partial: true, index: { status: 'indexing', indexed: 10, total: 20 } });
+  assert.equal(r.partial, true);
+  assert.deepEqual(r.index, { status: 'indexing', indexed: 10, total: 20, retryInSeconds: 0 });
+  const wl = read('platform/app/src/routes/WorkList/WorkList.tsx');
+  assert.match(wl, /serverPaging && dataPartial\s*\?\s*lexIndexingMessage\(dataIndex\)/);
+  assert.match(wl, /resultados parciais/);
+  const q = read('platform/app/src/hooks/useStudyListQuery.tsx');
+  assert.match(q, /if \(!data\.partial \|\| isLoading\)/);
+  assert.match(q, /LEX_INDEX_POLL_MS = 3000/);
+});
+
+test('carga falhou: mensagem do Designer, botão com intervalo de 60 s, "Busca no acervo indisponível", sem reconsulta a cada 3 s', async () => {
+  const m = await import('../ohif-viewer/platform/ui-next/src/components/DataTable/lexPaginationLabel.js');
+  assert.equal(m.LEX_INDEX_ERROR_MESSAGE, 'Busca no acervo indisponível no momento. Tente novamente em alguns minutos.');
+  assert.equal(m.lexRetryLabel(42), 'Tentar de novo em 42 s');
+  assert.equal(m.lexRetryLabel(0), 'Tentar de novo');
+  assert.match(read('platform/app/src/routes/WorkList/WorkList.tsx'), /disabled=\{busy \|\| left > 0\}[\s\S]{0,300}lexRetryLabel\(left\)/);
+  const { parseWorklistResponse } = await import('../ohif-viewer/extensions/default/src/DicomWebDataSource/lexWorklistApi.js');
+  const r = parseWorklistResponse({ studies: [], total: 0, partial: false, index: { status: 'error', indexed: 0, total: null } });
+  assert.equal(r.partial, false);
+  assert.equal(r.index.status, 'error');
+  const wl = read('platform/app/src/routes/WorkList/WorkList.tsx');
+  assert.match(wl, /dataIndex\?\.status === 'error'[\s\S]{0,200}LEX_INDEX_ERROR_MESSAGE/);
+  // a reconsulta só existe para resultado parcial; error chega com partial false
+  assert.match(read('platform/app/src/hooks/useStudyListQuery.tsx'), /if \(!data\.partial \|\| isLoading\)/);
+});
+
+test('StudyList.Table (Layout) repassa paginação no servidor, banners e mensagem de vazio', () => {
+  const src = read('platform/ui-next/src/components/StudyList/components/Layout.tsx');
+  for (const prop of ['manualPagination', 'rowCount', 'hasMore', 'sortNote', 'emptyMessage', 'toolbarBelowComponent']) {
+    assert.match(src, new RegExp(`${prop}=\\{${prop}\\}`), prop);
+  }
+});
+
+test('#9 ressalva 3: aviso não bloqueante quando o índice está incomplete', async () => {
+  const m = await import('../ohif-viewer/platform/ui-next/src/components/DataTable/lexPaginationLabel.js');
+  assert.equal(m.LEX_INDEX_INCOMPLETE_MESSAGE, 'Índice em atualização: alguns exames podem ainda não aparecer.');
+  assert.equal(m.lexShowIndexIncomplete({ status: 'incomplete' }), true);
+  for (const st of ['ready', 'indexing', 'error', undefined]) {
+    assert.equal(m.lexShowIndexIncomplete({ status: st }), false);
+  }
+  assert.equal(m.lexShowIndexIncomplete(null), false);
+  const wl = read('platform/app/src/routes/WorkList/WorkList.tsx');
+  // aria-live, role=status (não alert) e a lista continua renderizada (não é emptyMessage)
+  assert.match(wl, /lexShowIndexIncomplete\(dataIndex\) \? \(\s*<div\s*role="status"\s*aria-live="polite"/);
+  assert.match(wl, /\{LEX_INDEX_INCOMPLETE_MESSAGE\}/);
+  assert.doesNotMatch(wl, /emptyMessage=\{[^}]*INCOMPLETE/);
+});
+
+test('QA #10: reconstrução (rebuilding) não mostra "Preparando a busca…" e avisa que a busca segue', async () => {
+  const m = await import('../ohif-viewer/platform/ui-next/src/components/DataTable/lexPaginationLabel.js');
+  assert.equal(m.LEX_INDEX_REBUILDING_MESSAGE, 'Atualizando o índice do acervo em segundo plano. A busca continua disponível.');
+  assert.equal(m.lexShowIndexRebuilding({ status: 'rebuilding' }), true);
+  for (const st of ['ready', 'indexing', 'incomplete', 'error', undefined]) {
+    assert.equal(m.lexShowIndexRebuilding({ status: st }), false);
+  }
+  assert.equal(m.lexShowIndexRebuilding(null), false);
+  // o backend manda partial=false em rebuilding: o aviso de "Preparando" (dataPartial) não aparece
+  const r = parseWorklistResponse({ studies: [{}], total: 1, partial: false, index: { status: 'rebuilding', indexed: 0, total: 300 } });
+  assert.equal(r.partial, false);
+  assert.equal(r.index.status, 'rebuilding');
+  const wl = read('platform/app/src/routes/WorkList/WorkList.tsx');
+  assert.match(wl, /lexShowIndexRebuilding\(dataIndex\) \? \(\s*<div\s*role="status"\s*aria-live="polite"/);
+  assert.match(wl, /\{LEX_INDEX_REBUILDING_MESSAGE\}/);
+  assert.doesNotMatch(wl, /emptyMessage=\{[^}]*REBUILDING/);
+  const idx = read('platform/ui-next/src/components/index.ts');
+  assert.match(idx, /LEX_INDEX_REBUILDING_MESSAGE, lexShowIndexRebuilding/);
 });

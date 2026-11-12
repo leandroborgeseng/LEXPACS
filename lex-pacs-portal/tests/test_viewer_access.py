@@ -213,3 +213,58 @@ def test_lp4_datasource_curinga_ligado_e_querylimit_inalterado():
     qido_js = (ROOT / "ohif-viewer/extensions/default/src/DicomWebDataSource/qido.js").read_text(encoding="utf-8")
     assert "patientNameQuery(params.patientName" in qido_js
     assert "exactQuery(params.patientId)" in qido_js
+
+
+# ── Cache do viewer: só bundles com hash são immutable ──
+SEC = (ROOT / "ohif-viewer/nginx/00-lex-security.conf").read_text(encoding="utf-8")
+
+
+def _viewer_cache(request_uri: str) -> str:
+    """Avalia o map $lex_viewer_cache_control como o nginx: 1ª regex que casa, na ordem."""
+    body = re.search(r"map \$request_uri \$lex_viewer_cache_control \{\n(.*?)\n\}", SEC, re.S).group(1)
+    default = ""
+    for line in body.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        m = re.match(r'"~(.+)"\s+"(.*)";$', line)
+        if m:
+            if re.search(m.group(1), request_uri):
+                return m.group(2)
+            continue
+        d = re.match(r'default\s+"(.*)";$', line)
+        assert d, line
+        default = d.group(1)
+    return default
+
+
+@pytest.mark.parametrize("uri", ["/viewer/app-config.js", "/viewer/app-config.js?v=3", "/viewer/sw.js",
+                                 "/viewer/init-service-worker.js", "/viewer/manifest.json", "/viewer/index.html",
+                                 "/viewer/", "/viewer", "/viewer/?x=1", "/viewer/viewer/dicomweb", "/viewer/app.bundle.css"])
+def test_viewer_no_cache_em_config_sw_manifest_e_index(uri):
+    assert _viewer_cache(uri) == "no-cache", uri
+
+
+@pytest.mark.parametrize("uri", ["/viewer/app.bundle.125f92a65e0d229a.js", "/viewer/9356.bundle.2723c0ba18d58936.js",
+                                 "/viewer/06ac09dcb8ec7d56.woff2", "/viewer/0ddf166f7a343eda.wasm",
+                                 "/viewer/100.bundle.1c8cd7171c2c3336.js.map".replace(".js.map", ".js")])
+def test_viewer_immutable_so_em_bundle_com_hash(uri):
+    assert _viewer_cache(uri) == "public, max-age=31536000, immutable", uri
+
+
+@pytest.mark.parametrize("uri", ["/clinica/", "/dicom-web/studies", "/static/app.js", "/"])
+def test_cache_control_do_viewer_nao_vaza_para_outras_rotas(uri):
+    assert _viewer_cache(uri) == ""
+
+
+def test_gateway_aplica_cache_no_server_e_mantem_auth_como_antes():
+    head = GATEWAY.split("\n    location", 1)[0]
+    assert "add_header Cache-Control $lex_viewer_cache_control always;" in head
+    assert '"public, max-age=31536000, immutable"' not in GATEWAY  # nada fixo num location
+    static = _location(r"~ ^/viewer/(.+\.(?:js|css|map|svg|png|jpe?g|gif|webp|ico|woff2?|ttf|eot|wasm|json|webmanifest|txt))$")
+    assert "auth_request" not in static and "add_header" not in static  # assets sem login, herdam segurança
+    assert "proxy_hide_header Cache-Control;" in static
+    for name in ("/viewer/", "= /viewer"):
+        loc = _location(name)
+        assert "auth_request /internal/auth/dicom-access;" in loc and "add_header" not in loc
+        assert "proxy_hide_header Cache-Control;" in loc

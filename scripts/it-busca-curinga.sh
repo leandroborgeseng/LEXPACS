@@ -26,12 +26,13 @@ for i in $(seq 1 30); do curl -fs -u "leitor:$OPW" http://127.0.0.1:18142/system
 echo "Orthanc: $(curl -fs -u "leitor:$OPW" http://127.0.0.1:18142/system | python3 -c 'import json,sys;d=json.load(sys.stdin);print(d["Version"], "DicomWeb" , "ok")')"
 
 T0=$(date +%s)
-python3 "$ROOT/lex-pacs-portal/tests/integration/gerar_sinteticos.py" --url http://127.0.0.1:18142 --user leitor --password "$OPW" --n "$N"
+ORTHANC_USERNAME=leitor ORTHANC_PASSWORD="$OPW" python3 "$ROOT/lex-pacs-portal/tests/integration/gerar_sinteticos.py" --url http://127.0.0.1:18142 --n "$N"
 echo "Carga de $N estudos sintéticos: $(( $(date +%s) - T0 )) s"
 
 cd "$ROOT/lex-pacs-portal"
 ORTHANC_URL=http://127.0.0.1:18142 ORTHANC_USERNAME=leitor ORTHANC_PASSWORD="$OPW" ORTHANC_EXTERNAL_READONLY=true \
 JWT_SECRET="it-$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')" LEX_ADMIN_USER=admin LEX_ADMIN_PASSWORD=Admin-Inicial-IT1 \
+WORKLIST_INDEX_SEARCH_SYNC_SECONDS=2 WORKLIST_INDEX_SYNC_SECONDS=2 \
 LOCAL_USERS_DB_PATH="$IT/data/users.db" AUDIT_DATA_PATH="$IT/data/audit" REPORTS_DATA_PATH="$IT/data/reports" \
   python3 -m uvicorn app.main:app --host 127.0.0.1 --port 18180 > "$IT/portal.log" 2>&1 & PIDS+=($!)
 cd "$ROOT"
@@ -55,5 +56,5 @@ NG
 for i in $(seq 1 30); do curl -fs http://127.0.0.1:18180/api/health >/dev/null && break; sleep 1; done
 
 LEX_IT_GATEWAY=http://127.0.0.1:18100 LEX_IT_ACCESS_LOG="$IT/nginx/access.log" LEX_IT_ORTHANC=http://127.0.0.1:18142 \
-LEX_IT_ORTHANC_AUTH="leitor:$OPW" LEX_IT_N="$N" LEX_IT_ROOT="$ROOT" \
+LEX_IT_ORTHANC_AUTH="leitor:$OPW" LEX_IT_N="$N" LEX_IT_ROOT="$ROOT" LEX_IT_INDEX_PATH="$IT/data/worklist_index.db" \
   python3 -m pytest -q -s "$ROOT/lex-pacs-portal/tests/integration" -p no:cacheprovider

@@ -26,9 +26,8 @@ jobs:
       - name: Lint (arquivos de usuários locais e viewer)
         run: ruff check --select E,F,W --ignore E501 app/local_users.py app/users.py app/clinical_session.py app/clinical_auth.py app/config.py tests
       - name: Testes
-        # test_parse_orm_new_order já falha na main (modalidade OT != CT); fora do escopo deste PR.
         # mssql roda no job dedicado, com SQL Server em container.
-        run: pytest -q -m "not mssql" --deselect tests/test_hl7_orm.py::Hl7OrmParserTest::test_parse_orm_new_order
+        run: pytest -q -m "not mssql"
       - name: Gateway nginx (sintaxe do template)
         working-directory: ohif-viewer/nginx
         run: |
@@ -138,6 +137,19 @@ jobs:
             docker compose -f $files --env-file /tmp/lex-ci.env config --services
             echo "::endgroup::"
           done
+          # Produção sem seed-homolog: nenhum serviço seed, portal não depende dele, sem HOMOLOG_SEED,
+          # e toda imagem lex-pacs/* tem build (senão o pull do Coolify falha).
+          docker compose -f docker-compose.coolify.yml --env-file /tmp/lex-ci.env config --format json > /tmp/lex-compose.json
+          python3 - <<'PY'
+          import json
+          c = json.load(open("/tmp/lex-compose.json"))["services"]
+          assert "seed-homolog" not in c
+          assert "seed-homolog" not in (c["portal"].get("depends_on") or {})
+          assert "HOMOLOG_SEED" not in json.dumps(c)
+          for n, s in c.items():
+              assert "build" in s or not str(s.get("image", "")).startswith("lex-pacs/"), n
+          print("compose produção sem seed-homolog ok")
+          PY
 
   ohif-build:
     name: OHIF viewer build (Node 24, Dockerfile)

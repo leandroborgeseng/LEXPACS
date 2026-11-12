@@ -31,6 +31,28 @@ class Settings(BaseSettings):
     local_users_db_path: str = "/lex-data/users.db"
     # Índice de busca da lista de exames (só metadados, sem pixel). Vazio = ao lado do users.db.
     worklist_index_path: str = ""
+    worklist_index_autostart: bool = True
+    # Intervalo mínimo entre tentativas de carga do índice depois de uma falha (s).
+    worklist_index_retry_seconds: int = 60
+    # #9 ressalva 1: nova tentativa automática de incomplete/error em segundo plano, com backoff
+    worklist_index_auto_retry: bool = True
+    worklist_index_retry_max_seconds: int = 1800
+    # Índice persistente: incremental periódico (s), sync na busca só se a última for mais velha
+    # que X s, conferência de contagem (s), N divergências seguidas => reconstrução na janela.
+    worklist_index_sync_seconds: int = 60
+    worklist_index_search_sync_seconds: int = 30
+    worklist_index_check_seconds: int = 3600
+    worklist_index_divergence_threshold: int = 3
+    worklist_index_rebuild_window: str = "02:00-05:00"
+    worklist_index_timezone: str = "America/Sao_Paulo"
+    # Sem volume persistente (lex-data) não há carga completa automática, salvo se true.
+    worklist_index_allow_ephemeral: bool = False
+    # B2: força a detecção de volume (auto = pelo fstype; true/false quando bind mount ou disco de
+    # rede enganam a detecção).
+    worklist_index_volume_persistent: str = "auto"
+    # M1: sem volume persistente, depois de X s de processo no ar a carga completa roda mesmo assim
+    # (uma vez por processo), para a busca não ficar parada. Restart em loop (< X s) não recarrega.
+    worklist_index_ephemeral_grace_seconds: int = 600
     lex_admin_user: str = ""
     lex_admin_password: str = ""
     password_min_length: int = 10
