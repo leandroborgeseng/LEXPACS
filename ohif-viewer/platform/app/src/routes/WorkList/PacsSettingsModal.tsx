@@ -53,6 +53,10 @@ type MwlStatus = {
   sync: {
     last_at: string;
     last_synced: number;
+    last_read?: number;
+    last_written?: number;
+    last_removed?: number;
+    last_errors?: number;
     last_actor: string;
     last_error: string;
   };
@@ -75,6 +79,8 @@ type MwlSqlForm = {
   modality_filter: string[];
   modality_routes: { modality: string; station_aet: string }[];
   sync_interval_minutes: number;
+  schedule_window_days: number;
+  schedule_timezone: string;
   password_configured: boolean;
   available_drivers?: { id: string; label: string; default_port: number }[];
 };
@@ -83,10 +89,15 @@ const MWL_MAP_FIELDS = [
   'accession_number',
   'patient_id',
   'patient_name',
+  'patient_birth_date',
+  'patient_sex',
   'modality',
   'station_aet',
   'procedure_description',
   'scheduled_date',
+  'scheduled_time',
+  'study_instance_uid',
+  'status',
 ] as const;
 
 type AuditEvent = {
@@ -404,10 +415,16 @@ const emptyMwlSql = (): MwlSqlForm => ({
   password_env: 'POSTGRES_PASSWORD',
   table: 'lex_mwl_schedule',
   custom_sql: '',
-  field_mapping: Object.fromEntries(MWL_MAP_FIELDS.map(f => [f, f])),
+  field_mapping: {
+    ...Object.fromEntries(MWL_MAP_FIELDS.map(f => [f, f])),
+    status_cancelled: 'CANCELADO',
+    status_performed: 'REALIZADO',
+  },
   modality_filter: [],
   modality_routes: [],
   sync_interval_minutes: 5,
+  schedule_window_days: 7,
+  schedule_timezone: 'America/Sao_Paulo',
   password_configured: false,
 });
 
@@ -429,6 +446,8 @@ function mwlSqlFromStatus(sql: MwlStatus['sql'] & Partial<MwlSqlForm>): MwlSqlFo
     modality_filter: Array.isArray(sql.modality_filter) ? sql.modality_filter : [],
     modality_routes: Array.isArray(sql.modality_routes) ? sql.modality_routes : [],
     sync_interval_minutes: sql.sync_interval_minutes,
+    schedule_window_days: sql.schedule_window_days || base.schedule_window_days,
+    schedule_timezone: sql.schedule_timezone || base.schedule_timezone,
     password_configured: sql.password_configured,
     available_drivers: sql.available_drivers,
   };
@@ -1016,6 +1035,15 @@ export function PacsSettingsModal({ hide, mode = 'modal' }: PacsSettingsModalPro
       await loadIntegrationData();
     } catch (err) {
       setError(err instanceof Error ? err.message : t('pacsSettings.errors.mwlSync'));
+      try {
+        const statusRes = await fetch(`${API_BASE}/mwl/status`, { credentials: 'include' });
+        const status = await statusRes.json().catch(() => null);
+        if (statusRes.ok && status) {
+          setMwlStatus(status);
+        }
+      } catch {
+        // o banner já mostra a falha; o painel atualiza no próximo refresh
+      }
     } finally {
       setSaving(false);
     }
@@ -1157,6 +1185,8 @@ export function PacsSettingsModal({ hide, mode = 'modal' }: PacsSettingsModalPro
         modality_filter: mwlSql.modality_filter,
         modality_routes: mwlSql.modality_routes,
         sync_interval_minutes: mwlSql.sync_interval_minutes,
+        schedule_window_days: mwlSql.schedule_window_days,
+        schedule_timezone: mwlSql.schedule_timezone,
       }),
     });
     const data = await response.json().catch(() => ({}));
@@ -1968,6 +1998,30 @@ export function PacsSettingsModal({ hide, mode = 'modal' }: PacsSettingsModalPro
                               }
                             />
                           </label>
+                          <label className="flex flex-col gap-1 text-xs">
+                            {t('pacsSettings.mwlWindowDays')}
+                            <Input
+                              type="number"
+                              min={1}
+                              max={31}
+                              value={mwlSql.schedule_window_days}
+                              onChange={e =>
+                                setMwlSql(prev => ({
+                                  ...prev,
+                                  schedule_window_days: Math.max(1, Number(e.target.value) || 7),
+                                }))
+                              }
+                            />
+                          </label>
+                          <label className="flex flex-col gap-1 text-xs">
+                            {t('pacsSettings.mwlWindowTimezone')}
+                            <Input
+                              value={mwlSql.schedule_timezone}
+                              onChange={e =>
+                                setMwlSql(prev => ({ ...prev, schedule_timezone: e.target.value }))
+                              }
+                            />
+                          </label>
                         </div>
                         <p className="text-muted-foreground text-xs">
                           {t('pacsSettings.sqlPasswordStatus', { env: mwlSql.password_env })}{' '}
@@ -2000,7 +2054,40 @@ export function PacsSettingsModal({ hide, mode = 'modal' }: PacsSettingsModalPro
                                   />
                                 </label>
                               ))}
+                              <label className="flex flex-col gap-1 text-xs">
+                                {t('pacsSettings.mwlStatusCancelled')}
+                                <Input
+                                  value={mwlSql.field_mapping.status_cancelled || ''}
+                                  onChange={e =>
+                                    setMwlSql(prev => ({
+                                      ...prev,
+                                      field_mapping: {
+                                        ...prev.field_mapping,
+                                        status_cancelled: e.target.value,
+                                      },
+                                    }))
+                                  }
+                                />
+                              </label>
+                              <label className="flex flex-col gap-1 text-xs">
+                                {t('pacsSettings.mwlStatusPerformed')}
+                                <Input
+                                  value={mwlSql.field_mapping.status_performed || ''}
+                                  onChange={e =>
+                                    setMwlSql(prev => ({
+                                      ...prev,
+                                      field_mapping: {
+                                        ...prev.field_mapping,
+                                        status_performed: e.target.value,
+                                      },
+                                    }))
+                                  }
+                                />
+                              </label>
                             </div>
+                            <p className="text-muted-foreground mt-2 text-xs">
+                              {t('pacsSettings.mwlWindowHint')}
+                            </p>
                           </div>
                         ) : null}
 
@@ -2550,8 +2637,17 @@ export function PacsSettingsModal({ hide, mode = 'modal' }: PacsSettingsModalPro
                     <p className="text-muted-foreground text-xs">
                       {t('pacsSettings.mwlLastSync')}{' '}
                       {formatTs(mwlStatus.sync.last_at, i18n.language)} {t('pacsSettings.mwlBy')}{' '}
-                      {mwlStatus.sync.last_actor || '—'} ({mwlStatus.sync.last_synced}{' '}
-                      {t('pacsSettings.mwlFiles')})
+                      {mwlStatus.sync.last_actor || '—'}
+                    </p>
+                    <p className="text-muted-foreground text-xs">
+                      {t('pacsSettings.mwlRead')} {mwlStatus.sync.last_read ?? mwlStatus.sync.last_synced ?? 0}
+                      {' · '}
+                      {t('pacsSettings.mwlWritten')}{' '}
+                      {mwlStatus.sync.last_written ?? mwlStatus.sync.last_synced ?? 0}
+                      {' · '}
+                      {t('pacsSettings.mwlRemoved')} {mwlStatus.sync.last_removed ?? 0}
+                      {' · '}
+                      {t('pacsSettings.mwlErrors')} {mwlStatus.sync.last_errors ?? 0}
                     </p>
                     {mwlStatus.sync.last_error ? (
                       <p className="text-destructive mt-1 text-xs">

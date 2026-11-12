@@ -84,14 +84,17 @@ def connect(cfg: dict[str, Any]):
     if driver == "mssql":
         import pymssql
 
+        login_timeout = int(cfg.get("login_timeout_seconds") or 30)
+        query_timeout = int(cfg.get("query_timeout_seconds") or 120)
         return pymssql.connect(
             server=host,
             port=port,
             user=username,
             password=password,
             database=database,
-            login_timeout=30,
-            timeout=120,
+            login_timeout=max(1, login_timeout),
+            timeout=max(1, query_timeout),
+            charset="UTF-8",
         )
 
     if driver == "oracle":

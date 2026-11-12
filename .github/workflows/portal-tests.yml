@@ -26,7 +26,8 @@ jobs:
       - name: Lint (arquivos de usuários locais e viewer)
         run: ruff check --select E,F,W --ignore E501 app/local_users.py app/users.py app/clinical_session.py app/clinical_auth.py app/config.py tests
       - name: Testes
-        run: pytest -q
+        # mssql roda no job dedicado, com SQL Server em container.
+        run: pytest -q -m "not mssql"
       - name: Gateway nginx (sintaxe do template)
         working-directory: ohif-viewer/nginx
         run: |
@@ -37,6 +38,39 @@ jobs:
             -v "$PWD/gateway.conf.template:/etc/nginx/templates/default.conf.template:ro" \
             -v "$PWD/15-lex-orthanc.envsh:/docker-entrypoint.d/15-lex-orthanc.envsh:ro" \
             nginx:1.27-alpine sh -c '/docker-entrypoint.sh nginx -t'
+
+  mwl-sqlserver:
+    name: MWL SQL Server (sintético)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: lex-pacs-portal
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Dependências (inclui pymssql)
+        run: pip install -r requirements.txt pytest
+      - name: SQL Server sintético
+        run: |
+          set -euo pipefail
+          SA="Aa1$(openssl rand -hex 12)"
+          RO="Bb2$(openssl rand -hex 12)"
+          echo "::add-mask::$SA"
+          echo "::add-mask::$RO"
+          umask 077
+          printf 'MSSQL_SA_PASSWORD=%s\nLEX_MWL_SQL_PASSWORD=%s\nLEX_MWL_MSSQL_HOST=127.0.0.1\nLEX_MWL_MSSQL_PORT=1433\n' "$SA" "$RO" >> "$GITHUB_ENV"
+          export MSSQL_SA_PASSWORD="$SA"
+          docker run -d --name lex-mwl-mssql-ci \
+            -e ACCEPT_EULA=Y \
+            -e MSSQL_PID=Developer \
+            -e MSSQL_SA_PASSWORD \
+            -p 1433:1433 \
+            mcr.microsoft.com/mssql/server:2022-latest
+      - name: Testes MWL (A1, A2, A4, A5, A6)
+        run: pytest -q -m mssql
 
   lex-js-tests:
     name: Filtros QIDO (node --test)
