@@ -29,28 +29,49 @@ DRIVER_REGISTRY: dict[str, dict[str, Any]] = {
     },
 }
 
-MWL_FIELDS = [
+# Colunas lidas da origem. `status` não vira tag DICOM: serve para cancelado/realizado.
+MWL_COLUMN_FIELDS = [
     "accession_number",
     "patient_id",
     "patient_name",
+    "patient_birth_date",
+    "patient_sex",
     "modality",
     "station_aet",
     "procedure_description",
     "scheduled_date",
+    "scheduled_time",
+    "study_instance_uid",
+    "status",
 ]
 
-DEFAULT_FIELD_MAPPING = {field: field for field in MWL_FIELDS}
+# Literais do mapeamento (não são nomes de coluna). A origem real ainda não é conhecida.
+MWL_VALUE_DEFAULTS = {
+    "status_cancelled": "CANCELADO",
+    "status_performed": "REALIZADO",
+}
 
+MWL_FIELDS = list(MWL_COLUMN_FIELDS)
+
+DEFAULT_FIELD_MAPPING = {field: field for field in MWL_COLUMN_FIELDS}
+DEFAULT_FIELD_MAPPING.update(MWL_VALUE_DEFAULTS)
+
+# A janela (hoje + amanhã, por padrão) e o status são aplicados na sincronização,
+# não nesta consulta: a coluna e os valores reais da origem ainda não são conhecidos.
 DEFAULT_CUSTOM_SQL = """SELECT
   accession_number,
   patient_id,
   patient_name,
+  patient_birth_date,
+  patient_sex,
   modality,
   station_aet,
   procedure_description,
-  scheduled_date
+  scheduled_date,
+  scheduled_time,
+  study_instance_uid,
+  status
 FROM lex_mwl_schedule
-WHERE scheduled_date >= CURRENT_DATE - INTERVAL '1 day'
 """
 
 

@@ -5,6 +5,7 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import HTTPException, status
 
@@ -31,6 +32,11 @@ DEFAULT_MWL_SQL = {
     "modality_filter": [],
     "modality_routes": [],
     "sync_interval_minutes": 5,
+    # Hoje e amanhã. O fuso padrão é o do hospital (Brasil); os dois são configuráveis.
+    "schedule_window_days": 2,
+    "schedule_timezone": "America/Sao_Paulo",
+    "login_timeout_seconds": 30,
+    "query_timeout_seconds": 120,
 }
 
 
@@ -74,6 +80,30 @@ def _write_raw(data: dict) -> None:
         ) from exc
 
 
+def _bounded_int(value: Any, default: int, upper: int) -> int:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return default
+    if number < 1:
+        return default
+    return min(number, upper)
+
+
+def _timezone_name(value: Any, *, strict: bool) -> str:
+    name = str(value or "").strip() or "America/Sao_Paulo"
+    try:
+        ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError):
+        if strict:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Fuso horário da janela MWL inválido.",
+            )
+        return "America/Sao_Paulo"
+    return name
+
+
 def _normalize_config(cfg: dict[str, Any]) -> dict[str, Any]:
     out = deepcopy(DEFAULT_MWL_SQL)
     out.update(cfg)
@@ -98,6 +128,11 @@ def _normalize_config(cfg: dict[str, Any]) -> dict[str, Any]:
         for m in (out.get("modality_filter") or [])
         if str(m).strip()
     ]
+    out["schedule_window_days"] = _bounded_int(out.get("schedule_window_days"), 2, 31)
+    out["schedule_timezone"] = _timezone_name(out.get("schedule_timezone"), strict=False)
+    out["login_timeout_seconds"] = _bounded_int(out.get("login_timeout_seconds"), 30, 120)
+    out["query_timeout_seconds"] = _bounded_int(out.get("query_timeout_seconds"), 120, 600)
+    out["sync_interval_minutes"] = _bounded_int(out.get("sync_interval_minutes"), 5, 1440)
     return out
 
 
@@ -124,6 +159,21 @@ def save_mwl_sql_config(payload: dict[str, Any]) -> dict[str, Any]:
     password_env = str(payload.get("password_env", "")).strip() or "POSTGRES_PASSWORD"
     sync_interval = int(payload.get("sync_interval_minutes", 5))
     custom_sql = str(payload.get("custom_sql") or "").strip() or DEFAULT_CUSTOM_SQL
+    try:
+        window_days = int(payload.get("schedule_window_days") or 2)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Janela de agendados inválida.",
+        ) from exc
+    if window_days < 1 or window_days > 31:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Janela de agendados inválida.",
+        )
+    schedule_timezone = _timezone_name(payload.get("schedule_timezone"), strict=True)
+    login_timeout = _bounded_int(payload.get("login_timeout_seconds"), 30, 120)
+    query_timeout = _bounded_int(payload.get("query_timeout_seconds"), 120, 600)
 
     if driver not in {item["id"] for item in list_drivers()}:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Driver SQL inválido.")
@@ -151,6 +201,10 @@ def save_mwl_sql_config(payload: dict[str, Any]) -> dict[str, Any]:
             "modality_filter": payload.get("modality_filter") or [],
             "modality_routes": payload.get("modality_routes") or [],
             "sync_interval_minutes": max(1, sync_interval),
+            "schedule_window_days": window_days,
+            "schedule_timezone": schedule_timezone,
+            "login_timeout_seconds": login_timeout,
+            "query_timeout_seconds": query_timeout,
         }
     )
     _write_raw(data)
@@ -205,12 +259,24 @@ def utc_now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
+def _meta_count(meta: dict[str, Any], key: str, fallback_key: str | None = None) -> int:
+    if key in meta and meta.get(key) is not None:
+        return int(meta.get(key) or 0)
+    if fallback_key is not None:
+        return int(meta.get(fallback_key) or 0)
+    return 0
+
+
 def get_mwl_sync_meta() -> dict[str, Any]:
     data = _read_raw()
     meta = data.get("mwl_sync", {})
     return {
         "last_at": str(meta.get("last_at") or ""),
         "last_synced": int(meta.get("last_synced") or 0),
+        "last_read": _meta_count(meta, "last_read", "last_synced"),
+        "last_written": _meta_count(meta, "last_written", "last_synced"),
+        "last_removed": _meta_count(meta, "last_removed"),
+        "last_errors": _meta_count(meta, "last_errors"),
         "last_actor": str(meta.get("last_actor") or ""),
         "last_error": str(meta.get("last_error") or ""),
     }
@@ -220,19 +286,28 @@ def save_mwl_sync_meta(
     *,
     last_at: str | None = None,
     last_synced: int | None = None,
+    last_read: int | None = None,
+    last_written: int | None = None,
+    last_removed: int | None = None,
+    last_errors: int | None = None,
     last_actor: str | None = None,
     last_error: str | None = None,
 ) -> dict[str, Any]:
     data = _read_raw()
     meta = dict(data.get("mwl_sync", {}))
-    if last_at is not None:
-        meta["last_at"] = last_at
-    if last_synced is not None:
-        meta["last_synced"] = last_synced
-    if last_actor is not None:
-        meta["last_actor"] = last_actor
-    if last_error is not None:
-        meta["last_error"] = last_error
+    updates = {
+        "last_at": last_at,
+        "last_synced": last_synced,
+        "last_read": last_read,
+        "last_written": last_written,
+        "last_removed": last_removed,
+        "last_errors": last_errors,
+        "last_actor": last_actor,
+        "last_error": last_error,
+    }
+    for key, value in updates.items():
+        if value is not None:
+            meta[key] = value
     data["mwl_sync"] = meta
     _write_raw(data)
     return get_mwl_sync_meta()

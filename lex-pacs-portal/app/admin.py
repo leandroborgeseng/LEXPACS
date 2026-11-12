@@ -13,7 +13,7 @@ from .mwl_sql import get_mwl_sql_config, get_mwl_sync_meta, save_mwl_sql_config
 from .mwl_connector import execute_select, test_connection
 from .mwl_fetch import fetch_mwl_source_rows
 from .mwl_drivers import list_drivers, MWL_FIELDS
-from .mwl_sync import list_mwl_entries, orthanc_mwl_plugin_enabled
+from .mwl_sync import count_lex_worklists, list_mwl_entries, orthanc_mwl_plugin_enabled
 from .lex_settings import (
     get_equipment,
     get_worklist_views,
@@ -149,6 +149,10 @@ class MwlSqlConfigResponse(BaseModel):
     modality_filter: list[str] = Field(default_factory=list)
     modality_routes: list[ModalityRouteItem] = Field(default_factory=list)
     sync_interval_minutes: int = 5
+    schedule_window_days: int = 2
+    schedule_timezone: str = "America/Sao_Paulo"
+    login_timeout_seconds: int = 30
+    query_timeout_seconds: int = 120
     password_configured: bool = False
     available_drivers: list[dict] = Field(default_factory=list)
 
@@ -156,6 +160,8 @@ class MwlSqlConfigResponse(BaseModel):
 class MwlSyncResponse(BaseModel):
     removed: int
     synced: int
+    read: int = 0
+    errors: int = 0
     files: list[str]
     worklist_dir: str
     plugin_enabled: bool = False
@@ -700,12 +706,16 @@ async def read_mwl_status(
     _: ClinicalUser = Depends(require_clinical_user),
 ) -> MwlStatusResponse:
     plugin_enabled = await orthanc_mwl_plugin_enabled()
-    entries = list_mwl_entries()
+    try:
+        entries_total = len(list_mwl_entries())
+    except Exception:
+        # Origem fora do ar: o status da última sync continua visível, sem dado de paciente.
+        entries_total = count_lex_worklists()
     return MwlStatusResponse(
         sql=MwlSqlConfigResponse(**get_mwl_sql_config()),
         sync=get_mwl_sync_meta(),
         plugin_enabled=plugin_enabled,
-        entries_total=len(entries),
+        entries_total=entries_total,
     )
 
 
@@ -720,6 +730,9 @@ async def trigger_mwl_sync(
         "mwl_sync",
         user.username,
         synced=result["synced"],
+        read=result.get("read", 0),
+        removed=result.get("removed", 0),
+        errors=result.get("errors", 0),
         auth_method=user.auth_method,
     )
     return MwlSyncResponse(
