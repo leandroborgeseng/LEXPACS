@@ -136,6 +136,9 @@ services:
       BACKUP_STATUS_PATH: /lex-backups/latest-status.json
       LOGIN_RATE_LIMIT_ATTEMPTS: ${LOGIN_RATE_LIMIT_ATTEMPTS:-20}
       LOGIN_RATE_LIMIT_WINDOW_SECONDS: ${LOGIN_RATE_LIMIT_WINDOW_SECONDS:-60}
+      # MWL: segundos entre syncs. Vazio = 300 (5 min) pelo painel.
+      # Inteiro definido aqui prevalece sobre sync_interval_minutes. Não publica porta.
+      LEX_MWL_SYNC_INTERVAL_SECONDS: ${LEX_MWL_SYNC_INTERVAL_SECONDS:-}
     volumes:
       - server-config:/orthanc-config
       - lex-reports:/lex-reports

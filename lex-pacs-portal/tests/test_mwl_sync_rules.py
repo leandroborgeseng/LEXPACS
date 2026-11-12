@@ -9,8 +9,10 @@ import pytest
 from fastapi import HTTPException
 
 from app.config import settings
+from app.mwl_drivers import default_port
+from app.mwl_fetch import schedule_window
 from app.mwl_scheduler import run_mwl_sync
-from app.mwl_sql import get_mwl_sync_meta, save_mwl_sql_config
+from app.mwl_sql import SYNC_INTERVAL_ENV, get_mwl_sql_config, get_mwl_sync_meta, save_mwl_sql_config, sync_interval_seconds
 from app.mwl_sync import worklist_dir
 
 PATIENT = "ZZSINT^JOÃO CONCEIÇÃO"
@@ -50,7 +52,7 @@ def _config(**overrides):
         "modality_filter": [],
         "modality_routes": [],
         "sync_interval_minutes": 5,
-        "schedule_window_days": 2,
+        "schedule_window_days": 7,
         "schedule_timezone": "UTC",
         "login_timeout_seconds": 1,
         "query_timeout_seconds": 5,
@@ -128,27 +130,52 @@ def test_a2_um_wl_iso_ir_192_com_acento(tmp_path, monkeypatch):
 
 
 def test_a4_remove_cancelado_realizado_e_fora_da_janela(tmp_path, monkeypatch):
+    """Janela de N dias = hoje inclusive até D+(N-1). Padrão N=7: D+0..D+6 dentro; D+7 fora."""
     _paths(tmp_path, monkeypatch)
-    _config(schedule_window_days=2)
+    _config()
+    start, end = schedule_window({"schedule_window_days": 7, "schedule_timezone": "UTC"})
+    assert start == TODAY
+    assert end == TODAY + timedelta(days=6)
     rows = [
         _row(accession_number="SINT-HOJE", scheduled_date=TODAY, status="AGENDADO"),
-        _row(accession_number="SINT-AMANHA", scheduled_date=TODAY + timedelta(days=1), status="AGENDADO"),
-        _row(accession_number="SINT-DEPOIS", scheduled_date=TODAY + timedelta(days=2), status="AGENDADO"),
+        _row(accession_number="SINT-D6", scheduled_date=TODAY + timedelta(days=6), status="AGENDADO"),
+        _row(accession_number="SINT-D7", scheduled_date=TODAY + timedelta(days=7), status="AGENDADO"),
+        _row(accession_number="SINT-DEPOIS", scheduled_date=TODAY + timedelta(days=8), status="AGENDADO"),
         _row(accession_number="SINT-ONTEM", scheduled_date=TODAY - timedelta(days=1), status="AGENDADO"),
         _row(accession_number="SINT-CANCEL", scheduled_date=TODAY, status="CANCELADA"),
         _row(accession_number="SINT-FEITO", scheduled_date=TODAY, status="CONCLUIDO"),
     ]
     _patch_rows(monkeypatch, rows)
     result = run_mwl_sync("teste")
-    assert result["read"] == 6
+    assert result["read"] == 7
     assert result["errors"] == 0
     assert result["synced"] == 2
-    assert _names(worklist_dir()) == ["lex-SINT-AMANHA.wl", "lex-SINT-HOJE.wl"]
+    assert _names(worklist_dir()) == ["lex-SINT-D6.wl", "lex-SINT-HOJE.wl"]
 
     _config(schedule_window_days=1)
     narrowed = run_mwl_sync("teste")
     assert narrowed["removed"] >= 1
     assert _names(worklist_dir()) == ["lex-SINT-HOJE.wl"]
+
+
+def test_padrao_janela_7_dias_e_intervalo_300s(tmp_path, monkeypatch):
+    _paths(tmp_path, monkeypatch)
+    monkeypatch.delenv(SYNC_INTERVAL_ENV, raising=False)
+    cfg = get_mwl_sql_config()
+    assert cfg["schedule_window_days"] == 7
+    assert cfg["schedule_timezone"] == "America/Sao_Paulo"
+    assert cfg["sync_interval_minutes"] == 5
+    assert sync_interval_seconds(cfg) == 300
+    assert default_port("mssql") == 1433
+
+    monkeypatch.setenv(SYNC_INTERVAL_ENV, "120")
+    assert sync_interval_seconds(cfg) == 120
+    monkeypatch.setenv(SYNC_INTERVAL_ENV, "30")
+    assert sync_interval_seconds(cfg) == 60
+    monkeypatch.setenv(SYNC_INTERVAL_ENV, "nao-numero")
+    assert sync_interval_seconds({"sync_interval_minutes": 5}) == 300
+    monkeypatch.delenv(SYNC_INTERVAL_ENV, raising=False)
+    assert sync_interval_seconds({"sync_interval_minutes": 10}) == 600
 
 
 def test_a6_accession_unico_e_campo_nulo_conta_erro(tmp_path, monkeypatch, caplog):

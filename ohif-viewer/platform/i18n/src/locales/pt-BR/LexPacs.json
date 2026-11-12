@@ -384,7 +384,7 @@
   "pacsSettings.mwlStatusPerformed": "Valores de realizado (separados por vírgula)",
   "pacsSettings.mwlWindowDays": "Janela de agendados (dias, a partir de hoje)",
   "pacsSettings.mwlWindowTimezone": "Fuso da janela",
-  "pacsSettings.mwlWindowHint": "Cancelado, realizado ou fora da janela: o .wl é removido. Colunas e valores dependem da origem.",
+  "pacsSettings.mwlWindowHint": "Padrão: 7 dias em America/Sao_Paulo (hoje até D+6). D+7, data anterior ou cancelado/realizado: o .wl é removido. Colunas e valores dependem da origem. Sync automático a cada 5 min (300 s); LEX_MWL_SYNC_INTERVAL_SECONDS substitui o painel.",
   "pacsSettings.mwlModalityFilter": "Filtrar modalidades (vazio = todas)",
   "pacsSettings.mwlModalityRoutes": "Rotas por modalidade (AE da estação)",
   "pacsSettings.mwlAddRoute": "Adicionar rota",

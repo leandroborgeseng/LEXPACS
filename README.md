@@ -38,7 +38,7 @@ docker compose -f docker-compose.coolify.yml \
 
 Acesso local: `http://localhost:3000` · Login clínico: `/clinica/login` · Portal paciente: `/paciente/`
 
-Portas úteis (override local): **3000** HTTP gateway, **4242** DICOM, **8042** Orthanc (admin), **2575** HL7 MLLP.
+Portas úteis (override local): **3000** HTTP gateway, **4242** DICOM, **8042** Orthanc (admin), **2575** HL7 MLLP. O DICOM do Orthanc permanece na **4242** (`DicomPort`). O driver MWL SQL Server usa **1433** só como porta de conexão do cliente; este compose não publica 1433. A worklist sincroniza a cada **300 s** (5 min), ajustável por `LEX_MWL_SYNC_INTERVAL_SECONDS`, numa janela padrão de **7 dias** (hoje até D+6, fuso `America/Sao_Paulo`).
 
 Guia completo: [docs/COOLIFY.md](docs/COOLIFY.md)
 

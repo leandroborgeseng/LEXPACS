@@ -423,7 +423,7 @@ const emptyMwlSql = (): MwlSqlForm => ({
   modality_filter: [],
   modality_routes: [],
   sync_interval_minutes: 5,
-  schedule_window_days: 2,
+  schedule_window_days: 7,
   schedule_timezone: 'America/Sao_Paulo',
   password_configured: false,
 });
@@ -2008,7 +2008,7 @@ export function PacsSettingsModal({ hide, mode = 'modal' }: PacsSettingsModalPro
                               onChange={e =>
                                 setMwlSql(prev => ({
                                   ...prev,
-                                  schedule_window_days: Math.max(1, Number(e.target.value) || 2),
+                                  schedule_window_days: Math.max(1, Number(e.target.value) || 7),
                                 }))
                               }
                             />

@@ -7,7 +7,13 @@ from typing import Any
 from fastapi import HTTPException
 
 from .audit import log_event
-from .mwl_sql import get_mwl_sql_config, get_mwl_sync_meta, save_mwl_sync_meta, utc_now_iso
+from .mwl_sql import (
+    get_mwl_sql_config,
+    get_mwl_sync_meta,
+    save_mwl_sync_meta,
+    sync_interval_seconds,
+    utc_now_iso,
+)
 from .mwl_sync import sanitize_mwl_error, sync_mwl_from_sql
 
 logger = logging.getLogger("lex_pacs.mwl_scheduler")
@@ -76,7 +82,7 @@ async def _scheduler_loop() -> None:
         try:
             cfg = get_mwl_sql_config()
             if cfg.get("enabled", True):
-                interval_sec = max(60, int(cfg.get("sync_interval_minutes", 5)) * 60)
+                interval_sec = sync_interval_seconds(cfg)
                 meta = get_mwl_sync_meta()
                 elapsed = _seconds_since_last_sync(meta)
                 if elapsed is None or elapsed >= interval_sec:

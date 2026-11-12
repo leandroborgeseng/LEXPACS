@@ -9,7 +9,14 @@ from .clinical_session import ClinicalUser
 from .clinical_auth import require_admin, require_clinical_user
 from .audit import list_events, log_event
 from .mwl_scheduler import run_mwl_sync
-from .mwl_sql import get_mwl_sql_config, get_mwl_sync_meta, save_mwl_sql_config
+from .mwl_sql import (
+    DEFAULT_SCHEDULE_TIMEZONE,
+    DEFAULT_SCHEDULE_WINDOW_DAYS,
+    DEFAULT_SYNC_INTERVAL_MINUTES,
+    get_mwl_sql_config,
+    get_mwl_sync_meta,
+    save_mwl_sql_config,
+)
 from .mwl_connector import execute_select, test_connection
 from .mwl_fetch import fetch_mwl_source_rows
 from .mwl_drivers import list_drivers, MWL_FIELDS
@@ -148,9 +155,9 @@ class MwlSqlConfigResponse(BaseModel):
     field_mapping: dict[str, str] = Field(default_factory=dict)
     modality_filter: list[str] = Field(default_factory=list)
     modality_routes: list[ModalityRouteItem] = Field(default_factory=list)
-    sync_interval_minutes: int = 5
-    schedule_window_days: int = 2
-    schedule_timezone: str = "America/Sao_Paulo"
+    sync_interval_minutes: int = DEFAULT_SYNC_INTERVAL_MINUTES
+    schedule_window_days: int = DEFAULT_SCHEDULE_WINDOW_DAYS
+    schedule_timezone: str = DEFAULT_SCHEDULE_TIMEZONE
     login_timeout_seconds: int = 30
     query_timeout_seconds: int = 120
     password_configured: bool = False

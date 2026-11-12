@@ -312,7 +312,7 @@ def agenda(mssql_server, tmp_path, monkeypatch):
             "modality_filter": [],
             "modality_routes": [],
             "sync_interval_minutes": 5,
-            "schedule_window_days": 2,
+            "schedule_window_days": 7,
             "schedule_timezone": "UTC",
             "login_timeout_seconds": 5,
             "query_timeout_seconds": 30,
@@ -480,22 +480,24 @@ def test_a2_wl_com_acento_e_status_sem_paciente(agenda, client, caplog):
 
 
 def test_a4_remove_cancelado_realizado_e_fora_da_janela(agenda):
+    """Janela de 7 dias no teste: hoje até D+6 inclusive. D+7 e além ficam de fora."""
     today = agenda["today"]
     agenda["insert"](
         [
             _exam(today, nr_acesso="SINT-HOJE", situacao="AGENDADO"),
-            _exam(today + timedelta(days=1), nr_acesso="SINT-AMANHA", situacao="AGENDADO"),
-            _exam(today + timedelta(days=2), nr_acesso="SINT-DEPOIS", situacao="AGENDADO"),
+            _exam(today + timedelta(days=6), nr_acesso="SINT-D6", situacao="AGENDADO"),
+            _exam(today + timedelta(days=7), nr_acesso="SINT-D7", situacao="AGENDADO"),
+            _exam(today + timedelta(days=8), nr_acesso="SINT-DEPOIS", situacao="AGENDADO"),
             _exam(today - timedelta(days=1), nr_acesso="SINT-ONTEM", situacao="AGENDADO"),
             _exam(today, nr_acesso="SINT-CANCEL", situacao="CANCELADA"),
             _exam(today, nr_acesso="SINT-FEITO", situacao="CONCLUIDO"),
         ]
     )
     result = run_mwl_sync("teste")
-    assert result["read"] == 6
+    assert result["read"] == 7
     assert result["errors"] == 0
     assert result["synced"] == 2
-    assert _files(agenda["worklists"]) == ["lex-SINT-AMANHA.wl", "lex-SINT-HOJE.wl"]
+    assert _files(agenda["worklists"]) == ["lex-SINT-D6.wl", "lex-SINT-HOJE.wl"]
 
     agenda["configure"](schedule_window_days=1)
     narrowed = run_mwl_sync("teste")

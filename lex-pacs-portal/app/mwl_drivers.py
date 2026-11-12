@@ -56,8 +56,10 @@ MWL_FIELDS = list(MWL_COLUMN_FIELDS)
 DEFAULT_FIELD_MAPPING = {field: field for field in MWL_COLUMN_FIELDS}
 DEFAULT_FIELD_MAPPING.update(MWL_VALUE_DEFAULTS)
 
-# A janela (hoje + amanhã, por padrão) e o status são aplicados na sincronização,
-# não nesta consulta: a coluna e os valores reais da origem ainda não são conhecidos.
+# A janela (padrão: 7 dias inclusive, hoje até D+6, fuso America/Sao_Paulo) e o
+# status são aplicados na sincronização, não nesta consulta: a coluna e os
+# valores reais da origem ainda não são conhecidos.
+# A porta padrão do driver mssql é 1433 (conexão do cliente). Não publica porta.
 DEFAULT_CUSTOM_SQL = """SELECT
   accession_number,
   patient_id,

@@ -9,7 +9,11 @@ from zoneinfo import ZoneInfo
 
 from .mwl_connector import execute_select
 from .mwl_drivers import DEFAULT_FIELD_MAPPING, MWL_COLUMN_FIELDS
-from .mwl_sql import get_mwl_sql_config
+from .mwl_sql import (
+    DEFAULT_SCHEDULE_TIMEZONE,
+    DEFAULT_SCHEDULE_WINDOW_DAYS,
+    get_mwl_sql_config,
+)
 from .mwl_store import fetch_mwl_rows as fetch_internal_rows
 
 _SEX_ALIASES = {
@@ -137,13 +141,21 @@ def _study_uid(value: Any, accession: str) -> str:
 
 
 def schedule_window(cfg: dict[str, Any]) -> tuple[date, date]:
-    tz_name = str(cfg.get("schedule_timezone") or "America/Sao_Paulo")
+    """Intervalo inclusivo [hoje, hoje + dias - 1] no fuso da config.
+
+    O padrão é 7 dias em America/Sao_Paulo: hoje (D+0) até D+6.
+    D+7 e datas anteriores a hoje ficam fora e o .wl correspondente é removido.
+    """
+    tz_name = str(cfg.get("schedule_timezone") or DEFAULT_SCHEDULE_TIMEZONE)
     try:
         tz = ZoneInfo(tz_name)
     except Exception:
-        tz = ZoneInfo("America/Sao_Paulo")
+        tz = ZoneInfo(DEFAULT_SCHEDULE_TIMEZONE)
     today = datetime.now(tz).date()
-    days = int(cfg.get("schedule_window_days") or 2)
+    try:
+        days = int(cfg.get("schedule_window_days") or DEFAULT_SCHEDULE_WINDOW_DAYS)
+    except (TypeError, ValueError):
+        days = DEFAULT_SCHEDULE_WINDOW_DAYS
     days = max(1, days)
     return today, today + timedelta(days=days - 1)
 

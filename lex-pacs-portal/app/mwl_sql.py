@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,6 +18,16 @@ from .mwl_drivers import (
     list_drivers,
 )
 
+# Janela inclusiva a partir de hoje no fuso configurado.
+# 7 dias = D+0 até D+6. D+7 e qualquer data anterior a hoje ficam de fora.
+DEFAULT_SCHEDULE_WINDOW_DAYS = 7
+DEFAULT_SCHEDULE_TIMEZONE = "America/Sao_Paulo"
+DEFAULT_SYNC_INTERVAL_MINUTES = 5
+DEFAULT_SYNC_INTERVAL_SECONDS = DEFAULT_SYNC_INTERVAL_MINUTES * 60  # 300
+SYNC_INTERVAL_ENV = "LEX_MWL_SYNC_INTERVAL_SECONDS"
+MIN_SYNC_INTERVAL_SECONDS = 60
+MAX_SYNC_INTERVAL_SECONDS = 1440 * 60
+
 DEFAULT_MWL_SQL = {
     "enabled": True,
     "driver": "postgresql",
@@ -31,10 +42,9 @@ DEFAULT_MWL_SQL = {
     "field_mapping": deepcopy(DEFAULT_FIELD_MAPPING),
     "modality_filter": [],
     "modality_routes": [],
-    "sync_interval_minutes": 5,
-    # Hoje e amanhã. O fuso padrão é o do hospital (Brasil); os dois são configuráveis.
-    "schedule_window_days": 2,
-    "schedule_timezone": "America/Sao_Paulo",
+    "sync_interval_minutes": DEFAULT_SYNC_INTERVAL_MINUTES,
+    "schedule_window_days": DEFAULT_SCHEDULE_WINDOW_DAYS,
+    "schedule_timezone": DEFAULT_SCHEDULE_TIMEZONE,
     "login_timeout_seconds": 30,
     "query_timeout_seconds": 120,
 }
@@ -91,7 +101,7 @@ def _bounded_int(value: Any, default: int, upper: int) -> int:
 
 
 def _timezone_name(value: Any, *, strict: bool) -> str:
-    name = str(value or "").strip() or "America/Sao_Paulo"
+    name = str(value or "").strip() or DEFAULT_SCHEDULE_TIMEZONE
     try:
         ZoneInfo(name)
     except (ZoneInfoNotFoundError, ValueError):
@@ -100,8 +110,32 @@ def _timezone_name(value: Any, *, strict: bool) -> str:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Fuso horário da janela MWL inválido.",
             )
-        return "America/Sao_Paulo"
+        return DEFAULT_SCHEDULE_TIMEZONE
     return name
+
+
+def sync_interval_seconds(cfg: dict[str, Any] | None = None) -> int:
+    """Segundos entre sincronizações automáticas.
+
+    O padrão é 300 (5 minutos), o mesmo de ``sync_interval_minutes`` no painel.
+    ``LEX_MWL_SYNC_INTERVAL_SECONDS``, quando definida com um inteiro, prevalece
+    sobre o painel. Vazia ou não numérica cai no painel. Piso 60 s, teto 24 h.
+    """
+    minutes = DEFAULT_SYNC_INTERVAL_MINUTES
+    if cfg is not None:
+        minutes = _bounded_int(cfg.get("sync_interval_minutes"), DEFAULT_SYNC_INTERVAL_MINUTES, 1440)
+    chosen = minutes * 60
+    raw = os.environ.get(SYNC_INTERVAL_ENV, "").strip()
+    if raw:
+        try:
+            parsed = int(raw)
+        except ValueError:
+            parsed = chosen
+        else:
+            if parsed < 1:
+                parsed = DEFAULT_SYNC_INTERVAL_SECONDS
+        chosen = parsed
+    return min(MAX_SYNC_INTERVAL_SECONDS, max(MIN_SYNC_INTERVAL_SECONDS, chosen))
 
 
 def _normalize_config(cfg: dict[str, Any]) -> dict[str, Any]:
@@ -128,18 +162,20 @@ def _normalize_config(cfg: dict[str, Any]) -> dict[str, Any]:
         for m in (out.get("modality_filter") or [])
         if str(m).strip()
     ]
-    out["schedule_window_days"] = _bounded_int(out.get("schedule_window_days"), 2, 31)
+    out["schedule_window_days"] = _bounded_int(
+        out.get("schedule_window_days"), DEFAULT_SCHEDULE_WINDOW_DAYS, 31
+    )
     out["schedule_timezone"] = _timezone_name(out.get("schedule_timezone"), strict=False)
     out["login_timeout_seconds"] = _bounded_int(out.get("login_timeout_seconds"), 30, 120)
     out["query_timeout_seconds"] = _bounded_int(out.get("query_timeout_seconds"), 120, 600)
-    out["sync_interval_minutes"] = _bounded_int(out.get("sync_interval_minutes"), 5, 1440)
+    out["sync_interval_minutes"] = _bounded_int(
+        out.get("sync_interval_minutes"), DEFAULT_SYNC_INTERVAL_MINUTES, 1440
+    )
     return out
 
 
 def get_mwl_sql_config() -> dict[str, Any]:
     cfg = _normalize_config(_read_raw()["mwl_sql"])
-    import os
-
     env_name = str(cfg.get("password_env", "POSTGRES_PASSWORD"))
     cfg["password_configured"] = bool(os.environ.get(env_name, ""))
     cfg["available_drivers"] = list_drivers()
@@ -157,10 +193,10 @@ def save_mwl_sql_config(payload: dict[str, Any]) -> dict[str, Any]:
     username = str(payload.get("username", "")).strip()
     table = str(payload.get("table", "")).strip() or "lex_mwl_schedule"
     password_env = str(payload.get("password_env", "")).strip() or "POSTGRES_PASSWORD"
-    sync_interval = int(payload.get("sync_interval_minutes", 5))
+    sync_interval = int(payload.get("sync_interval_minutes", DEFAULT_SYNC_INTERVAL_MINUTES))
     custom_sql = str(payload.get("custom_sql") or "").strip() or DEFAULT_CUSTOM_SQL
     try:
-        window_days = int(payload.get("schedule_window_days") or 2)
+        window_days = int(payload.get("schedule_window_days") or DEFAULT_SCHEDULE_WINDOW_DAYS)
     except (TypeError, ValueError) as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -228,8 +264,6 @@ def mwl_sql_connection_params() -> dict[str, Any]:
     cfg = _normalize_config(_read_raw()["mwl_sql"])
     if not cfg.get("enabled", True):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Sync SQL MWL desabilitado.")
-    import os
-
     env_name = str(cfg.get("password_env", "POSTGRES_PASSWORD"))
     password = os.environ.get(env_name, "")
     if not password:
