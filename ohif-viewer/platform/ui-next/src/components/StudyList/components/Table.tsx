@@ -10,6 +10,7 @@ import { tokenizeModalities } from '../utils/tokenizeModalities';
 import { useWorkflows } from './WorkflowsProvider';
 import { lexDoubleClickWorkflow } from './lexDoubleClick';
 import { COLUMN_IDS } from '../columns/defaultColumns';
+import { LEX_WHOLE_ARCHIVE_PLACEHOLDER, lexHasTextSearch } from '../../DataTable/lexWorklistDefaults';
 
 export type TableProps = Omit<DataTableProps<StudyRow>, 'children' | 'getRowId'> & {
   title?: ReactNode;
@@ -23,6 +24,10 @@ export type TableProps = Omit<DataTableProps<StudyRow>, 'children' | 'getRowId'>
   loadingComponent?: ReactNode;
   /** LEX PACS: mensagem da lista vazia (ex.: índice preparando). */
   emptyMessage?: ReactNode;
+  /** LEX PACS UXE1: esconde o paginador (ex.: erro do índice). */
+  hidePagination?: boolean;
+  /** LEX PACS UXE4: filtros desativados (ex.: erro do índice). */
+  filtersDisabled?: boolean;
 };
 
 export function Table({
@@ -52,6 +57,9 @@ export function Table({
   hasMore,
   sortNote,
   emptyMessage,
+  hidePagination = false,
+  filtersDisabled = false,
+  onColumnVisibilityChange,
 }: TableProps) {
   return (
     <DataTable<StudyRow>
@@ -72,6 +80,7 @@ export function Table({
       sortNote={sortNote}
       enforceSingleSelection={enforceSingleSelection}
       onSelectionChange={onSelectionChange}
+      onColumnVisibilityChange={onColumnVisibilityChange}
     >
       <TableContent
         title={title}
@@ -84,6 +93,8 @@ export function Table({
         isLoading={isLoading}
         loadingComponent={loadingComponent}
         emptyMessage={emptyMessage}
+        hidePagination={hidePagination}
+        filtersDisabled={filtersDisabled}
       />
     </DataTable>
   );
@@ -100,6 +111,8 @@ function TableContent({
   isLoading,
   loadingComponent,
   emptyMessage,
+  hidePagination,
+  filtersDisabled,
 }: {
   title?: ReactNode;
   showColumnVisibility?: boolean;
@@ -111,6 +124,8 @@ function TableContent({
   isLoading?: boolean;
   loadingComponent?: ReactNode;
   emptyMessage?: ReactNode;
+  hidePagination?: boolean;
+  filtersDisabled?: boolean;
 }) {
   const { t } = useTranslation('StudyList');
   const { table } = useDataTable<StudyRow>();
@@ -150,7 +165,7 @@ function TableContent({
             {toolbarRightActionsComponent}
             {toolbarRightActionsComponent && <div className="bg-input mx-2 h-4 w-px" />}
             {/* Pagination appears to the left of the "View" button */}
-            <DataTable.Pagination<StudyRow> />
+            {hidePagination ? null : <DataTable.Pagination<StudyRow> />}
             {showColumnVisibility && <DataTable.ViewOptions<StudyRow> />}
             {toolbarRightComponent}
           </div>
@@ -168,6 +183,7 @@ function TableContent({
       <DataTable.Table<StudyRow> tableClassName={tableClassName}>
         <DataTable.Header<StudyRow> />
         <DataTable.FilterRow<StudyRow>
+          disabled={filtersDisabled}
           excludeColumnIds={[COLUMN_IDS.INSTANCES]}
           renderFilterCell={({ columnId, value, setValue }) => {
             if (columnId === COLUMN_IDS.ACTIONS) {
@@ -189,14 +205,18 @@ function TableContent({
                 value && typeof value === 'object'
                   ? (value as StudyDateRangeFilter)
                   : {};
-              const startDate = dateRange.startDate ?? '';
-              const endDate = dateRange.endDate ?? '';
+              // Busca por nome/prontuário vai em todo o acervo: os campos de data ficam vazios
+              // (o filtro guardado volta quando o termo é apagado).
+              const wholeArchive = lexHasTextSearch(table.getState().columnFilters);
+              const startDate = wholeArchive ? '' : (dateRange.startDate ?? '');
+              const endDate = wholeArchive ? '' : (dateRange.endDate ?? '');
 
               return (
                 <DatePickerWithRange
                   id={COLUMN_IDS.STUDY_DATE_TIME}
                   startDate={startDate}
                   endDate={endDate}
+                  placeholder={wholeArchive ? LEX_WHOLE_ARCHIVE_PLACEHOLDER : undefined}
                   onChange={next => {
                     const normalized = {
                       ...(next.startDate ? { startDate: next.startDate } : {}),

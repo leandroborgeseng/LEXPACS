@@ -15,13 +15,27 @@ import {
   LEX_INDEX_REBUILDING_MESSAGE,
   lexShowIndexRebuilding,
   lexRetryLabel,
+  lexRetryAnnouncement,
   LEX_SEARCHING_DELAY_MS,
   StudyList,
   Icons, InvestigationalUseDialog, LexThemeToggle, type StudyRow } from '@ohif/ui-next';
 import { StudyListSettingsPopover } from './StudyListSettingsPopover';
 import { SidePanelPreview } from './SidePanelPreview';
-import { WorkListViewBar } from './WorkListViewBar';
-import { filtersFromView, type WorklistView } from './WorkListViewBar';
+import { WorkListViewBar, filtersWithDateView } from './WorkListViewBar';
+import {
+  LEX_INDEX_POLL_MS,
+  LEX_EMPTY_TODAY_PREFIX,
+  LEX_EMPTY_TODAY_SUFFIX,
+  lexEmptyMessageForView,
+  lexHasTextSearch,
+  lexIndexErrorUi,
+  lexInitialColumnVisibility,
+  lexPollIndexStatus,
+  lexSaveColumnVisibility,
+  lexShouldPollIndex,
+  lexViewForFilters,
+  lexViewRangeIsStale,
+} from '@ohif/ui-next';
 
 type Props = withAppTypes & {
   data: any[];
@@ -79,7 +93,12 @@ export default function WorkList({
   const defaultSorting = useMemo(() => [{ id: 'studyDateTime', desc: true }], []);
 
   const [selected, setSelected] = useState<StudyRow | null>(null);
-  const [isPreviewOpen, setPreviewOpen] = useState(true);
+  // LP19: menu lateral (prévia) recolhido por padrão.
+  const [isPreviewOpen, setPreviewOpen] = useState(false);
+  // LP19: Descrição e Nº de acesso desmarcadas por padrão; a escolha do usuário fica salva.
+  const initialVisibility = useMemo(() => lexInitialColumnVisibility(window.localStorage), []);
+  const hasTextSearch = lexHasTextSearch(filters);
+  const errorUi = lexIndexErrorUi(serverPaging ? dataIndex : null);
 
   const columns = useMemo(() => {
     const customized = customizationService.getCustomization('workList.columns');
@@ -147,38 +166,56 @@ export default function WorkList({
     setIsFilterPending(false);
   }, [isLoadingData, data]);
 
+  // Polling enquanto o índice estiver em "rebuilding": a cada 10 s consulta só o status; ao sair
+  // de rebuilding para de consultar e recarrega a lista (o aviso some sozinho).
+  const [indexStatusOverride, setIndexStatusOverride] = useState<string | null>(null);
+  const shownIndexStatus = indexStatusOverride ?? dataIndex?.status;
+  const onRefreshRef = React.useRef(onRefresh);
+  onRefreshRef.current = onRefresh;
   useEffect(() => {
-    if (!activeView || activeView === 'all') {
+    setIndexStatusOverride(null);
+  }, [dataIndex?.status]);
+  useEffect(() => {
+    if (!serverPaging || !lexShouldPollIndex(shownIndexStatus)) {
       return;
     }
     let cancelled = false;
-    (async () => {
-      try {
-        const response = await fetch('/clinica-api/admin/pacs/worklist-views', {
-          credentials: 'include',
-        });
-        const payload = await response.json().catch(() => ({}));
-        if (cancelled || !response.ok || !Array.isArray(payload.views)) {
-          return;
-        }
-        const preset = payload.views.find((v: WorklistView) => v.id === activeView);
-        if (preset) {
-          setFilters(filtersFromView(preset));
-        }
-      } catch {
-        /* ignore */
+    const timer = window.setInterval(async () => {
+      const next = await lexPollIndexStatus();
+      if (cancelled || next === null || lexShouldPollIndex(next)) {
+        return;
       }
-    })();
+      window.clearInterval(timer);
+      setIndexStatusOverride(next);
+      onRefreshRef.current();
+    }, LEX_INDEX_POLL_MS);
     return () => {
       cancelled = true;
+      window.clearInterval(timer);
     };
-  }, [activeView, setFilters]);
+  }, [serverPaging, shownIndexStatus]);
 
-  const handleViewChange = (viewId: string, nextFilters: typeof filters) => {
+  const handleViewChange = (viewId: string) => {
     setActiveView(viewId);
     setIsFilterPending(true);
-    setFilters(nextFilters);
+    setFilters(prev => filtersWithDateView(prev, viewId));
+    setPagination(p => ({ ...p, pageIndex: 0 }));
   };
+
+  // Virada do dia: aba aberta antes da meia-noite (SP) recalcula o período ao voltar o foco.
+  useEffect(() => {
+    const onReturn = () => {
+      if (document.visibilityState === 'visible' && lexViewRangeIsStale(activeView, filters)) {
+        handleViewChange(activeView);
+      }
+    };
+    document.addEventListener('visibilitychange', onReturn);
+    window.addEventListener('focus', onReturn);
+    return () => {
+      document.removeEventListener('visibilitychange', onReturn);
+      window.removeEventListener('focus', onReturn);
+    };
+  });
 
   return (
     <div className="bg-background flex h-screen min-h-0 flex-col overflow-hidden">
@@ -207,16 +244,56 @@ export default function WorkList({
               rowCount={serverPaging ? dataTotal : undefined}
               hasMore={dataHasMore}
               sortNote={serverPaging ? lexSortNote(dataSortScope) : null}
+              initialVisibility={initialVisibility}
+              onColumnVisibilityChange={(vis, autoHidden) =>
+                lexSaveColumnVisibility(window.localStorage, vis, autoHidden)
+              }
+              hidePagination={errorUi.hidePagination}
+              filtersDisabled={errorUi.filtersDisabled}
               emptyMessage={
-                serverPaging && dataIndex?.status === 'error'
-                  ? LEX_INDEX_ERROR_MESSAGE
-                  : serverPaging && dataPartial
-                    ? lexIndexingMessage(dataIndex)
-                    : undefined
+                serverPaging && dataIndex?.status === 'error' ? (
+                  // UXE2: alerta âmbar único no centro (cores e contraste em LEX_ALERT_STYLE).
+                  <div
+                    data-testid="lex-index-error"
+                    className="mx-auto flex max-w-md flex-col items-center gap-3 rounded-md border px-4 py-3 text-sm"
+                    style={LEX_ALERT_STYLE}
+                  >
+                    {/* Alerta ARIA só na mensagem: a contagem do botão não é reanunciada. */}
+                    <span role="alert" className="flex gap-2">
+                      <LexAlertIcon />
+                      <span>{LEX_INDEX_ERROR_MESSAGE}</span>
+                    </span>
+                    <LexIndexRetryButton
+                      retryInSeconds={dataIndex?.retryInSeconds ?? 0}
+                      onRetried={onRefresh}
+                    />
+                  </div>
+                ) : serverPaging && dataPartial ? (
+                  lexIndexingMessage(dataIndex)
+                ) : (
+                  lexEmptyMessageForView(activeView, hasTextSearch) ? (
+                    // Vazio de Hoje: "Esta semana" aplica o período direto.
+                    <span data-testid="lex-empty-today">
+                      {LEX_EMPTY_TODAY_PREFIX}
+                      <button
+                        type="button"
+                        data-testid="lex-empty-today-semana"
+                        className="text-primary font-sans underline underline-offset-2"
+                        onClick={() => handleViewChange('semana')}
+                      >
+                        Esta semana
+                      </button>
+                      {LEX_EMPTY_TODAY_SUFFIX}
+                    </span>
+                  ) : undefined
+                )
               }
               onFiltersChange={updater => {
                 setIsFilterPending(true);
-                setFilters(updater);
+                // "Limpar filtros" (ou data manual): o destaque do período segue o filtro de data.
+                const next = typeof updater === 'function' ? updater(filters) : updater;
+                setActiveView(v => lexViewForFilters(v, next));
+                setFilters(next);
               }}
               isLoading={showStudyListLoading}
               loadingComponent={
@@ -235,19 +312,9 @@ export default function WorkList({
                   <WorkListViewBar
                     activeView={activeView}
                     onViewChange={handleViewChange}
+                    wholeArchive={hasTextSearch}
+                    disabled={errorUi.filtersDisabled}
                   />
-                  {serverPaging && dataIndex?.status === 'error' ? (
-                    <div
-                      role="alert"
-                      className="text-muted-foreground px-3 py-1 text-sm"
-                    >
-                      {LEX_INDEX_ERROR_MESSAGE}
-                      <LexIndexRetryButton
-                        retryInSeconds={dataIndex?.retryInSeconds ?? 0}
-                        onRetried={onRefresh}
-                      />
-                    </div>
-                  ) : null}
                   {serverPaging && dataPartial ? (
                     <div
                       role="status"
@@ -277,7 +344,7 @@ export default function WorkList({
                       {LEX_INDEX_INCOMPLETE_MESSAGE}
                     </div>
                   ) : null}
-                  {serverPaging && lexShowIndexRebuilding(dataIndex) ? (
+                  {serverPaging && lexShowIndexRebuilding({ status: shownIndexStatus }) ? (
                     <div
                       role="status"
                       aria-live="polite"
@@ -324,8 +391,14 @@ function LexIndexRetryButton({
   onRetried: () => void;
 }) {
   const [left, setLeft] = useState(Math.max(0, Math.ceil(retryInSeconds)));
+  // Espera anunciada ao leitor de tela (uma vez); a contagem visível não é região viva.
+  const [announcedWait, setAnnouncedWait] = useState(Math.max(0, Math.ceil(retryInSeconds)));
   const [busy, setBusy] = useState(false);
-  useEffect(() => setLeft(Math.max(0, Math.ceil(retryInSeconds))), [retryInSeconds]);
+  useEffect(() => {
+    const s = Math.max(0, Math.ceil(retryInSeconds));
+    setLeft(s);
+    setAnnouncedWait(s);
+  }, [retryInSeconds]);
   useEffect(() => {
     if (left <= 0) {
       return;
@@ -342,7 +415,9 @@ function LexIndexRetryButton({
       });
       if (r.status === 429) {
         const body = await r.json().catch(() => ({}));
-        setLeft(Number(body?.detail?.retryInSeconds) || Number(r.headers.get('Retry-After')) || 60);
+        const wait = Number(body?.detail?.retryInSeconds) || Number(r.headers.get('Retry-After')) || 60;
+        setLeft(wait);
+        setAnnouncedWait(wait);
         return;
       }
       onRetried();
@@ -351,14 +426,60 @@ function LexIndexRetryButton({
     }
   };
   return (
-    <button
-      type="button"
-      className="border-input text-primary ml-3 rounded-md border px-2 py-0.5 text-sm disabled:opacity-60"
-      disabled={busy || left > 0}
-      aria-disabled={busy || left > 0}
-      onClick={retry}
-    >
-      <span className="lex-num">{lexRetryLabel(left)}</span>
-    </button>
+    <>
+      <button
+        type="button"
+        // UXE3: fonte do sistema (sem monoespaçada). A contagem visível não é região viva.
+        // UXE2: branco sobre #92400E = 7,1:1 (AA). Desabilitado fica #FEF3C7 sobre #92400E, sem opacidade.
+        className="rounded-md border px-3 py-1 font-sans text-sm font-medium disabled:cursor-not-allowed"
+        style={{
+          backgroundColor: '#92400E',
+          borderColor: '#92400E',
+          color: busy || left > 0 ? '#FEF3C7' : '#FFFFFF',
+        }}
+        disabled={busy || left > 0}
+        aria-disabled={busy || left > 0}
+        onClick={retry}
+      >
+        {lexRetryLabel(left)}
+      </button>
+      {/* Leitor de tela: só dois anúncios, sem contagem por segundo (Designer UX). */}
+      <span
+        className="sr-only"
+        role="status"
+        aria-live="polite"
+        data-testid="lex-retry-announce"
+      >
+        {lexRetryAnnouncement(announcedWait, left)}
+      </span>
+    </>
+  );
+}
+
+/**
+ * UXE2: alerta âmbar claro. Texto #78350F sobre #FFFBEB = 8,75:1 (WCAG AA ≥ 4,5:1).
+ */
+const LEX_ALERT_STYLE = { backgroundColor: '#FFFBEB', borderColor: '#F59E0B', color: '#78350F' };
+
+/** UXE2: ícone de alerta (triângulo), #B45309 sobre #FFFBEB = 4,84:1. */
+function LexAlertIcon() {
+  return (
+      <svg
+        aria-hidden="true"
+        data-testid="lex-index-error-icon"
+        viewBox="0 0 24 24"
+        width="20"
+        height="20"
+        fill="none"
+        stroke="#B45309"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="mt-px shrink-0"
+      >
+        <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+        <line x1="12" y1="9" x2="12" y2="13" />
+        <line x1="12" y1="17" x2="12.01" y2="17" />
+      </svg>
   );
 }

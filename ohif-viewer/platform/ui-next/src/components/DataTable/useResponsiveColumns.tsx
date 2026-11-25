@@ -24,6 +24,8 @@ type ColumnSizing = {
 
 type ResponsiveColumnsContextValue = {
   unfitColumnIds: Set<string>;
+  /** LEX PACS: colunas ocultadas pelo ajuste de largura (não pelo usuário); não viram preferência. */
+  autoHiddenIdsRef: React.MutableRefObject<Set<string>>;
   setUnfitColumnIds: React.Dispatch<React.SetStateAction<Set<string>>>;
 };
 
@@ -46,7 +48,11 @@ function useResponsiveColumnsContext(): ResponsiveColumnsContextValue {
  */
 export function ResponsiveColumnsProvider({ children }: { children: ReactNode }) {
   const [unfitColumnIds, setUnfitColumnIds] = useState<Set<string>>(() => new Set());
-  const value = useMemo(() => ({ unfitColumnIds, setUnfitColumnIds }), [unfitColumnIds]);
+  const autoHiddenIdsRef = useRef<Set<string>>(new Set());
+  const value = useMemo(
+    () => ({ unfitColumnIds, setUnfitColumnIds, autoHiddenIdsRef }),
+    [unfitColumnIds]
+  );
   return (
     <ResponsiveColumnsContext.Provider value={value}>{children}</ResponsiveColumnsContext.Provider>
   );
@@ -57,6 +63,10 @@ export function ResponsiveColumnsProvider({ children }: { children: ReactNode })
  * fit at the current table width. Consumed by `ViewOptions` to disable
  * toggles whose effect would be immediately reverted.
  */
+export function useAutoHiddenColumnIdsRef(): React.MutableRefObject<Set<string>> {
+  return useResponsiveColumnsContext().autoHiddenIdsRef;
+}
+
 export function useUnfitColumnIds(): Set<string> {
   return useResponsiveColumnsContext().unfitColumnIds;
 }
@@ -174,7 +184,7 @@ export function useResponsiveColumns<TData>(
   table: TanStackTable<TData>,
   wrapperRef: React.RefObject<HTMLElement | null>
 ): void {
-  const { setUnfitColumnIds } = useResponsiveColumnsContext();
+  const { setUnfitColumnIds, autoHiddenIdsRef } = useResponsiveColumnsContext();
 
   // Snapshot of the visibility map the algorithm last applied. Used to detect
   // user-driven toggles by diffing against the table's current state.
@@ -232,6 +242,13 @@ export function useResponsiveColumns<TData>(
         // any initialVisibility from the consumer is treated as the algorithm's
         // baseline, not as a user override.
         lastColumnVisibilityRef.current = { ...table.getState().columnVisibility };
+        // LEX PACS LP19: coluna desmarcada no initialVisibility (padrão ou preferência salva)
+        // conta como escolha do usuário: o algoritmo não a reexibe quando sobra espaço.
+        for (const sizing of droppableColumns) {
+          if (lastColumnVisibilityRef.current[sizing.id] === false) {
+            userHiddenRef.current.add(sizing.id);
+          }
+        }
         isFirstRunRef.current = false;
       } else {
         // Diff the table's current visibility against what we last applied;
@@ -291,6 +308,13 @@ export function useResponsiveColumns<TData>(
         }
       }
       lastColumnVisibilityRef.current = nextVisibility;
+      const autoHidden = new Set<string>();
+      appliedHidden.forEach(id => {
+        if (!userHiddenRef.current.has(id)) {
+          autoHidden.add(id);
+        }
+      });
+      autoHiddenIdsRef.current = autoHidden;
       if (appliedChanged) {
         table.setColumnVisibility(prev => ({ ...prev, ...nextVisibility }));
       }

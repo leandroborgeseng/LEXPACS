@@ -693,3 +693,84 @@ def test_startup_reconstroi_quando_estudo_foi_apagado_sem_evento(raw_orthanc, mo
     assert st["status"] == "ready" and worklist_index._count_index() == 299 and len(cargas) == 1
     assert _run(patientId=apagado["pid"])["total"] == 0
     assert all(m == "GET" for m, _ in raw_orthanc.calls)
+
+
+# --- QA do #11: R1 (corrida entre /changes e /statistics) e R2 (divergência permanente) ------
+# Desde o #13/#14 a carga completa não roda no startup: a conferência é a agenda noturna
+# (check_count + accepted_diff). R1/R2 continuam valendo nesse fluxo, sem um segundo mecanismo.
+
+
+def _restart(monkeypatch):
+    monkeypatch.setattr(worklist_index, "_bg_thread", None)
+    monkeypatch.setattr(worklist_index, "_last_attempt", None)
+    worklist_index._set_state(status="idle", indexed=0, total=None)
+
+
+def test_r1_estudo_chega_entre_incremental_e_statistics_sem_carga_completa(raw_orthanc, monkeypatch):
+    """R1: estudo chega depois do /changes da agenda e antes do /statistics. A conferência roda
+    o incremental de novo e reconfere: sem divergência e sem carga completa."""
+    raw_orthanc.studies = list(MUITOS)
+    worklist_index.start_background().join(20)
+    orig = worklist_index._orthanc_count
+    chegou = []
+
+    async def count_com_chegada(client):
+        if not chegou:
+            chegou.append(1)
+            raw_orthanc.add(_mk(7999, "ZZTESTE^CORRIDA", "SINT-CORRIDA", "20261028"))
+        return await orig(client)
+
+    monkeypatch.setattr(worklist_index, "_orthanc_count", count_com_chegada)
+    cargas = _conta_cargas(monkeypatch)
+    assert _noite(1) == ["incremental+check"]
+    assert chegou == [1] and cargas == [] and worklist_index._count_index() == 301
+    assert worklist_index.rebuild_pending() is None and _meta("divergence_count") in (None, "0")
+    assert worklist_index.state()["status"] == "ready"
+    assert _run(patientId="SINT-CORRIDA")["total"] == 1
+    assert all(m == "GET" for m, _ in raw_orthanc.calls)
+
+
+def test_r2_divergencia_permanente_nao_recarrega_a_cada_restart(raw_orthanc, monkeypatch):
+    """R2 no fluxo da agenda (#13/#14): /statistics conta estudos que o QIDO não devolve.
+    O startup não reconstrói. Depois de 3 divergências na janela, reconstrói uma vez e grava
+    accepted_diff. O mesmo vão não recarrega em restart nem em novas conferências. Se o vão
+    muda, reconstrói de novo e aceita o vão novo. Sombra incompleta e menor que o índice atual
+    não troca (o estudo apagado sem evento só sai quando a carga fecha a conta)."""
+    raw_orthanc.studies = list(MUITOS)
+    worklist_index.start_background().join(20)
+    assert worklist_index._count_index() == 300
+    raw_orthanc.extra_count = 2
+    cargas = _conta_cargas(monkeypatch)
+    _restart(monkeypatch)
+    worklist_index.start_background().join(20)
+    assert cargas == []  # startup não reconstrói
+    assert _noite(3)[-1].endswith("+rebuild") and len(cargas) == 1
+    assert worklist_index._count_index() == 300 and _meta("accepted_diff") == "2"
+    for _ in range(2):
+        _restart(monkeypatch)
+        worklist_index.start_background().join(10)
+    _noite(3)
+    assert len(cargas) == 1 and worklist_index.rebuild_pending() is None
+    apagado = raw_orthanc.studies.pop(0)  # sem evento: o vão deixa de ser o accepted_diff
+    assert _noite(3)[-1].endswith("+rebuild") and len(cargas) == 2
+    assert worklist_index._count_index() == 300 and _meta("accepted_diff") == "1"
+    assert _run(patientId=apagado["pid"])["total"] == 1
+    _noite(3)
+    assert len(cargas) == 2 and worklist_index.rebuild_pending() is None
+    raw_orthanc.extra_count = 0  # /statistics volta a bater com o QIDO
+    assert _noite(3)[-1].endswith("+rebuild") and len(cargas) == 3
+    assert worklist_index._count_index() == 299 and _meta("accepted_diff") == "0"
+    assert _run(patientId=apagado["pid"])["total"] == 0
+    _noite(3)
+    assert len(cargas) == 3 and worklist_index.rebuild_pending() is None
+    assert all(m == "GET" for m, _ in raw_orthanc.calls)
+
+
+def test_status_do_indice_leve_sem_orthanc_e_exige_sessao(raw_orthanc, client):
+    """GET /api/worklist/index/status: só o estado (para o polling de 'rebuilding'), sem chamar o Orthanc."""
+    assert client.get("/api/worklist/index/status").status_code in (401, 403)
+    worklist_index._set_state(status="rebuilding", indexed=10, total=300)
+    raw_orthanc.calls.clear()
+    st = asyncio.run(worklist.worklist_index_status())
+    assert st == {"index": {"status": "rebuilding", "indexed": 10, "total": 300, "retryInSeconds": 0}}
+    assert raw_orthanc.calls == []

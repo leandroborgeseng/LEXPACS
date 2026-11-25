@@ -142,7 +142,7 @@ test('índice preparando: mensagem com X de N, parcial e nunca "Nenhum exame enc
   assert.equal(r.partial, true);
   assert.deepEqual(r.index, { status: 'indexing', indexed: 10, total: 20, retryInSeconds: 0 });
   const wl = read('platform/app/src/routes/WorkList/WorkList.tsx');
-  assert.match(wl, /serverPaging && dataPartial\s*\?\s*lexIndexingMessage\(dataIndex\)/);
+  assert.match(wl, /serverPaging && dataPartial\s*\?\s*\(?\s*lexIndexingMessage\(dataIndex\)/);
   assert.match(wl, /resultados parciais/);
   const q = read('platform/app/src/hooks/useStudyListQuery.tsx');
   assert.match(q, /if \(!data\.partial \|\| isLoading\)/);
@@ -160,7 +160,7 @@ test('carga falhou: mensagem do Designer, botão com intervalo de 60 s, "Busca n
   assert.equal(r.partial, false);
   assert.equal(r.index.status, 'error');
   const wl = read('platform/app/src/routes/WorkList/WorkList.tsx');
-  assert.match(wl, /dataIndex\?\.status === 'error'[\s\S]{0,200}LEX_INDEX_ERROR_MESSAGE/);
+  assert.match(wl, /dataIndex\?\.status === 'error'[\s\S]{0,600}LEX_INDEX_ERROR_MESSAGE/);
   // a reconsulta só existe para resultado parcial; error chega com partial false
   assert.match(read('platform/app/src/hooks/useStudyListQuery.tsx'), /if \(!data\.partial \|\| isLoading\)/);
 });
@@ -200,7 +200,7 @@ test('QA #10: reconstrução (rebuilding) não mostra "Preparando a busca…" e 
   assert.equal(r.partial, false);
   assert.equal(r.index.status, 'rebuilding');
   const wl = read('platform/app/src/routes/WorkList/WorkList.tsx');
-  assert.match(wl, /lexShowIndexRebuilding\(dataIndex\) \? \(\s*<div\s*role="status"\s*aria-live="polite"/);
+  assert.match(wl, /lexShowIndexRebuilding\(\{ status: shownIndexStatus \}\) \? \(\s*<div\s*role="status"\s*aria-live="polite"/);
   assert.match(wl, /\{LEX_INDEX_REBUILDING_MESSAGE\}/);
   assert.doesNotMatch(wl, /emptyMessage=\{[^}]*REBUILDING/);
   const idx = read('platform/ui-next/src/components/index.ts');

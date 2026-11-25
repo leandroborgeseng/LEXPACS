@@ -476,11 +476,26 @@ def in_rebuild_window(now=None) -> bool:
 async def check_count(client: httpx.AsyncClient) -> None:
     """Compara orthanc_id distintos do índice com CountStudies. Divergência persistida em
     worklist_meta; após N seguidas marca rebuild_pending (executado só na janela noturna).
-    Diferença já aceita depois de uma reconstrução (accepted_diff) não conta de novo."""
+    Diferença já aceita depois de uma reconstrução (accepted_diff) não conta de novo.
+    R1: se a conta não fecha, roda o incremental outra vez e reconfere antes de contar
+    divergência. Estudo que chegou entre o /changes e o /statistics não agenda reconstrução.
+    R2: a diferença permanente fica em accepted_diff (gravado pela reconstrução noturna);
+    o mesmo vão não repete a carga, e um vão novo volta a contar."""
     total = await _orthanc_count(client)
     if total is None:
         return
     n = _count_distinct()
+    conn = connect()
+    try:
+        accepted = int(_meta_get(conn, "accepted_diff") or 0)
+    finally:
+        conn.close()
+    if total - n != accepted:
+        await incremental(client)  # R1: absorve o que chegou no meio da conferência
+        total = await _orthanc_count(client)
+        if total is None:
+            return
+        n = _count_distinct()
     conn = connect()
     try:
         accepted = int(_meta_get(conn, "accepted_diff") or 0)

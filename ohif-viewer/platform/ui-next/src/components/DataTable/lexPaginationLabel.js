@@ -53,6 +53,20 @@ export const LEX_INDEX_ERROR_MESSAGE =
   'Busca no acervo indisponível no momento. Tente novamente em alguns minutos.';
 
 /** Texto do botão: desabilitado com contagem enquanto o intervalo mínimo não passou. */
+/**
+ * Leitor de tela: só dois anúncios (sem contagem por segundo). Ao aparecer o erro com espera,
+ * "Busca indisponível. Nova tentativa em 40 segundos"; ao liberar, "Pode tentar de novo".
+ * `initialSeconds` é a espera de quando o erro apareceu; `left` é a contagem atual.
+ */
+export function lexRetryAnnouncement(initialSeconds, left) {
+  const first = Math.max(0, Math.ceil(Number(initialSeconds) || 0));
+  const now = Math.max(0, Math.ceil(Number(left) || 0));
+  if (now > 0) {
+    return `Busca indisponível. Nova tentativa em ${first} segundos`;
+  }
+  return first > 0 ? 'Pode tentar de novo' : 'Busca indisponível. Pode tentar de novo';
+}
+
 export function lexRetryLabel(secondsLeft) {
   const s = Math.max(0, Math.ceil(Number(secondsLeft) || 0));
   return s > 0 ? `Tentar de novo em ${s} s` : 'Tentar de novo';

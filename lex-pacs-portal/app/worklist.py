@@ -115,6 +115,15 @@ async def worklist_studies(q: WorklistQuery) -> dict:
     }
 
 
+@router.get("/index/status")
+async def worklist_index_status() -> dict:
+    """Só o estado do índice (sem PII, sem consultar o Orthanc). A tela consulta a cada 10 s
+    enquanto o status for "rebuilding", para esconder o aviso quando voltar a "ready"."""
+    st = worklist_index.state()
+    return {"index": {"status": st["status"], "indexed": st.get("indexed") or 0, "total": st.get("total"),
+                      "retryInSeconds": st.get("retryInSeconds", 0)}}
+
+
 @router.post("/index/retry")
 async def worklist_index_retry() -> dict:
     """Botão "Tentar de novo": reinicia a carga do índice, respeitando o mesmo intervalo mínimo
