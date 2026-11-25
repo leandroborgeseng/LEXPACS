@@ -133,7 +133,14 @@ def test_incremental_changes_orthanc_real(s):
     auth = tuple(os.environ["LEX_IT_ORTHANC_AUTH"].split(":", 1))
     httpx.post(f"{url}/instances", content=dataset(999999, "ZZTESTE^INCREMENTAL JOÃO", "SINT-INCR", "20261026", "CT"),
                auth=auth).raise_for_status()
-    assert ids(post(s, patientName="incremental joao")) == ["SINT-INCR"]
+    # A busca só sincroniza se a última sync tiver mais de WORKLIST_INDEX_SEARCH_SYNC_SECONDS (2 s
+    # no IT) e a agenda roda a cada WORKLIST_INDEX_SYNC_SECONDS: espera até 15 s.
+    for _ in range(30):
+        got = ids(post(s, patientName="incremental joao"))
+        if got:
+            break
+        time.sleep(0.5)
+    assert got == ["SINT-INCR"]
 
 
 

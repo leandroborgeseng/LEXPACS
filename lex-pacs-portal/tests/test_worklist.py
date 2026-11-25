@@ -377,8 +377,23 @@ def test_tentar_de_novo_respeita_intervalo_no_backend(raw_orthanc, monkeypatch, 
     assert client.post("/api/worklist/index/retry").status_code == 401
 
 
+def _noite(vezes=3):
+    """Rodadas da agenda às 03:00 (dentro da janela 02:00–05:00), com conferência em cada uma."""
+    from datetime import datetime
+    agora = datetime(2026, 10, 30, 3, 0, tzinfo=worklist_index._tz())
+    out = []
+    for _ in range(vezes):
+        conn = worklist_index.connect()  # B1: conferência vencida (horário fica no worklist_meta)
+        conn.execute("DELETE FROM worklist_meta WHERE key='last_check_at'")
+        conn.commit()
+        conn.close()
+        out.append(asyncio.run(worklist_index.scheduled_tick(now=agora)))
+    return out
+
+
 def test_indice_vazio_com_orthanc_cheio_reconstroi_sozinho(raw_orthanc):
-    """Índice criado com 0 estudos (antes do seed) e /changes sem eventos: o startup reconstrói."""
+    """Índice criado com 0 estudos (antes do seed) e /changes sem eventos: o startup NÃO
+    reconstrói; a agenda reconstrói na janela depois de 3 divergências seguidas."""
     estudos = raw_orthanc.studies
     raw_orthanc.studies = []
     asyncio.run(worklist_index._sync_now_for_tests())
@@ -387,6 +402,8 @@ def test_indice_vazio_com_orthanc_cheio_reconstroi_sozinho(raw_orthanc):
     conn.close()
     raw_orthanc.studies = estudos  # chegaram sem evento no /changes (ex.: podado)
     worklist_index.start_background().join(10)
+    assert worklist_index._count_index() == 0 and worklist_index.state()["status"] == "ready"
+    assert _noite(3)[-1].endswith("+rebuild")
     r = _run()
     assert r["index"]["status"] == "ready" and r["total"] == len(estudos)
 
@@ -442,6 +459,8 @@ def test_startup_reconstroi_indice_antigo_cortado_em_101(raw_orthanc):
     assert worklist_index.is_ready() and worklist_index._count_index() == 101
     raw_orthanc.limit_find = 100
     worklist_index.start_background().join(20)
+    assert worklist_index._count_index() == 101 and worklist_index.state()["status"] == "ready"
+    _noite(3)
     st = worklist_index.state()
     assert st["status"] == "ready" and worklist_index._count_index() == 300 and st["total"] == 300
     assert _run(patientId="SINT-LIM-00299")["total"] == 1
@@ -541,7 +560,7 @@ def test_reconstrucao_em_sombra_busca_continua_com_dados_antigos(raw_orthanc, mo
     raw_orthanc.first_batch = __import__("threading").Event()
     raw_orthanc.loads = 0
     raw_orthanc.limit_find = 100
-    t = worklist_index.start_background()
+    t = worklist_index.start_background(rebuild=True)
     assert raw_orthanc.first_batch.wait(10)
     assert worklist_index.shadow_path().exists()
     r = _run(patientName="maria")
@@ -615,7 +634,7 @@ def test_reconstrucao_status_rebuilding_e_resultado_nao_parcial(raw_orthanc):
     raw_orthanc.first_batch = __import__("threading").Event()
     raw_orthanc.loads = 0
     raw_orthanc.limit_find = 100
-    t = worklist_index.start_background()
+    t = worklist_index.start_background(rebuild=True)
     assert raw_orthanc.first_batch.wait(10)
     r = _run(patientName="maria")
     assert r["index"]["status"] == "rebuilding" and r["partial"] is False and r["total"] == 101
@@ -668,13 +687,17 @@ def test_startup_reconstroi_quando_estudo_foi_apagado_sem_evento(raw_orthanc, mo
     worklist_index._set_state(status="idle", indexed=0, total=None)
     cargas = _conta_cargas(monkeypatch)
     worklist_index.start_background().join(20)
+    assert worklist_index._count_index() == 300 and cargas == []  # startup não reconstrói
+    _noite(3)
     st = worklist_index.state()
     assert st["status"] == "ready" and worklist_index._count_index() == 299 and len(cargas) == 1
     assert _run(patientId=apagado["pid"])["total"] == 0
     assert all(m == "GET" for m, _ in raw_orthanc.calls)
 
 
-# --- QA do #11: R1 (corrida de contagem no startup) e R2 (divergência permanente) -------------
+# --- QA do #11: R1 (corrida entre /changes e /statistics) e R2 (divergência permanente) ------
+# Desde o #13/#14 a carga completa não roda no startup: a conferência é a agenda noturna
+# (check_count + accepted_diff). R1/R2 continuam valendo nesse fluxo, sem um segundo mecanismo.
 
 
 def _restart(monkeypatch):
@@ -684,8 +707,8 @@ def _restart(monkeypatch):
 
 
 def test_r1_estudo_chega_entre_incremental_e_statistics_sem_carga_completa(raw_orthanc, monkeypatch):
-    """R1: estudo chega depois do /changes e antes do /statistics. Antes de reconstruir, o
-    startup roda o incremental de novo e reconfere: sem carga completa."""
+    """R1: estudo chega depois do /changes da agenda e antes do /statistics. A conferência roda
+    o incremental de novo e reconfere: sem divergência e sem carga completa."""
     raw_orthanc.studies = list(MUITOS)
     worklist_index.start_background().join(20)
     orig = worklist_index._orthanc_count
@@ -698,40 +721,48 @@ def test_r1_estudo_chega_entre_incremental_e_statistics_sem_carga_completa(raw_o
         return await orig(client)
 
     monkeypatch.setattr(worklist_index, "_orthanc_count", count_com_chegada)
-    _restart(monkeypatch)
     cargas = _conta_cargas(monkeypatch)
-    worklist_index.start_background().join(20)
-    assert worklist_index._count_index() == 301 and cargas == []
+    assert _noite(1) == ["incremental+check"]
+    assert chegou == [1] and cargas == [] and worklist_index._count_index() == 301
+    assert worklist_index.rebuild_pending() is None and _meta("divergence_count") in (None, "0")
     assert worklist_index.state()["status"] == "ready"
     assert _run(patientId="SINT-CORRIDA")["total"] == 1
+    assert all(m == "GET" for m, _ in raw_orthanc.calls)
 
 
 def test_r2_divergencia_permanente_nao_recarrega_a_cada_restart(raw_orthanc, monkeypatch):
-    """R2: /statistics conta estudos que o QIDO não devolve. A 1ª conferência reconstrói uma vez
-    e guarda o par (total, contagem); restarts seguintes com o mesmo par não recarregam."""
+    """R2 no fluxo da agenda (#13/#14): /statistics conta estudos que o QIDO não devolve.
+    O startup não reconstrói. Depois de 3 divergências na janela, reconstrói uma vez e grava
+    accepted_diff. O mesmo vão não recarrega em restart nem em novas conferências. Se o vão
+    muda, reconstrói de novo e aceita o vão novo. Sombra incompleta e menor que o índice atual
+    não troca (o estudo apagado sem evento só sai quando a carga fecha a conta)."""
     raw_orthanc.studies = list(MUITOS)
     worklist_index.start_background().join(20)
-    raw_orthanc.extra_count = 2
-    total = 0
-    for _ in range(3):
-        _restart(monkeypatch)
-        cargas = _conta_cargas(monkeypatch)
-        worklist_index.start_background().join(20)
-        total += len(cargas)
-    assert total == 1  # antes: uma carga completa por restart
     assert worklist_index._count_index() == 300
-    assert _meta("divergence_orthanc_total") == "302" and _meta("divergence_index_count") == "300"
-    # o par muda (estudo apagado sem evento) => tenta reconstruir de novo, uma vez
-    raw_orthanc.studies.pop(0)
-    _restart(monkeypatch)
+    raw_orthanc.extra_count = 2
     cargas = _conta_cargas(monkeypatch)
-    worklist_index.start_background().join(20)
-    assert len(cargas) == 1
-    # contas batem de novo => reconstrução completa troca o índice e limpa o registro
-    raw_orthanc.extra_count = 0
     _restart(monkeypatch)
     worklist_index.start_background().join(20)
-    assert worklist_index._count_index() == 299 and _meta("divergence_orthanc_total") is None
+    assert cargas == []  # startup não reconstrói
+    assert _noite(3)[-1].endswith("+rebuild") and len(cargas) == 1
+    assert worklist_index._count_index() == 300 and _meta("accepted_diff") == "2"
+    for _ in range(2):
+        _restart(monkeypatch)
+        worklist_index.start_background().join(10)
+    _noite(3)
+    assert len(cargas) == 1 and worklist_index.rebuild_pending() is None
+    apagado = raw_orthanc.studies.pop(0)  # sem evento: o vão deixa de ser o accepted_diff
+    assert _noite(3)[-1].endswith("+rebuild") and len(cargas) == 2
+    assert worklist_index._count_index() == 300 and _meta("accepted_diff") == "1"
+    assert _run(patientId=apagado["pid"])["total"] == 1
+    _noite(3)
+    assert len(cargas) == 2 and worklist_index.rebuild_pending() is None
+    raw_orthanc.extra_count = 0  # /statistics volta a bater com o QIDO
+    assert _noite(3)[-1].endswith("+rebuild") and len(cargas) == 3
+    assert worklist_index._count_index() == 299 and _meta("accepted_diff") == "0"
+    assert _run(patientId=apagado["pid"])["total"] == 0
+    _noite(3)
+    assert len(cargas) == 3 and worklist_index.rebuild_pending() is None
     assert all(m == "GET" for m, _ in raw_orthanc.calls)
 
 

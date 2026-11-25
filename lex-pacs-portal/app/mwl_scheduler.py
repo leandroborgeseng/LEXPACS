@@ -4,9 +4,17 @@ import asyncio
 import logging
 from typing import Any
 
+from fastapi import HTTPException
+
 from .audit import log_event
-from .mwl_sql import get_mwl_sql_config, get_mwl_sync_meta, save_mwl_sync_meta, utc_now_iso
-from .mwl_sync import sync_mwl_from_sql
+from .mwl_sql import (
+    get_mwl_sql_config,
+    get_mwl_sync_meta,
+    save_mwl_sync_meta,
+    sync_interval_seconds,
+    utc_now_iso,
+)
+from .mwl_sync import sanitize_mwl_error, sync_mwl_from_sql
 
 logger = logging.getLogger("lex_pacs.mwl_scheduler")
 
@@ -36,14 +44,36 @@ def run_mwl_sync(actor: str = "manual") -> dict[str, Any]:
         result = sync_mwl_from_sql()
         save_mwl_sync_meta(
             last_at=utc_now_iso(),
-            last_synced=result.get("synced", 0),
+            last_synced=int(result.get("synced") or 0),
+            last_read=int(result.get("read") or 0),
+            last_written=int(result.get("synced") or 0),
+            last_removed=int(result.get("removed") or 0),
+            last_errors=int(result.get("errors") or 0),
             last_actor=actor,
-            last_error="",
+            last_error=str(result.get("error_summary") or ""),
+        )
+        logger.info(
+            "MWL sync concluído: lidos=%s gravados=%s removidos=%s erros=%s",
+            result.get("read", 0),
+            result.get("synced", 0),
+            result.get("removed", 0),
+            result.get("errors", 0),
         )
         return result
     except Exception as exc:
-        save_mwl_sync_meta(last_error=str(exc)[:240])
-        raise
+        message = sanitize_mwl_error(exc, cfg)
+        save_mwl_sync_meta(
+            last_at=utc_now_iso(),
+            last_synced=0,
+            last_read=0,
+            last_written=0,
+            last_removed=0,
+            last_errors=1,
+            last_actor=actor,
+            last_error=message,
+        )
+        logger.warning("MWL sync falhou: %s", message)
+        raise HTTPException(status_code=503, detail=message) from None
 
 
 async def _scheduler_loop() -> None:
@@ -52,7 +82,7 @@ async def _scheduler_loop() -> None:
         try:
             cfg = get_mwl_sql_config()
             if cfg.get("enabled", True):
-                interval_sec = max(60, int(cfg.get("sync_interval_minutes", 5)) * 60)
+                interval_sec = sync_interval_seconds(cfg)
                 meta = get_mwl_sync_meta()
                 elapsed = _seconds_since_last_sync(meta)
                 if elapsed is None or elapsed >= interval_sec:
@@ -61,11 +91,14 @@ async def _scheduler_loop() -> None:
                         "mwl_sync",
                         "scheduler",
                         synced=result.get("synced", 0),
+                        read=result.get("read", 0),
+                        removed=result.get("removed", 0),
+                        errors=result.get("errors", 0),
                         auth_method="scheduler",
                     )
-                    logger.info("MWL sync automático concluído")
         except Exception as exc:
-            logger.warning("MWL sync automático falhou: %s", exc)
+            message = getattr(exc, "detail", None) or sanitize_mwl_error(exc)
+            logger.warning("MWL sync automático falhou: %s", message)
         await asyncio.sleep(60)
 
 

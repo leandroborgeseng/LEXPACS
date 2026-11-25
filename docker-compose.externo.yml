@@ -49,6 +49,8 @@ services:
       LEX_ADMIN_PASSWORD: ${LEX_ADMIN_PASSWORD:?defina LEX_ADMIN_PASSWORD}
       LOCAL_USERS_DB_PATH: /lex-data/users.db
       SESSION_IDLE_MINUTES: ${SESSION_IDLE_MINUTES:-30}
+      # MWL: vazio = 300 s (5 min). Inteiro definido prevalece sobre o painel.
+      LEX_MWL_SYNC_INTERVAL_SECONDS: ${LEX_MWL_SYNC_INTERVAL_SECONDS:-}
       AUDIT_DATA_PATH: /lex-audit
       REPORTS_DATA_PATH: /lex-reports
       LEX_PACS_VERSION: ${LEX_PACS_VERSION:-0.7.0}

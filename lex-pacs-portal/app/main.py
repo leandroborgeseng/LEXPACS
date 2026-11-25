@@ -90,7 +90,10 @@ async def on_startup() -> None:
     if settings.orthanc_url and settings.worklist_index_autostart:
         from . import worklist_index
 
+        if not worklist_index.storage_is_persistent():
+            worklist_index._full_load_allowed()  # registra o WARNING de volume ausente uma vez
         worklist_index.start_background()
+        worklist_index.start_scheduler()
     if settings.orthanc_external_readonly:
         # V2/V4: Orthanc externo (prefeitura) — nada que grave config, plugins ou dados nele.
         return
